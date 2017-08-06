@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
@@ -26,7 +25,11 @@ namespace Scopie
 
         public Mount(string port)
         {
-            _port = new SerialPort(port, 9600, Parity.None, 8, StopBits.One);
+            _port = new SerialPort(port, 9600, Parity.None, 8, StopBits.One)
+            {
+                ReadTimeout = 1000,
+                WriteTimeout = 1000
+            };
             _port.Open();
         }
 
@@ -169,40 +172,10 @@ namespace Scopie
             }
         }
 
-        private (bool, int, int, int) ToDms(double value)
-        {
-            bool sign;
-            if (value < 0)
-            {
-                sign = true;
-                value = -value;
-            }
-            else
-            {
-                sign = false;
-            }
-            var degrees = (int)value;
-            value = (value - degrees) * 60;
-            var minutes = (int)value;
-            value = (value - minutes) * 60;
-            var seconds = (int)value;
-            return (sign, degrees, minutes, seconds);
-        }
-
-        private double FromDms(bool sign, int deg, int min, int sec)
-        {
-            var res = deg + min / 60.0 + sec / (60.0 * 60.0);
-            if (sign)
-            {
-                res = -res;
-            }
-            return res;
-        }
-
         private string FormatLatLon(double lat, double lon)
         {
-            var (latSign, latDeg, latMin, latSec) = ToDms(lat);
-            var (lonSign, lonDeg, lonMin, lonSec) = ToDms(lon);
+            var (latSign, latDeg, latMin, latSec, _) = new Dms(lat).DegreesMinutesSeconds;
+            var (lonSign, lonDeg, lonMin, lonSec, _) = new Dms(lon).DegreesMinutesSeconds;
             // The format of the location commands is: ABCDEFGH, where:
             // A is the number of degrees of latitude.
             // B is the number of minutes of latitude.
@@ -238,8 +211,8 @@ namespace Scopie
             var lonMin = (int)value[5];
             var lonSec = (int)value[6];
             var lonSign = value[7] == 1;
-            var lat = FromDms(latSign, latDeg, latMin, latSec);
-            var lon = FromDms(lonSign, lonDeg, lonMin, lonSec);
+            var lat = new Dms(latSign, latDeg, latMin, latSec).Value;
+            var lon = new Dms(lonSign, lonDeg, lonMin, lonSec).Value;
             return (lat, lon);
         }
 

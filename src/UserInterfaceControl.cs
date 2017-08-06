@@ -182,8 +182,20 @@ namespace Scopie
                 if (currentValue != defaultValue)
                 {
                     Console.WriteLine($"Control {control.Name} default: {currentValue} -> {defaultValue}");
-                    control.Value = defaultValue;
+                    SetCameraControl(control, defaultValue);
                 }
+            }
+        }
+
+        public static void SetCameraControl(CameraControl control, int value)
+        {
+            try
+            {
+                control.Value = value;
+            }
+            catch (ASICameraException e)
+            {
+                MessageBox.Show(e.Message, "ASI Camera Exception", MessageBoxType.Error);
             }
         }
     }

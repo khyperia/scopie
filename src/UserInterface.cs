@@ -1,6 +1,7 @@
 ﻿using Eto.Drawing;
 using Eto.Forms;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -12,94 +13,66 @@ namespace Scopie
     {
         public static Control MakeUi()
         {
-            var stack = new StackLayout()
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
-            };
+            var stack = new List<Control>();
             var mount = Mount.Create();
             if (mount != null)
             {
-                stack.Items.Add(MountPanel(mount));
+                stack.Add(MountPanel(mount));
             }
-            var numCameras = Camera.NumCameras;
-            if (numCameras == 0)
-            {
-                stack.Items.Add(new Label { Text = "No cameras found" });
-            }
-            var cameras = Enumerable.Range(0, numCameras).Select(c => new CameraManager(c)).OrderBy(c => c.Name);
+            var cameras = Enumerable.Range(0, Camera.NumCameras).Select(c => new CameraManager(c)).OrderBy(c => c.Name);
             foreach (var camera in cameras)
             {
                 var cameraPanel = CameraPanel(camera);
-                stack.Items.Add(new StackLayoutItem(cameraPanel, true));
+                stack.Add(cameraPanel);
             }
-            return stack;
+            if (stack.Count == 0)
+            {
+                stack.Add(new Label { Text = "No cameras or mount found" });
+            }
+            return HorizontalExpandAll(stack.ToArray());
         }
 
         private static Control MountPanel(Mount mount)
         {
-            var stack = new StackLayout()
-            {
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                MinimumSize = new Size(300, -1),
-            };
-            stack.Items.Add(new Label { Text = "Mount" });
-            var raDec = Settable(new MyTuple<double>(0, 0), async val => await mount.Slew(val.Item1, val.Item2), MyTuple.TryParse);
+            var mountLabel = new Label { Text = "Mount" };
+            var raDec = Settable(new MyTuple<Dms>(), async val => await mount.Slew(val.Item1.Value, val.Item2.Value), MyTuple.TryParse);
             var (raDecOne, raDecTwo) = SlewControl(mount);
-            stack.Items.Add(raDecOne);
-            stack.Items.Add(raDecTwo);
-            var (location, setLocation) = Settable(new MyTuple<double>(), async val => await mount.SetLocation(val.Item1, val.Item2), MyTuple.TryParse);
-            stack.Items.Add(new Label { Text = "Location" });
-            stack.Items.Add(location);
-            var (tracking, setTracking) = Settable(Mount.TrackingMode.SiderealPec, async val => await mount.SetTrackingMode(val), Enum.TryParse);
-            stack.Items.Add(new Label { Text = "Tracking mode: " + string.Join(", ", (Mount.TrackingMode[])Enum.GetValues(typeof(Mount.TrackingMode))) });
-            stack.Items.Add(tracking);
+            var locationOne = new Label { Text = "Location" };
+            var (locationTwo, setLocation) = Settable(new MyTuple<Dms>(), async val => await mount.SetLocation(val.Item1.Value, val.Item2.Value), MyTuple.TryParse);
+            var trackingOne = new Label { Text = "Tracking mode: " + string.Join(", ", (Mount.TrackingMode[])Enum.GetValues(typeof(Mount.TrackingMode))) };
+            var (trackingTwo, setTracking) = Settable(Mount.TrackingMode.SiderealPec, async val => await mount.SetTrackingMode(val), Enum.TryParse);
 
             var timeLabel = new Label { Text = "Mount time" };
-            stack.Items.Add(timeLabel);
             async Task SetMountDiff()
             {
                 var diff = (await mount.GetTime() - DateTime.Now).ToString();
                 timeLabel.Text = "Mount time offset: " + diff;
             }
-            stack.Items.Add(new Button(async (sender, args) => await SetMountDiff())
+            var getMountTime = new Button(async (sender, args) => await SetMountDiff())
             {
                 Text = "Get mount time"
-            });
-            stack.Items.Add(new Button(async (sender, args) =>
+            };
+            var setMountTime = new Button(async (sender, args) =>
             {
                 await mount.SetTime(DateTime.Now);
                 await SetMountDiff();
             })
             {
                 Text = "Set mount time"
-            });
-
-            var init = false;
-            stack.Shown += async (sender, args) =>
-            {
-                if (init)
-                {
-                    return;
-                }
-                init = true;
-                var (lat, lon) = await mount.GetLocation();
-                setLocation(new MyTuple<double>(lat, lon));
-                setTracking(await mount.GetTrackingMode());
-                await SetMountDiff();
             };
+            var time = HorizontalExpandFirst(timeLabel, getMountTime, setMountTime);
 
             Button isAligned = null;
-            stack.Items.Add(isAligned = new Button(async (sender, args) =>
+            isAligned = new Button(async (sender, args) =>
             {
                 isAligned.Text = "Is aligned: " + await mount.IsAligned();
             })
             {
                 Text = "Is aligned"
-            });
+            };
 
             Button ping = null;
-            stack.Items.Add(ping = new Button(async (sender, args) =>
+            ping = new Button(async (sender, args) =>
             {
                 var start = DateTime.UtcNow;
                 var send = start.Millisecond.ToString()[0];
@@ -113,7 +86,23 @@ namespace Scopie
             })
             {
                 Text = "Ping"
-            });
+            };
+
+            var stack = Vertical(mountLabel, raDecOne, raDecTwo, locationOne, locationTwo, trackingOne, trackingTwo, time, isAligned, ping);
+
+            var init = false;
+            stack.Shown += async (sender, args) =>
+            {
+                if (init)
+                {
+                    return;
+                }
+                init = true;
+                var (lat, lon) = await mount.GetLocation();
+                setLocation(new MyTuple<Dms>(new Dms(lat), new Dms(lon)));
+                setTracking(await mount.GetTrackingMode());
+                await SetMountDiff();
+            };
 
             return new Scrollable() { Content = stack };
         }
@@ -121,99 +110,16 @@ namespace Scopie
         private static Control CameraPanel(CameraManager camera)
         {
             var exposureConfig = new ExposureConfig();
-            var innerStack = new StackLayout()
-            {
-                HorizontalContentAlignment = HorizontalAlignment.Stretch
-            };
-            ImageDisplay(innerStack, camera, exposureConfig);
-            var controls = ControlsUi(camera, exposureConfig);
-            ImageControls(controls, exposureConfig);
-            Autoguider(controls, camera);
-            innerStack.Items.Add(new StackLayoutItem(new Scrollable() { Content = controls }, true));
-            return innerStack;
+            var stack = new List<Control>();
+            ImageDisplay(stack, camera, exposureConfig);
+            var innerStack = new List<Control>();
+            ControlsUi(innerStack, camera, exposureConfig);
+            SpecialControls(innerStack, camera, exposureConfig);
+            stack.Add(new Scrollable() { Content = Vertical(innerStack.ToArray()) });
+            return VerticalExpandLast(stack.ToArray());
         }
 
-        private static StackLayout ControlsUi(CameraManager camera, ExposureConfig exposure)
-        {
-            var controlsStack = new StackLayout
-            {
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-            };
-            foreach (var control in camera.Controls)
-            {
-                if (!control.Writeable)
-                {
-                    continue;
-                }
-                (Label, Control) toAdd;
-                if (control.ControlType == ASICameraDll.ASI_CONTROL_TYPE.ASI_EXPOSURE)
-                {
-                    toAdd = ExposureControl(control, exposure, 1000000.0);
-                }
-                else
-                {
-                    toAdd = SettableControl(control);
-                }
-                var (lineOne, lineTwo) = toAdd;
-                controlsStack.Items.Add(lineOne);
-                controlsStack.Items.Add(lineTwo);
-            }
-            return controlsStack;
-        }
-
-        private static void ImageControls(StackLayout layout, ExposureConfig exposure)
-        {
-            Button cross = null;
-            cross = new Button((sender, args) =>
-            {
-                exposure.Cross = !exposure.Cross;
-                cross.Text = "Cross: " + exposure.Cross;
-            })
-            {
-                Text = "Cross: False"
-            };
-            layout.Items.Add(cross);
-
-            Button zoom = null;
-            zoom = new Button((sender, args) =>
-            {
-                exposure.Zoom = !exposure.Zoom;
-                zoom.Text = "Zoom: " + exposure.Zoom;
-            })
-            {
-                Text = "Zoom: False"
-            };
-            layout.Items.Add(zoom);
-        }
-
-        private static void Autoguider(StackLayout layout, CameraManager camera)
-        {
-            if (!camera.HasST4)
-            {
-                return;
-            }
-            var isOn = false;
-            Button guider = null;
-            guider = new Button((sender, args) =>
-            {
-                isOn = !isOn;
-                guider.Text = "Guider on: " + isOn;
-                if (isOn)
-                {
-                    camera.PulseGuideOn(ASICameraDll.ASI_GUIDE_DIRECTION.ASI_GUIDE_NORTH);
-                }
-                else
-                {
-                    camera.PulseGuideOff(ASICameraDll.ASI_GUIDE_DIRECTION.ASI_GUIDE_NORTH);
-                }
-            })
-            {
-                Text = "Guider on: False"
-            };
-            layout.Items.Add(guider);
-        }
-
-        private static void ImageDisplay(StackLayout stack, CameraManager camera, ExposureConfig exposureConfig)
+        private static void ImageDisplay(List<Control> stack, CameraManager camera, ExposureConfig exposureConfig)
         {
             var bitmap = new Bitmap(camera.Width, camera.Height, PixelFormat.Format32bppRgb);
             var image = new ImageView()
@@ -232,11 +138,10 @@ namespace Scopie
             };
             enableButton = new Button(onEnableClick) { Text = $"Enable: {camera.Name}" };
             var longExposure = LongExposure(exposureConfig);
-            stack.Items.Add(image);
-            stack.Items.Add(status);
-            stack.Items.Add(enableButton);
-            stack.Items.Add(longExposure);
-            stack.Items.Add(new Button((sender, args) => UserInterfaceControl.Reset(camera, exposureConfig)) { Text = "Reset" });
+            stack.Add(image);
+            stack.Add(enableButton);
+            stack.Add(status);
+            stack.Add(longExposure);
         }
 
         private static Control LongExposure(ExposureConfig exposureConfig)
@@ -256,26 +161,77 @@ namespace Scopie
                     exposureConfig.CountLong++;
                 }
             };
-            var longExposureStack = new StackLayout()
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
-            };
-            longExposureStack.Items.Add(new StackLayoutItem(longExposureText, true));
-            longExposureStack.Items.Add(longExposureLabel);
-            longExposureStack.Items.Add(longExposureButton);
-            return longExposureStack;
+            return HorizontalExpandFirst(longExposureText, longExposureLabel, longExposureButton);
         }
 
-        private static void SetCameraControl(CameraControl control, int value)
+        private static void ControlsUi(List<Control> controlsStack, CameraManager camera, ExposureConfig exposure)
         {
-            try
+            controlsStack.Add(new Button((sender, args) => UserInterfaceControl.Reset(camera, exposure)) { Text = "Reset" });
+            foreach (var control in camera.Controls)
             {
-                control.Value = value;
+                if (!control.Writeable)
+                {
+                    continue;
+                }
+                (Label, Control) toAdd;
+                if (control.ControlType == ASICameraDll.ASI_CONTROL_TYPE.ASI_EXPOSURE)
+                {
+                    toAdd = ExposureControl(control, exposure, 1000000.0);
+                }
+                else
+                {
+                    toAdd = SettableControl(control);
+                }
+                var (lineOne, lineTwo) = toAdd;
+                controlsStack.Add(lineOne);
+                controlsStack.Add(lineTwo);
             }
-            catch (ASICameraException e)
+        }
+
+        private static void SpecialControls(List<Control> layout, CameraManager camera, ExposureConfig exposure)
+        {
+            Button cross = null;
+            cross = new Button((sender, args) =>
             {
-                MessageBox.Show(e.Message, "ASI Camera Exception", MessageBoxType.Error);
+                exposure.Cross = !exposure.Cross;
+                cross.Text = "Cross: " + exposure.Cross;
+            })
+            {
+                Text = "Cross: False"
+            };
+            layout.Add(cross);
+
+            Button zoom = null;
+            zoom = new Button((sender, args) =>
+            {
+                exposure.Zoom = !exposure.Zoom;
+                zoom.Text = "Zoom: " + exposure.Zoom;
+            })
+            {
+                Text = "Zoom: False"
+            };
+            layout.Add(zoom);
+            if (camera.HasST4)
+            {
+                var isOn = false;
+                Button guider = null;
+                guider = new Button((sender, args) =>
+                {
+                    isOn = !isOn;
+                    guider.Text = "Guider on: " + isOn;
+                    if (isOn)
+                    {
+                        camera.PulseGuideOn(ASICameraDll.ASI_GUIDE_DIRECTION.ASI_GUIDE_NORTH);
+                    }
+                    else
+                    {
+                        camera.PulseGuideOff(ASICameraDll.ASI_GUIDE_DIRECTION.ASI_GUIDE_NORTH);
+                    }
+                })
+                {
+                    Text = "Guider on: False"
+                };
+                layout.Add(guider);
             }
         }
 
@@ -304,7 +260,7 @@ namespace Scopie
                 throw new Exception($"Non-writeable control passed to SettableControl: {cameraControl.Name}");
             }
             var description = new Label() { Text = $"{cameraControl.Name} ({cameraControl.MinValue}-{cameraControl.MaxValue} : {cameraControl.DefaultValue}) - {cameraControl.Description}" };
-            var (control, onChanged) = Settable(() => cameraControl.Value, v => SetCameraControl(cameraControl, v), int.TryParse);
+            var (control, onChanged) = Settable(() => cameraControl.Value, v => UserInterfaceControl.SetCameraControl(cameraControl, v), int.TryParse);
             cameraControl.ValueChanged += onChanged;
             return (description, control);
         }
@@ -365,13 +321,7 @@ namespace Scopie
                 }
             };
 
-            var controlStack = new StackLayout()
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
-            };
-            controlStack.Items.Add(new StackLayoutItem(textBox, true));
-            controlStack.Items.Add(controlButton);
+            var controlStack = HorizontalExpandFirst(textBox, controlButton);
             return (controlStack, valueChanged);
         }
 
@@ -379,13 +329,13 @@ namespace Scopie
         {
             var textBox = new TextBox()
             {
-                Text = new MyTuple<double>().ToString(),
+                Text = new MyTuple<Dms>().ToString(),
             };
             var slewButton = new Button(async (sender, args) =>
             {
                 if (MyTuple.TryParse(textBox.Text, out var value))
                 {
-                    await mount.Slew(value.Item1, value.Item2);
+                    await mount.Slew(value.Item1.Value, value.Item2.Value);
                 }
             })
             {
@@ -402,19 +352,30 @@ namespace Scopie
             {
                 if (MyTuple.TryParse(textBox.Text, out var value))
                 {
-                    await mount.OverwriteRaDec(value.Item1, value.Item2);
+                    await mount.OverwriteRaDec(value.Item1.Value, value.Item2.Value);
                 }
             })
             {
                 Text = "Overwrite RA/Dec",
             };
-            var getButton = new Button(async (sender, args) =>
+            var currentPos = new Label()
             {
-                var (ra, dec) = await mount.GetRaDec();
-                textBox.Text = new MyTuple<double>(ra, dec).ToString("F4");
-            })
+                Text = "Telescope position",
+            };
+            var shown = false;
+            currentPos.Shown += async (sender, args) =>
             {
-                Text = "Get RA/Dec",
+                if (shown)
+                {
+                    return;
+                }
+                shown = true;
+                while (true)
+                {
+                    var (ra, dec) = await mount.GetRaDec();
+                    currentPos.Text = new MyTuple<Dms>(new Dms(ra), new Dms(dec)).ToRaDecString();
+                    await Task.Delay(2000);
+                }
             };
             textBox.KeyDown += (sender, args) =>
             {
@@ -425,23 +386,53 @@ namespace Scopie
                 }
             };
 
-            var lineOne = new StackLayout()
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
-            };
-            lineOne.Items.Add(new StackLayoutItem(textBox, true));
-            lineOne.Items.Add(slewButton);
-            lineOne.Items.Add(cancelSlewButton);
-
-            var lineTwo = new StackLayout()
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalContentAlignment = VerticalAlignment.Stretch,
-            };
-            lineTwo.Items.Add(new StackLayoutItem(overwriteButton, true));
-            lineTwo.Items.Add(new StackLayoutItem(getButton, true));
+            var lineOne = HorizontalExpandFirst(textBox, slewButton, cancelSlewButton);
+            var lineTwo = HorizontalExpandAll(overwriteButton, currentPos);
             return (lineOne, lineTwo);
+        }
+
+        public static StackLayout Vertical(params Control[] controls)
+            => Stack(false, controls.Select(c => new StackLayoutItem(c)));
+
+        public static StackLayout VerticalExpandAll(params Control[] controls)
+            => Stack(false, controls.Select(c => new StackLayoutItem(c, true)));
+
+        public static StackLayout VerticalExpandFirst(params Control[] controls)
+            => Stack(false, controls.Select((c, i) => new StackLayoutItem(c, i == 0)));
+
+        public static StackLayout VerticalExpandLast(params Control[] controls)
+            => Stack(false, controls.Select((c, i) => new StackLayoutItem(c, i == controls.Length - 1)));
+
+        public static StackLayout Horizontal(params Control[] controls)
+            => Stack(true, controls.Select(c => new StackLayoutItem(c)));
+
+        public static StackLayout HorizontalExpandAll(params Control[] controls)
+            => Stack(true, controls.Select(c => new StackLayoutItem(c, true)));
+
+        public static StackLayout HorizontalExpandFirst(params Control[] controls)
+            => Stack(true, controls.Select((c, i) => new StackLayoutItem(c, i == 0)));
+
+        public static StackLayout HorizontalExpandLast(params Control[] controls)
+            => Stack(true, controls.Select((c, i) => new StackLayoutItem(c, i == controls.Length - 1)));
+
+        public static StackLayout Stack(bool horizontal, IEnumerable<StackLayoutItem> controls)
+        {
+            var stack = new StackLayout();
+            if (horizontal)
+            {
+                stack.Orientation = Orientation.Horizontal;
+                stack.VerticalContentAlignment = VerticalAlignment.Stretch;
+            }
+            else
+            {
+                stack.Orientation = Orientation.Vertical;
+                stack.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            };
+            foreach (var control in controls)
+            {
+                stack.Items.Add(control);
+            }
+            return stack;
         }
     }
 }
