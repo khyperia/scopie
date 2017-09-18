@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -6,6 +7,8 @@ namespace Scopie
 {
     public static class ASICameraDll
     {
+        const string DllName = "ASICamera2";
+
         public enum ASI_CONTROL_TYPE
         {
             ASI_GAIN = 0,
@@ -153,10 +156,10 @@ namespace Scopie
             ExpFailed, //:exposure failed, you need to start exposure again
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl, EntryPoint = "ASIGetNumOfConnectedCameras")]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ASIGetNumOfConnectedCameras")]
         public static extern int GetNumOfConnectedCameras();
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetCameraProperty(out ASI_CAMERA_INFO pASICameraInfo, int iCameraIndex);
         public static ASI_CAMERA_INFO GetCameraProperties(int cameraIndex)
         {
@@ -164,19 +167,19 @@ namespace Scopie
             return result;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIOpenCamera(int iCameraID);
         public static void OpenCamera(int cameraId) => CheckReturn(ASIOpenCamera(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIInitCamera(int iCameraID);
         public static void InitCamera(int cameraId) => CheckReturn(ASIInitCamera(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASICloseCamera(int iCameraID);
         public static void CloseCamera(int cameraId) => CheckReturn(ASICloseCamera(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetNumOfControls(int iCameraID, out int piNumberOfControls);
         public static int GetNumOfControls(int cameraId)
         {
@@ -184,7 +187,7 @@ namespace Scopie
             return result;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetControlCaps(int iCameraID, int iControlIndex, out ASI_CONTROL_CAPS pControlCaps);
         public static ASI_CONTROL_CAPS GetControlCaps(int cameraId, int controlIndex)
         {
@@ -192,7 +195,7 @@ namespace Scopie
             return result;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetControlValue(int iCameraID, ASI_CONTROL_TYPE controlType, out int plValue, out ASI_BOOL pbAuto);
         public static int GetControlValue(int cameraId, ASI_CONTROL_TYPE controlType, out bool isAuto)
         {
@@ -201,32 +204,32 @@ namespace Scopie
             return result;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASISetControlValue(int iCameraID, ASI_CONTROL_TYPE controlType, int lValue, ASI_BOOL bAuto);
         public static void SetControlValue(int cameraId, ASI_CONTROL_TYPE controlType, int value, bool auto) =>
             CheckReturn(ASISetControlValue(cameraId, controlType, value, auto ? ASI_BOOL.ASI_TRUE : ASI_BOOL.ASI_FALSE), cameraId, controlType, value, auto);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASISetROIFormat(int iCameraID, int iWidth, int iHeight, int iBin, ASI_IMG_TYPE Img_type);
         public static void SetROIFormat(int cameraId, int width, int height, int bin, ASI_IMG_TYPE imageType) =>
             CheckReturn(ASISetROIFormat(cameraId, width, height, bin, imageType), cameraId, width, height, bin, imageType);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetROIFormat(int iCameraID, out int piWidth, out int piHeight, out int piBin, out ASI_IMG_TYPE pImg_type);
         public static void GetROIFormat(int cameraId, out int width, out int height, out int bin, out ASI_IMG_TYPE imageType) =>
             CheckReturn(ASIGetROIFormat(cameraId, out width, out height, out bin, out imageType), cameraId, bin);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASISetStartPos(int iCameraID, int iStartX, int iStartY);
         public static void SetStartPos(int cameraId, int x, int y) =>
             CheckReturn(ASISetStartPos(cameraId, x, y), cameraId, x, y);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetStartPos(int iCameraID, out int piStartX, out int piStartY);
         public static void GetStartPos(int cameraId, out int x, out int y) =>
             CheckReturn(ASIGetStartPos(cameraId, out x, out y), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetDroppedFrames(int iCameraID, out int piDropFrames);
         public static int GetDroppedFrames(int cameraId)
         {
@@ -234,7 +237,7 @@ namespace Scopie
             return result;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIEnableDarkSubtract(int iCameraID, [MarshalAs(UnmanagedType.LPStr)] string pcBMPPath, out ASI_BOOL bIsSubDarkWorking);
         public static bool EnableDarkSubtract(int cameraId, string darkFilePath)
         {
@@ -242,22 +245,22 @@ namespace Scopie
             return result != ASI_BOOL.ASI_FALSE;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIDisableDarkSubtract(int iCameraID);
         public static void DisableDarkSubtract(int cameraId) =>
             CheckReturn(ASIDisableDarkSubtract(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIStartVideoCapture(int iCameraID);
         public static void StartVideoCapture(int cameraId) =>
             CheckReturn(ASIStartVideoCapture(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIStopVideoCapture(int iCameraID);
         public static void StopVideoCapture(int cameraId) =>
             CheckReturn(ASIStopVideoCapture(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetVideoData(int iCameraID, IntPtr pBuffer, int lBuffSize, int iWaitms);
         public static bool GetVideoData(int cameraId, IntPtr buffer, int bufferSize, int waitMs)
         {
@@ -270,27 +273,27 @@ namespace Scopie
             return true;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIPulseGuideOn(int iCameraID, ASI_GUIDE_DIRECTION direction);
         public static void PulseGuideOn(int cameraId, ASI_GUIDE_DIRECTION direction) =>
             CheckReturn(ASIPulseGuideOn(cameraId, direction), cameraId, direction);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIPulseGuideOff(int iCameraID, ASI_GUIDE_DIRECTION direction);
         public static void PulseGuideOff(int cameraId, ASI_GUIDE_DIRECTION direction) =>
             CheckReturn(ASIPulseGuideOff(cameraId, direction), cameraId, direction);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIStartExposure(int iCameraID, ASI_BOOL bIsDark);
         public static void StartExposure(int cameraId, bool isDark) =>
             CheckReturn(ASIStartExposure(cameraId, isDark ? ASI_BOOL.ASI_TRUE : ASI_BOOL.ASI_FALSE), cameraId, isDark);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIStopExposure(int iCameraID);
         public static void StopExposure(int cameraId) =>
             CheckReturn(ASIStopExposure(cameraId), cameraId);
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetExpStatus(int iCameraID, out ExposureStatus pExpStatus);
         public static ExposureStatus GetExposureStatus(int cameraId)
         {
@@ -298,7 +301,7 @@ namespace Scopie
             return result;
         }
 
-        [DllImport("ASICamera2.dll", CallingConvention = CallingConvention.Cdecl)]
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASIGetDataAfterExp(int iCameraID, [Out] ushort[] pBuffer, int lBuffSize);
         public static bool GetDataAfterExp(int cameraId, ushort[] buffer)
         {
@@ -311,7 +314,7 @@ namespace Scopie
             return true;
         }
 
-        private static void CheckReturn<T1>(ASI_ERROR_CODE errorCode, T1 p1)
+        private static void CheckReturn<T1>(ASI_ERROR_CODE errorCode, T1 p1, [CallerMemberName] string funcName = "")
         {
             if (errorCode == ASI_ERROR_CODE.ASI_SUCCESS)
             {
@@ -319,7 +322,7 @@ namespace Scopie
             }
             if (errorCode < ASI_ERROR_CODE.ASI_ERROR_END)
             {
-                throw new ASICameraException(errorCode, p1);
+                throw new ASICameraException(errorCode, funcName, p1);
             }
             else
             {
@@ -327,7 +330,7 @@ namespace Scopie
             }
         }
 
-        private static void CheckReturn<T1, T2>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2)
+        private static void CheckReturn<T1, T2>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, [CallerMemberName] string funcName = "")
         {
             if (errorCode == ASI_ERROR_CODE.ASI_SUCCESS)
             {
@@ -335,7 +338,7 @@ namespace Scopie
             }
             if (errorCode < ASI_ERROR_CODE.ASI_ERROR_END)
             {
-                throw new ASICameraException(errorCode, p1, p2);
+                throw new ASICameraException(errorCode, funcName, p1, p2);
             }
             else
             {
@@ -343,7 +346,7 @@ namespace Scopie
             }
         }
 
-        private static void CheckReturn<T1, T2, T3>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, T3 p3)
+        private static void CheckReturn<T1, T2, T3>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, T3 p3, [CallerMemberName] string funcName = "")
         {
             if (errorCode == ASI_ERROR_CODE.ASI_SUCCESS)
             {
@@ -351,7 +354,7 @@ namespace Scopie
             }
             if (errorCode < ASI_ERROR_CODE.ASI_ERROR_END)
             {
-                throw new ASICameraException(errorCode, p1, p2, p3);
+                throw new ASICameraException(errorCode, funcName, p1, p2, p3);
             }
             else
             {
@@ -359,7 +362,7 @@ namespace Scopie
             }
         }
 
-        private static void CheckReturn<T1, T2, T3, T4>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, T3 p3, T4 p4)
+        private static void CheckReturn<T1, T2, T3, T4>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, T3 p3, T4 p4, [CallerMemberName] string funcName = "")
         {
             if (errorCode == ASI_ERROR_CODE.ASI_SUCCESS)
             {
@@ -367,7 +370,7 @@ namespace Scopie
             }
             if (errorCode < ASI_ERROR_CODE.ASI_ERROR_END)
             {
-                throw new ASICameraException(errorCode, p1, p2, p3, p4);
+                throw new ASICameraException(errorCode, funcName, p1, p2, p3, p4);
             }
             else
             {
@@ -375,7 +378,7 @@ namespace Scopie
             }
         }
 
-        private static void CheckReturn<T1, T2, T3, T4, T5>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, T3 p3, T4 p4, T5 p5)
+        private static void CheckReturn<T1, T2, T3, T4, T5>(ASI_ERROR_CODE errorCode, T1 p1, T2 p2, T3 p3, T4 p4, T5 p5, [CallerMemberName] string funcName = "")
         {
             if (errorCode == ASI_ERROR_CODE.ASI_SUCCESS)
             {
@@ -383,7 +386,7 @@ namespace Scopie
             }
             if (errorCode < ASI_ERROR_CODE.ASI_ERROR_END)
             {
-                throw new ASICameraException(errorCode, p1, p2, p3, p4, p5);
+                throw new ASICameraException(errorCode, funcName, p1, p2, p3, p4, p5);
             }
             else
             {
@@ -394,8 +397,8 @@ namespace Scopie
 
     public class ASICameraException : Exception
     {
-        public ASICameraException(ASICameraDll.ASI_ERROR_CODE errorCode, params object[] parameters)
-            : base($"Error '{errorCode}' - parameters ({string.Join(", ", parameters)})")
+        public ASICameraException(ASICameraDll.ASI_ERROR_CODE errorCode, string funcName, params object[] parameters)
+            : base($"{funcName}({string.Join(", ", parameters)}) -> '{errorCode}'")
         {
         }
     }
