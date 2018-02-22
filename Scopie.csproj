@@ -4,6 +4,8 @@
     <TargetFramework>net45</TargetFramework>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>pdbonly</DebugType>
+    <DefineConstants Condition="'$(OS)' == 'Unix'">LINUX</DefineConstants>
+    <DefineConstants Condition="'$(OS)' == 'Windows_NT'">WINDOWS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.ValueTuple" Version="4.3.1" />

@@ -41,8 +41,8 @@ namespace Scopie
         public bool IsUSB3 => Info.IsUSB3Host != ASICameraDll.ASI_BOOL.ASI_FALSE;
         public int CameraId => Info.CameraID;
         public ASICameraDll.ASI_BAYER_PATTERN BayerPattern => Info.BayerPattern;
-        public int Width => Info.MaxWidth;
-        public int Height => Info.MaxHeight;
+        public int Width => (int)Info.MaxWidth;
+        public int Height => (int)Info.MaxHeight;
         public double PixelSize => Info.PixelSize;
         public List<int> SupportedBinFactors => Info.SupportedBins.TakeWhile(x => x != 0).ToList();
         public List<ASICameraDll.ASI_IMG_TYPE> SupportedImageTypes => Info.SupportedVideoFormat.TakeWhile(x => x != ASICameraDll.ASI_IMG_TYPE.ASI_IMG_END).ToList();
@@ -126,9 +126,9 @@ namespace Scopie
 
         public string Name => _props.Name;
         public string Description => _props.Description;
-        public int MinValue => _props.MinValue;
-        public int MaxValue => _props.MaxValue;
-        public int DefaultValue => _props.DefaultValue;
+        public int MinValue => (int)_props.MinValue;
+        public int MaxValue => (int)_props.MaxValue;
+        public int DefaultValue => (int)_props.DefaultValue;
         public ASICameraDll.ASI_CONTROL_TYPE ControlType => _props.ControlType;
         public bool IsAutoAvailable => _props.IsAutoSupported != ASICameraDll.ASI_BOOL.ASI_FALSE;
         public bool Writeable => _props.IsWritable != ASICameraDll.ASI_BOOL.ASI_FALSE;

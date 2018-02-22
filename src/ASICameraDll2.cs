@@ -2,6 +2,13 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+#if LINUX
+using LongC = System.IntPtr;
+#elif WINDOWS
+using LongC = int;
+#else
+#error Unknown platform (LINUX or WINDOWS not defined)
+#endif
 
 namespace Scopie
 {
@@ -16,7 +23,7 @@ namespace Scopie
             ASI_GAMMA,
             ASI_WB_R,
             ASI_WB_B,
-            ASI_BRIGHTNESS,
+            ASI_OFFSET,
             ASI_BANDWIDTHOVERLOAD,
             ASI_OVERCLOCK,
             ASI_TEMPERATURE,// return 10*temperature
@@ -110,8 +117,8 @@ namespace Scopie
             [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.U1, SizeConst = 64)]
             private byte[] _name; //the name of the camera, you can display this to the UI
             public int CameraID; //this is used to control everything of the camera in other functions
-            public int MaxHeight; //the max height of the camera
-            public int MaxWidth; //the max width of the camera
+            public LongC MaxHeight; //the max height of the camera
+            public LongC MaxWidth; //the max width of the camera
             public ASI_BOOL IsColorCam;
             public ASI_BAYER_PATTERN BayerPattern;
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
@@ -137,9 +144,9 @@ namespace Scopie
             private byte[] _name; //the name of the Control like Exposure, Gain etc..
             [MarshalAs(UnmanagedType.ByValArray, ArraySubType = UnmanagedType.U1, SizeConst = 128)]
             private byte[] _description; //description of this control
-            public int MaxValue;
-            public int MinValue;
-            public int DefaultValue;
+            public LongC MaxValue;
+            public LongC MinValue;
+            public LongC DefaultValue;
             public ASI_BOOL IsAutoSupported; //support auto set 1, don't support 0
             public ASI_BOOL IsWritable; //some control like temperature can only be read by some cameras 
             public ASI_CONTROL_TYPE ControlType;//this is used to get value and set value of the control
@@ -196,18 +203,18 @@ namespace Scopie
         }
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern ASI_ERROR_CODE ASIGetControlValue(int iCameraID, ASI_CONTROL_TYPE controlType, out int plValue, out ASI_BOOL pbAuto);
+        private static extern ASI_ERROR_CODE ASIGetControlValue(int iCameraID, ASI_CONTROL_TYPE controlType, out LongC plValue, out ASI_BOOL pbAuto);
         public static int GetControlValue(int cameraId, ASI_CONTROL_TYPE controlType, out bool isAuto)
         {
             CheckReturn(ASIGetControlValue(cameraId, controlType, out var result, out var auto), cameraId, controlType);
             isAuto = auto != ASI_BOOL.ASI_FALSE;
-            return result;
+            return (int)result;
         }
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern ASI_ERROR_CODE ASISetControlValue(int iCameraID, ASI_CONTROL_TYPE controlType, int lValue, ASI_BOOL bAuto);
+        private static extern ASI_ERROR_CODE ASISetControlValue(int iCameraID, ASI_CONTROL_TYPE controlType, LongC lValue, ASI_BOOL bAuto);
         public static void SetControlValue(int cameraId, ASI_CONTROL_TYPE controlType, int value, bool auto) =>
-            CheckReturn(ASISetControlValue(cameraId, controlType, value, auto ? ASI_BOOL.ASI_TRUE : ASI_BOOL.ASI_FALSE), cameraId, controlType, value, auto);
+            CheckReturn(ASISetControlValue(cameraId, controlType, (LongC)value, auto ? ASI_BOOL.ASI_TRUE : ASI_BOOL.ASI_FALSE), cameraId, controlType, value, auto);
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern ASI_ERROR_CODE ASISetROIFormat(int iCameraID, int iWidth, int iHeight, int iBin, ASI_IMG_TYPE Img_type);
