@@ -1,9 +1,11 @@
 use asicamera;
-
 use std::error::Error;
+use std::ffi::CStr;
 use std::fmt;
 use std::mem;
 use std::os::raw::{c_int, c_long, c_uchar};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -59,29 +61,38 @@ fn check(code: c_int) -> Result<(), AsiError> {
 	}
 }
 
-struct Camera {
+pub struct Camera {
 	id: c_int,
 	props: asicamera::ASI_CAMERA_INFO,
+	controls: Vec<Control>,
 }
 
 impl Camera {
-	fn num_cameras() -> u32 {
+	pub fn num_cameras() -> u32 {
 		unsafe { asicamera::ASIGetNumOfConnectedCameras() as u32 }
 	}
 
-	fn new(id: u32) -> Result<Camera, Box<Error>> {
+	pub fn new(id: u32) -> Result<Camera, Box<Error>> {
 		let result = unsafe {
 			let mut props = mem::zeroed();
 			check(asicamera::ASIGetCameraProperty(&mut props, id as c_int))?;
 			check(asicamera::ASIOpenCamera(id as c_int))?;
 			check(asicamera::ASIInitCamera(id as c_int))?;
+			let controls = Self::get_controls(id as c_int)?;
 			Camera {
 				id: id as c_int,
 				props,
+				controls,
 			}
 		};
-		result.set_16_bit();
+		result.set_16_bit()?;
 		Ok(result)
+	}
+
+	pub fn name(&self) -> String {
+		unsafe { CStr::from_ptr(&self.props.Name as *const ::std::os::raw::c_char) }
+			.to_string_lossy()
+			.into_owned()
 	}
 
 	fn get_controls(id: c_int) -> Result<Vec<Control>, Box<Error>> {
@@ -93,7 +104,23 @@ impl Camera {
 		Ok(result?)
 	}
 
-	fn set_roi_format(&self, bin: i32, img_type: asicamera::ASI_IMG_TYPE) -> Result<(), Box<Error>> {
+	pub fn controls(&self) -> &[Control] {
+		&self.controls
+	}
+
+	pub fn width(&self) -> u32 {
+		self.props.MaxWidth as u32
+	}
+
+	pub fn height(&self) -> u32 {
+		self.props.MaxHeight as u32
+	}
+
+	fn set_roi_format(
+		&self,
+		bin: i32,
+		img_type: asicamera::ASI_IMG_TYPE,
+	) -> Result<(), Box<Error>> {
 		Ok(check(unsafe {
 			asicamera::ASISetROIFormat(
 				self.id,
@@ -128,27 +155,42 @@ impl Camera {
 	fn exposure_data(&self) -> Result<Vec<u16>, Box<Error>> {
 		let mut result = vec![0; self.props.MaxWidth as usize * self.props.MaxHeight as usize];
 		unsafe {
-			check(asicamera::ASIGetDataAfterExp(self.id, &mut result[..] as *mut [u16] as *mut c_uchar, result.len() as c_long * 2))?;
+			check(asicamera::ASIGetDataAfterExp(
+				self.id,
+				&mut result[..] as *mut [u16] as *mut c_uchar,
+				result.len() as c_long * 2,
+			))?;
 			Ok(result)
 		}
 	}
 
-	fn expose(&self) -> Result<Vec<u16>, Box<Error>> {
-		if self.exposure_status()? == asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_WORKING {
-			Err("Camera already exposing".to_owned())?
+	pub fn expose(camera_mutex: &Arc<Mutex<Self>>) -> Result<Vec<u16>, Box<Error>> {
+		{
+			let camera = camera_mutex.lock().unwrap();
+			if camera.exposure_status()? == asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_WORKING {
+				Err("Camera already exposing".to_owned())?
+			}
+			camera.start_exposure()?;
 		}
-		self.start_exposure()?;
 		loop {
-			match self.exposure_status()? {
-				asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_IDLE => Err("Camera somehow idle during exposure".to_owned())?,
-				asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_WORKING => (),
-				asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_SUCCESS => break,
-				asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_FAILED => Err("Camera exposure failed".to_owned())?,
-				_ => Err("Unknown camera exposure status".to_owned())?,
+			{
+				let camera = camera_mutex.lock().unwrap();
+				match camera.exposure_status()? {
+					asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_IDLE => {
+						Err("Camera somehow idle during exposure".to_owned())?
+					}
+					asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_WORKING => (),
+					asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_SUCCESS => {
+						break Ok(camera.exposure_data()?)
+					}
+					asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_FAILED => {
+						Err("Camera exposure failed".to_owned())?
+					}
+					_ => Err("Unknown camera exposure status".to_owned())?,
+				}
 			}
 			sleep(Duration::from_millis(1));
 		}
-		Ok(self.exposure_data()?)
 	}
 }
 
@@ -161,7 +203,7 @@ impl Drop for Camera {
 	}
 }
 
-struct Control {
+pub struct Control {
 	camera_id: c_int,
 	control_id: c_int,
 	caps: asicamera::ASI_CONTROL_CAPS,
@@ -184,7 +226,26 @@ impl Control {
 		}
 	}
 
-	fn get(self) -> Result<(i64, bool), Box<Error>> {
+	pub fn name(&self) -> String {
+		unsafe { CStr::from_ptr(&self.caps.Name as *const ::std::os::raw::c_char) }
+			.to_string_lossy()
+			.into_owned()
+	}
+
+	pub fn description(&self) -> String {
+		unsafe { CStr::from_ptr(&self.caps.Description as *const ::std::os::raw::c_char) }
+			.to_string_lossy()
+			.into_owned()
+	}
+
+	pub fn max_value(&self) -> i64 { self.caps.MaxValue }
+	pub fn min_value(&self) -> i64 { self.caps.MinValue }
+	pub fn default_value(&self) -> i64 { self.caps.DefaultValue }
+	pub fn is_auto_supported(&self) -> bool { self.caps.IsAutoSupported != asicamera::ASI_BOOL_ASI_FALSE }
+	pub fn writable(&self) -> bool { self.caps.IsWritable != asicamera::ASI_BOOL_ASI_FALSE }
+	pub fn control_type(&self) -> asicamera::ASI_CONTROL_TYPE { self.caps.ControlType }
+
+	pub fn get(&self) -> Result<(i64, bool), Box<Error>> {
 		let mut value = 0;
 		let mut auto = 0;
 		check(unsafe {
@@ -201,7 +262,7 @@ impl Control {
 		))
 	}
 
-	fn set(self, value: i64, auto: bool) -> Result<(), Box<Error>> {
+	pub fn set(&self, value: i64, auto: bool) -> Result<(), Box<Error>> {
 		Ok(check(unsafe {
 			asicamera::ASISetControlValue(
 				self.camera_id,
