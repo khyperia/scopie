@@ -153,7 +153,7 @@ impl Camera {
         bin: i32,
         img_type: asicamera::ASI_IMG_TYPE,
     ) -> Result<(), Box<Error>> {
-        Ok(check(unsafe {
+        check(unsafe {
             asicamera::ASISetROIFormat(
                 self.id(),
                 self.width() as c_int,
@@ -161,7 +161,8 @@ impl Camera {
                 bin as c_int,
                 img_type as c_int,
             )
-        })?)
+        })?;
+        Ok(())
     }
 
     fn set_16_bit(&self) -> Result<(), Box<Error>> {
@@ -169,11 +170,13 @@ impl Camera {
     }
 
     fn start_exposure(&self) -> Result<(), Box<Error>> {
-        Ok(check(unsafe { asicamera::ASIStartExposure(self.id(), 0) })?)
+        check(unsafe { asicamera::ASIStartExposure(self.id(), 0) })?;
+        Ok(())
     }
 
     fn stop_exposure(&self) -> Result<(), Box<Error>> {
-        Ok(check(unsafe { asicamera::ASIStopExposure(self.id()) })?)
+        check(unsafe { asicamera::ASIStopExposure(self.id()) })?;
+        Ok(())
     }
 
     fn exposure_status(&self) -> Result<asicamera::ASI_EXPOSURE_STATUS, Box<Error>> {
@@ -218,13 +221,13 @@ impl Camera {
     }
 
     fn start_video_capture(&self) -> Result<(), Box<Error>> {
-        Ok(check(unsafe {
-            asicamera::ASIStartVideoCapture(self.id())
-        })?)
+        check(unsafe { asicamera::ASIStartVideoCapture(self.id()) })?;
+        Ok(())
     }
 
     fn stop_video_capture(&self) -> Result<(), Box<Error>> {
-        Ok(check(unsafe { asicamera::ASIStopVideoCapture(self.id()) })?)
+        check(unsafe { asicamera::ASIStopVideoCapture(self.id()) })?;
+        Ok(())
     }
 
     fn exposure(&self) -> Result<i64, Box<Error>> {
@@ -252,7 +255,7 @@ impl Camera {
 
     pub fn camera_loop(
         &self,
-        sender: mpsc::Sender<display::Image>,
+        sender: &mpsc::Sender<display::Image>,
         adjust: fn(Vec<u16>, u32, u32) -> display::Image,
     ) -> Result<(), Box<Error>> {
         self.start_video_capture()?;
@@ -282,7 +285,6 @@ impl Drop for Camera {
 
 pub struct Control {
     camera_id: c_int,
-    control_id: c_int,
     caps: asicamera::ASI_CONTROL_CAPS,
 }
 
@@ -295,11 +297,7 @@ impl Control {
                 control_id,
                 &mut caps,
             ))?;
-            Ok(Control {
-                camera_id,
-                control_id,
-                caps,
-            })
+            Ok(Control { camera_id, caps })
         }
     }
 
@@ -352,14 +350,15 @@ impl Control {
     }
 
     pub fn set(&self, value: i64, auto: bool) -> Result<(), Box<Error>> {
-        Ok(check(unsafe {
+        check(unsafe {
             asicamera::ASISetControlValue(
                 self.camera_id,
                 self.caps.ControlType as c_int,
                 value,
                 auto as c_int,
             )
-        })?)
+        })?;
+        Ok(())
     }
 }
 

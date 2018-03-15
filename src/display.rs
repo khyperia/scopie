@@ -21,7 +21,7 @@ impl Image {
     }
 }
 
-pub fn display(image_stream: mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
+pub fn display(image_stream: &mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
     let mut width = 400;
     let mut height = 400;
     let sdl = init()?;
@@ -34,9 +34,8 @@ pub fn display(image_stream: mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
 
     loop {
         while let Some(event) = event_pump.poll_event() {
-            match event {
-                Event::Quit { .. } => return Ok(()),
-                _ => (),
+            if let Event::Quit { .. } = event {
+                return Ok(());
             }
         }
 
@@ -56,9 +55,10 @@ pub fn display(image_stream: mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
         }
 
         let (output_width, output_height) = canvas.output_size()?;
-        let scale = (output_width as f64 / width as f64).min(output_height as f64 / height as f64);
-        let dst_width = (width as f64 * scale).round() as u32;
-        let dst_height = (height as f64 * scale).round() as u32;
+        let scale = (f64::from(output_width) / f64::from(width))
+            .min(f64::from(output_height) / f64::from(height));
+        let dst_width = (f64::from(width) * scale).round() as u32;
+        let dst_height = (f64::from(height) * scale).round() as u32;
         let dst = Rect::new(0, 0, dst_width, dst_height);
         canvas.copy(&texture, None, dst)?;
         canvas.present();

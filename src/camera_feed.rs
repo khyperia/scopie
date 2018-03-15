@@ -19,10 +19,10 @@ fn adjust_image(data: Vec<u16>, width: u32, height: u32) -> Image {
     Image::new(result, width, height)
 }
 
-fn run_camera_exposures(sender: mpsc::Sender<Image>, camera: Camera) -> Result<(), Box<Error>> {
+fn run_camera_exposures(sender: &mpsc::Sender<Image>, camera: &Camera) -> Result<(), Box<Error>> {
     let (width, height) = (camera.width(), camera.height());
     loop {
-        let exposed = Camera::expose(&camera)?;
+        let exposed = Camera::expose(camera)?;
         //println!("snap");
         let converted = adjust_image(exposed, width, height);
         match sender.send(converted) {
@@ -35,11 +35,11 @@ fn run_camera_exposures(sender: mpsc::Sender<Image>, camera: Camera) -> Result<(
 
 pub fn run_camera_feed(camera: Arc<Camera>, block: bool) {
     let (send, recv) = mpsc::channel();
-    thread::spawn(move || match display(recv) {
+    thread::spawn(move || match display(&recv) {
         Ok(()) => (),
         Err(err) => println!("Display thread error: {}", err),
     });
-    let func = move || match camera.camera_loop(send, adjust_image) {
+    let func = move || match camera.camera_loop(&send, adjust_image) {
         Ok(()) => (),
         Err(err) => println!("Camera thread error: {}", err),
     };

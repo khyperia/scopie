@@ -70,7 +70,7 @@ fn repl(camera: &Camera) -> Result<(), Box<Error>> {
                     println!("Unknown command: {}", line);
                 }
             }
-            Some(cmd) => {
+            Some(_) => {
                 println!("Unknown command: {}", line);
             }
             None => (),
