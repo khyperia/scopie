@@ -3,7 +3,6 @@ use display::Image;
 use display::display;
 use std::error::Error;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::mpsc;
 use std::thread;
 
@@ -20,14 +19,8 @@ fn adjust_image(data: Vec<u16>, width: u32, height: u32) -> Image {
     Image::new(result, width, height)
 }
 
-fn run_camera_exposures(
-    sender: mpsc::Sender<Image>,
-    camera: Arc<Mutex<Camera>>,
-) -> Result<(), Box<Error>> {
-    let (width, height) = {
-        let camera = camera.lock().unwrap();
-        (camera.width(), camera.height())
-    };
+fn run_camera_exposures(sender: mpsc::Sender<Image>, camera: Camera) -> Result<(), Box<Error>> {
+    let (width, height) = (camera.width(), camera.height());
     loop {
         let exposed = Camera::expose(&camera)?;
         //println!("snap");
@@ -40,13 +33,13 @@ fn run_camera_exposures(
     Ok(())
 }
 
-pub fn run_camera_feed(camera: Arc<Mutex<Camera>>, block: bool) {
+pub fn run_camera_feed(camera: Arc<Camera>, block: bool) {
     let (send, recv) = mpsc::channel();
     thread::spawn(move || match display(recv) {
         Ok(()) => (),
         Err(err) => println!("Display thread error: {}", err),
     });
-    let func = move || match run_camera_exposures(send, camera) {
+    let func = move || match camera.camera_loop(send, adjust_image) {
         Ok(()) => (),
         Err(err) => println!("Camera thread error: {}", err),
     };

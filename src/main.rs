@@ -6,13 +6,13 @@ mod camera_feed;
 mod display;
 
 use camera::Camera;
+use camera::CameraInfo;
+use std::env::args;
 use std::error::Error;
 use std::io::BufRead;
+use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
-use std::io::Write;
-use std::sync::Arc;
-use std::sync::Mutex;
 
 fn print_control(control: &camera::Control) -> Result<(), Box<Error>> {
     let (value, auto) = control.get()?;
@@ -31,7 +31,7 @@ fn print_control(control: &camera::Control) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn repl(camera: Arc<Mutex<Camera>>) -> Result<(), Box<Error>> {
+fn repl(camera: &Camera) -> Result<(), Box<Error>> {
     let stdin = stdin();
     print!("> ");
     stdout().flush()?;
@@ -39,16 +39,12 @@ fn repl(camera: Arc<Mutex<Camera>>) -> Result<(), Box<Error>> {
         let line = line?;
         let command = line.split(' ').collect::<Vec<_>>();
         match command.first() {
-            Some(&"info") => {
-                let camera = camera.lock().unwrap();
-                for control in camera.controls() {
-                    print_control(control)?;
-                }
-            }
+            Some(&"info") => for control in camera.controls() {
+                print_control(control)?;
+            },
             Some(cmd) if command.len() == 2 => {
                 let mut ok = false;
                 if let Ok(value) = command[1].parse() {
-                    let camera = camera.lock().unwrap();
                     for control in camera.controls() {
                         if control.name().eq_ignore_ascii_case(cmd) {
                             control.set(value, false)?;
@@ -63,7 +59,6 @@ fn repl(camera: Arc<Mutex<Camera>>) -> Result<(), Box<Error>> {
             }
             Some(cmd) if command.len() == 1 => {
                 let mut ok = false;
-                let camera = camera.lock().unwrap();
                 for control in camera.controls() {
                     if control.name().eq_ignore_ascii_case(cmd) {
                         print_control(control)?;
@@ -86,17 +81,40 @@ fn repl(camera: Arc<Mutex<Camera>>) -> Result<(), Box<Error>> {
     Ok(())
 }
 
+fn list_cameras() -> Result<(), Box<Error>> {
+    let num_cameras = Camera::num_cameras();
+    for i in 0..num_cameras {
+        let camera = CameraInfo::new(i)?;
+        println!("cameras[{}] = {}", i, camera.name());
+    }
+    if num_cameras == 0 {
+        Err("No cameras found".to_owned())?
+    } else {
+        Ok(())
+    }
+}
+
 fn try_main() -> Result<(), Box<Error>> {
+    let args = args().collect::<Vec<_>>();
+    if args.len() == 1 {
+        list_cameras()?;
+        return Ok(());
+    }
+    if args.len() != 2 {
+        println!("Usage: ./scopie [camera ID]");
+        return Ok(());
+    }
+
     let num_cameras = Camera::num_cameras();
     if num_cameras == 0 {
         println!("No cameras found");
         return Ok(());
     }
-    let camera = Camera::new(0)?;
+    let camera = CameraInfo::new(0)?.open()?;
     println!("Using camera: {}", camera.name());
-    let camera = Arc::new(Mutex::new(camera));
+    let camera = ::std::sync::Arc::new(camera);
     camera_feed::run_camera_feed(camera.clone(), false);
-    repl(camera)?;
+    repl(&camera)?;
     Ok(())
 }
 
