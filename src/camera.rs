@@ -1,11 +1,9 @@
 use asicamera;
-use display;
 use std::error::Error;
 use std::ffi::CStr;
 use std::fmt;
 use std::mem;
 use std::os::raw::{c_int, c_long, c_uchar};
-use std::sync::mpsc;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -220,12 +218,12 @@ impl Camera {
         }
     }
 
-    fn start_video_capture(&self) -> Result<(), Box<Error>> {
+    pub fn start_video_capture(&self) -> Result<(), Box<Error>> {
         check(unsafe { asicamera::ASIStartVideoCapture(self.id()) })?;
         Ok(())
     }
 
-    fn stop_video_capture(&self) -> Result<(), Box<Error>> {
+    pub fn stop_video_capture(&self) -> Result<(), Box<Error>> {
         check(unsafe { asicamera::ASIStopVideoCapture(self.id()) })?;
         Ok(())
     }
@@ -239,7 +237,7 @@ impl Camera {
         Err("Exposure control not found".to_owned())?
     }
 
-    fn get_video_data(&self) -> Result<Vec<u16>, Box<Error>> {
+    pub fn get_video_data(&self) -> Result<Vec<u16>, Box<Error>> {
         let exposure = self.exposure()?;
         let mut result = vec![0; self.width() as usize * self.height() as usize];
         check(unsafe {
@@ -251,26 +249,6 @@ impl Camera {
             )
         })?;
         Ok(result)
-    }
-
-    pub fn camera_loop(
-        &self,
-        sender: &mpsc::Sender<display::Image>,
-        adjust: fn(Vec<u16>, u32, u32) -> display::Image,
-    ) -> Result<(), Box<Error>> {
-        self.start_video_capture()?;
-        loop {
-            let data = self.get_video_data()?;
-            let width = self.width();
-            let height = self.height();
-            let image = adjust(data, width, height);
-            match sender.send(image) {
-                Ok(()) => (),
-                Err(mpsc::SendError(_)) => break,
-            }
-        }
-        self.stop_video_capture()?;
-        Ok(())
     }
 }
 
@@ -361,6 +339,3 @@ impl Control {
         Ok(())
     }
 }
-
-unsafe impl Send for Camera {}
-unsafe impl Sync for Camera {}
