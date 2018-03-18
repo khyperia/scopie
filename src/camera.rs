@@ -172,7 +172,7 @@ impl Camera {
         Ok(())
     }
 
-    fn stop_exposure(&self) -> Result<(), Box<Error>> {
+    pub fn stop_exposure(&self) -> Result<(), Box<Error>> {
         check(unsafe { asicamera::ASIStopExposure(self.id()) })?;
         Ok(())
     }

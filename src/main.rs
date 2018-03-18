@@ -32,7 +32,7 @@ fn print_control(control: &camera::Control) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn repl_camera(command: Vec<&str>, camera: &CameraFeed) -> Result<bool, Box<Error>> {
+fn repl_camera(command: &[&str], camera: &CameraFeed) -> Result<bool, Box<Error>> {
     let good_command = match command.first() {
         Some(&"info") if command.len() == 1 => {
             for control in camera.camera().controls() {
@@ -79,7 +79,7 @@ fn repl_camera(command: Vec<&str>, camera: &CameraFeed) -> Result<bool, Box<Erro
     Ok(good_command)
 }
 
-fn repl_one(command: Vec<&str>, camera: &mut Option<Arc<CameraFeed>>) -> Result<bool, Box<Error>> {
+fn repl_one(command: &[&str], camera: &mut Option<Arc<CameraFeed>>) -> Result<bool, Box<Error>> {
     if let Some(camera) = camera.as_ref() {
         return Ok(repl_camera(command, camera)?);
     }
@@ -93,7 +93,8 @@ fn repl_one(command: Vec<&str>, camera: &mut Option<Arc<CameraFeed>>) -> Result<
             true
         }
         Some(&"open") if command.len() == 2 => if let Ok(value) = command[1].parse() {
-            let new_camera = CameraFeed::run(value)?;
+            let new_camera = CameraFeed::run(value, false)?;
+            println!("Opened: {}", new_camera.camera().name());
             *camera = Some(new_camera);
             true
         } else {
@@ -114,7 +115,7 @@ fn try_main() -> Result<(), Box<Error>> {
         let line = line?;
         let command = line.split(' ').collect::<Vec<_>>();
         // maybe we should catch/print error here, instead of exiting
-        let ok = repl_one(command, &mut camera)?;
+        let ok = repl_one(&command, &mut camera)?;
         if !ok {
             println!("Unknown command: {}", line);
         }
