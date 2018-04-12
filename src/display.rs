@@ -48,10 +48,10 @@ pub fn display(image_stream: &mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
             if width != image.width || height != image.height {
                 width = image.width;
                 height = image.height;
-                texture = creator.create_texture_streaming(None, width, height)?;
+                texture =
+                    creator.create_texture_streaming(PixelFormatEnum::RGBX8888, width, height)?;
             }
             texture.update(None, &image.data, image.width as usize * 4)?;
-            //println!("frame");
         }
 
         let (output_width, output_height) = canvas.output_size()?;
