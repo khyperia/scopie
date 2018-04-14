@@ -45,6 +45,14 @@ fn print_control(control: &camera::Control) -> Result<()> {
 
 fn repl_camera(command: &[&str], camera: &CameraFeed) -> Result<bool> {
     let good_command = match command.first() {
+        Some(&"help") if command.len() == 1 => {
+            println!("info -- print variable information");
+            println!("zoom -- zoom to center 100x100px");
+            println!("cross -- overlay red cross in middle of image");
+            println!("{{var_name}} -- print variable's value");
+            println!("{{var_name}} {{value}} -- set variable to value");
+            true
+        }
         Some(&"info") if command.len() == 1 => {
             for control in camera.camera().controls() {
                 print_control(control)?;

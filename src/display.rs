@@ -1,5 +1,6 @@
 use sdl2::event::Event;
 use sdl2::init;
+use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
 use std::error::Error;
@@ -60,6 +61,8 @@ pub fn display(image_stream: &mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
         let dst_width = (f64::from(width) * scale).round() as u32;
         let dst_height = (f64::from(height) * scale).round() as u32;
         let dst = Rect::new(0, 0, dst_width, dst_height);
+        canvas.set_draw_color(Color::RGB(0, 0, 0));
+        canvas.clear();
         canvas.copy(&texture, None, dst)?;
         canvas.present();
     }

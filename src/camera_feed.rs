@@ -66,10 +66,10 @@ impl CameraFeed {
                 let base = (off_y + y) * width as usize + off_x;
                 for item in &data[base..(base + 100)] {
                     let one = (item >> 8) as u8;
-                    result.push(one);
-                    result.push(one);
-                    result.push(one);
                     result.push(255);
+                    result.push(one);
+                    result.push(one);
+                    result.push(one);
                 }
             }
             (result, 100, 100)
@@ -77,10 +77,10 @@ impl CameraFeed {
             let mut result = Vec::with_capacity(data.len() * 4);
             for item in data {
                 let one = (item >> 8) as u8;
-                result.push(one);
-                result.push(one);
-                result.push(one);
                 result.push(255);
+                result.push(one);
+                result.push(one);
+                result.push(one);
             }
             (result, width, height)
         };
@@ -88,11 +88,11 @@ impl CameraFeed {
             // red (first element)
             let half_width = width as usize / 2;
             for y in 0..(height as usize) {
-                result[(y * width as usize + half_width) * 4] = 255;
+                result[(y * width as usize + half_width) * 4 + 3] = 255;
             }
             let half_height = height as usize / 2;
             for x in 0..(width as usize) {
-                result[(half_height * width as usize + x) * 4] = 255;
+                result[(half_height * width as usize + x) * 4 + 3] = 255;
             }
         }
         Image::new(result, width, height)
