@@ -195,7 +195,7 @@ impl Mount {
     }
 
     pub fn set_tracking_mode(&mut self, mode: TrackingMode) -> Result<()> {
-        self.port.write(&[u8::from(mode)])?;
+        self.port.write(&['T' as u8, u8::from(mode)])?;
         self.port.flush()?;
         if self.read()? != "" {
             return Err("Invalid response".to_owned())?;
@@ -309,6 +309,15 @@ impl Mount {
         Ok(())
     }
 
-    // aligned ("J" -> "1|0")
-    // echo ("K{c}" -> "{c}")
+    pub fn aligned(&mut self) -> Result<bool> {
+        write!(self.port, "J")?;
+        self.port.flush()?;
+        Ok(self.read_bytes()?[0] != 0)
+    }
+
+    pub fn echo(&mut self, byte: u8) -> Result<u8> {
+        self.port.write(&['K' as u8, byte])?;
+        self.port.flush()?;
+        Ok(self.read_bytes()?[0])
+    }
 }

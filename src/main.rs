@@ -22,6 +22,7 @@ use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
 use std::sync::Arc;
+use std::time::Instant;
 
 type Result<T> = std::result::Result<T, Box<Error>>;
 
@@ -92,7 +93,18 @@ fn repl_camera(command: &[&str], camera: &CameraFeed) -> Result<bool> {
 fn repl_mount(command: &[&str], mount: &mut Mount) -> Result<bool> {
     let good_command = match command.first() {
         Some(&"help") if command.len() == 1 => {
-            println!("hecking what");
+            println!("pos -- print position");
+            println!("setpos {{ra}} {{dec}} -- overwrite position");
+            println!("slew {{ra}} {{dec}} -- slew to position");
+            println!("cancel -- cancel slew");
+            println!("mode -- print tracking mode");
+            println!("mode {{Off|AltAz|Equatorial|SiderealPec}} -- set tracking mode");
+            println!("location -- print location");
+            println!("location {{lat}} {{lon}} -- set location");
+            println!("time -- print mount's time");
+            println!("time now -- set mount time to present");
+            println!("aligned -- print if mount is aligned");
+            println!("ping -- ping telescope");
             true
         }
         Some(&"pos") if command.len() == 1 => {
@@ -174,6 +186,19 @@ fn repl_mount(command: &[&str], mount: &mut Mount) -> Result<bool> {
             println!("ok");
             true
         }
+        Some(&"aligned") if command.len() == 1 => {
+            let aligned = mount.aligned()?;
+            println!("{}", aligned);
+            true
+        }
+        Some(&"ping") if command.len() == 1 => {
+            let now = Instant::now();
+            let ok = mount.echo('U' as u8)? == 'U' as u8;
+            let duration = now.elapsed();
+            let duration_seconds = duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1e-9;
+            println!("{} seconds (ok={})", duration_seconds, ok);
+            true
+        }
         Some(_) => false,
         None => true,
     };
@@ -212,9 +237,17 @@ fn repl_one(
             false
         },
         Some(&"mount") if command.len() == 2 => {
-            let new_mount = Mount::new(command[1])?;
-            println!("Opened mount connection");
-            *mount = Some(new_mount);
+            if let Ok(num) = command[1].parse::<usize>() {
+                if let Some(path) = Mount::list().get(num) {
+                    *mount = Some(Mount::new(path)?);
+                    println!("Opened mount connection: {}", path);
+                } else {
+                    println!("Mount index out of range");
+                }
+            } else {
+                *mount = Some(Mount::new(command[1])?);
+                println!("Opened mount connection");
+            };
             true
         }
         Some(_) => false,
