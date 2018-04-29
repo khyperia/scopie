@@ -20,11 +20,15 @@ pub struct CameraFeed {
 }
 
 impl CameraFeed {
-    pub fn run(camera_index: u32, individual: bool) -> Result<Arc<CameraFeed>, Box<Error>> {
+    pub fn run(camera_index: u32) -> Result<Arc<CameraFeed>, Box<Error>> {
         let camera = CameraInfo::new(camera_index)?.open()?;
         let options = Mutex::new(ImageAdjustOptions::default());
+        Ok(Arc::new(CameraFeed::new(camera, options)))
+    }
+
+    pub fn init(feed: &Arc<CameraFeed>, individual: bool) -> Result<(), Box<Error>> {
+        feed.camera.init()?;
         let (send, recv) = mpsc::channel();
-        let feed = Arc::new(CameraFeed::new(camera, options));
         let second_feed = feed.clone();
         thread::spawn(move || match display(&recv) {
             Ok(()) => (),
@@ -41,7 +45,7 @@ impl CameraFeed {
                 Err(err) => println!("Camera thread error: {}", err),
             }
         });
-        Ok(feed)
+        Ok(())
     }
 
     fn new(camera: Camera, options: Mutex<ImageAdjustOptions>) -> CameraFeed {

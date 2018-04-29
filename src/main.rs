@@ -43,7 +43,7 @@ fn print_control(control: &camera::Control) -> Result<()> {
     Ok(())
 }
 
-fn repl_camera(command: &[&str], camera: &CameraFeed) -> Result<bool> {
+fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
     let good_command = match command.first() {
         Some(&"help") if command.len() == 1 => {
             println!("info -- print variable information");
@@ -51,6 +51,10 @@ fn repl_camera(command: &[&str], camera: &CameraFeed) -> Result<bool> {
             println!("cross -- overlay red cross in middle of image");
             println!("{{var_name}} -- print variable's value");
             println!("{{var_name}} {{value}} -- set variable to value");
+            true
+        }
+        Some(&"init") if command.len() == 1 => {
+            CameraFeed::init(&camera, true)?;
             true
         }
         Some(&"info") if command.len() == 1 => {
@@ -237,7 +241,7 @@ fn repl_one(
             true
         }
         Some(&"open") if command.len() == 2 => if let Ok(value) = command[1].parse() {
-            let new_camera = CameraFeed::run(value, false)?;
+            let new_camera = CameraFeed::run(value)?;
             println!("Opened: {}", new_camera.camera().name());
             *camera = Some(new_camera);
             true

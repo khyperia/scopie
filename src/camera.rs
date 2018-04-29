@@ -109,11 +109,9 @@ impl Camera {
     fn open(info: CameraInfo) -> Result<Camera, Box<Error>> {
         let result = unsafe {
             check(asicamera::ASIOpenCamera(info.props.CameraID))?;
-            check(asicamera::ASIInitCamera(info.props.CameraID))?;
             let controls = Self::get_controls(info.props.CameraID)?;
             Camera { info, controls }
         };
-        result.set_16_bit()?;
         Ok(result)
     }
 
@@ -144,6 +142,12 @@ impl Camera {
 
     pub fn controls(&self) -> &[Control] {
         &self.controls
+    }
+
+    pub fn init(&self) -> Result<(), Box<Error>> {
+        check(unsafe{asicamera::ASIInitCamera(self.info.props.CameraID)})?;
+        self.set_16_bit()?;
+        Ok(())
     }
 
     fn set_roi_format(
@@ -292,13 +296,13 @@ impl Control {
     }
 
     pub fn max_value(&self) -> i64 {
-        self.caps.MaxValue
+        self.caps.MaxValue as i64
     }
     pub fn min_value(&self) -> i64 {
-        self.caps.MinValue
+        self.caps.MinValue as i64
     }
     pub fn default_value(&self) -> i64 {
-        self.caps.DefaultValue
+        self.caps.DefaultValue as i64
     }
     pub fn is_auto_supported(&self) -> bool {
         self.caps.IsAutoSupported != asicamera::ASI_BOOL_ASI_FALSE
@@ -332,7 +336,7 @@ impl Control {
             asicamera::ASISetControlValue(
                 self.camera_id,
                 self.caps.ControlType as c_int,
-                value,
+                value as c_long,
                 auto as c_int,
             )
         })?;
