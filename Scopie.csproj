@@ -4,28 +4,17 @@
     <TargetFramework>net45</TargetFramework>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>pdbonly</DebugType>
-    <DefineConstants Condition="'$(OS)' == 'Unix'">LINUX</DefineConstants>
-    <DefineConstants Condition="'$(OS)' == 'Windows_NT'">WINDOWS</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.ValueTuple" Version="4.3.1" />
-    <PackageReference Include="Eto.Platform.Wpf" Version="2.3.0" />
-    <PackageReference Include="Eto.Platform.Gtk3" Version="2.3.0" />
-    <PackageReference Include="DotImaging.IO" Version="4.8.3" />
-    <PackageReference Include="OpenCV" Version="2.4.11" />
+    <PackageReference Include="System.ValueTuple" Version="4.5.0" />
   </ItemGroup>
-  <ItemGroup>
-    <None Update="ASICamera2.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="libASICamera2.so">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-  <Target Name="CopyOpenCVLibs" AfterTargets="Build">
+  <Target Name="CopyQhyCcdDlls" AfterTargets="Build">
     <ItemGroup>
-      <NativeBinary Include="$(OutputPath)/UnmanagedLibraries/Windows/x64/*.dll" />
+      <NativeBinary Include="$(MSBuildProjectDirectory)/qhyccd/*.dll" />
     </ItemGroup>
     <Copy SkipUnchangedFiles="true" SourceFiles="@(NativeBinary)" DestinationFiles="@(NativeBinary->'$(OutputPath)\%(Filename).dll')" />
   </Target>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
 </Project>

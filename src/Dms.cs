@@ -60,7 +60,7 @@ namespace Scopie
         public override string ToString() => ToDmsString('d');
 
         private static readonly Regex _parseRegex = new Regex(
-            @"^\s*((?<sign>[-+])\s*)?(?<degrees>\d+(\.\d+)?)\s*([hHdD°]\s*((?<minutes>\d+(\.\d+)?)\s*[mM'′]\s*)?((?<seconds>\d+(\.\d+)?)\s*[sS""″]\s*)?)?$",
+            @"^\s*((?<sign>[-+])\s*)?(?<degrees>\d+(\.\d+)?)\s*([hHdD°:]\s*((?<minutes>\d+(\.\d+)?)\s*[mM'′:]\s*)?((?<seconds>\d+(\.\d+)?)\s*[sS""″]\s*)?)?$",
             RegexOptions.Compiled | RegexOptions.ExplicitCapture);
 
         public static bool TryParse(string s, out Dms dms)

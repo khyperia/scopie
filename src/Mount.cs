@@ -23,6 +23,8 @@ namespace Scopie
             return new Mount(ports[0]);
         }
 
+        public static string[] Ports() => SerialPort.GetPortNames();
+
         public Mount(string port)
         {
             _port = new SerialPort(port, 9600, Parity.None, 8, StopBits.One)
@@ -38,7 +40,7 @@ namespace Scopie
             void Debug(string prefix, string value)
             {
                 var nums = string.Join(", ", value.Select(c => (int)c));
-                if (value.All(c => c >= 32 && c < 128))
+                if (value.Length > 0 && value.All(c => c >= 32 && c < 128))
                 {
                     nums += " (" + value + ")";
                 }
@@ -47,7 +49,7 @@ namespace Scopie
 
             Task Write(string cmd)
             {
-                Debug(">", cmd);
+                Debug("  >", cmd);
                 var array = new byte[cmd.Length];
                 var i = 0;
                 foreach (var chr in cmd)
@@ -72,7 +74,7 @@ namespace Scopie
                     builder.Append(data);
                 }
                 var result = builder.ToString();
-                Debug("<", result);
+                Debug("  <", result);
                 return result;
             }
 
@@ -106,20 +108,25 @@ namespace Scopie
             {
                 throw new Exception($"Invalid response to 'e': {line}");
             }
-            var ra = Convert.ToInt32(split[0], 16) / (uint.MaxValue + 1.0);
-            var dec = Convert.ToInt32(split[1], 16) / (uint.MaxValue + 1.0);
+            var ra = Convert.ToUInt32(split[0], 16) / (uint.MaxValue + 1.0);
+            var dec = Convert.ToUInt32(split[1], 16) / (uint.MaxValue + 1.0);
             ra = ra * 24;
             dec = dec * 360;
             return (ra, dec);
+        }
+
+        private static string ToMountHex(double value)
+        {
+            var intval = (uint)(value * (uint.MaxValue + 1.0));
+            intval &= 0xffffff00;
+            return intval.ToString("X8");
         }
 
         public async Task OverwriteRaDec(double ra, double dec)
         {
             ra = Mod(ra / 24, 1);
             dec = Mod(dec / 360, 1);
-            var ra_str = ((uint)(ra * (uint.MaxValue + 1.0))).ToString("X8");
-            var dec_str = ((uint)(dec * (uint.MaxValue + 1.0))).ToString("X8");
-            var res = await Interact($"s{ra_str},{dec_str}");
+            var res = await Interact($"s{ToMountHex(ra)},{ToMountHex(dec)}");
             if (res != "")
             {
                 throw new Exception($"Overwrite RA/DEC failed: {res}");
@@ -130,12 +137,36 @@ namespace Scopie
         {
             ra = Mod(ra / 24, 1);
             dec = Mod(dec / 360, 1);
-            var ra_str = ((uint)(ra * (uint.MaxValue + 1.0))).ToString("X8");
-            var dec_str = ((uint)(dec * (uint.MaxValue + 1.0))).ToString("X8");
-            var res = await Interact($"r{ra_str},{dec_str}");
+            var res = await Interact($"r{ToMountHex(ra)},{ToMountHex(dec)}");
             if (res != "")
             {
                 throw new Exception($"Slew RA/DEC failed: {res}");
+            }
+        }
+
+        public async Task<(double, double)> GetAzAlt()
+        {
+            var line = await Interact("z");
+            var split = line.Split(',');
+            if (split.Length != 2)
+            {
+                throw new Exception($"Invalid response to 'z': {line}");
+            }
+            var az = Convert.ToUInt32(split[0], 16) / (uint.MaxValue + 1.0);
+            var alt = Convert.ToUInt32(split[1], 16) / (uint.MaxValue + 1.0);
+            az = az * 360;
+            alt = alt * 360;
+            return (az, alt);
+        }
+
+        public async Task SlewAzAlt(double az, double alt)
+        {
+            az = Mod(az / 360, 1);
+            alt = Mod(alt / 360, 1);
+            var res = await Interact($"b{ToMountHex(az)},{ToMountHex(alt)}");
+            if (res != "")
+            {
+                throw new Exception($"Slew az/alt failed: {res}");
             }
         }
 
