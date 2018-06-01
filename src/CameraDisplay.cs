@@ -1,7 +1,9 @@
-﻿using System;
+﻿using DotImaging;
+using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
@@ -22,6 +24,7 @@ namespace Scopie
         private readonly Form _form;
         private readonly Bitmap _bitmap;
         private string _status;
+        private int _save;
 
         public CameraDisplay(QhyCcd camera)
         {
@@ -44,6 +47,11 @@ namespace Scopie
             var imageThread = new Thread(() => DoImage());
             imageThread.IsBackground = true;
             imageThread.Start();
+        }
+
+        public void Save(int n)
+        {
+            _save += n;
         }
 
         private void OnPaint(object sender, PaintEventArgs e)
@@ -104,7 +112,7 @@ namespace Scopie
             return pixels;
         }
 
-        public void DoImage()
+        private void DoImage()
         {
             _camera.StartLive();
             byte[] rawBytePixels = null;
@@ -113,6 +121,10 @@ namespace Scopie
                 while (!_camera.GetLive(ref rawBytePixels)) { }
                 var rawShortPixels = new ushort[rawBytePixels.Length / 2];
                 Buffer.BlockCopy(rawBytePixels, 0, rawShortPixels, 0, rawBytePixels.Length);
+                if (_save > 0)
+                {
+                    SaveImage(rawShortPixels, _camera.Width, _camera.Height);
+                }
                 var pixels = ProcessImage(rawShortPixels);
                 try
                 {
@@ -131,6 +143,36 @@ namespace Scopie
                 }
             }
             _camera.StopLive();
+        }
+
+        private static void SaveImage(ushort[] pixels, int width, int height)
+        {
+            var greyPixels = new Gray<ushort>[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    greyPixels[y, x] = pixels[y * width + x];
+                }
+            }
+            var filename = GetNextImageFilename();
+            greyPixels.Save(filename);
+            Console.WriteLine("Saved image");
+        }
+
+        private static string GetNextImageFilename()
+        {
+            var now = DateTime.Now;
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"{now.Year}-{now.Month}-{now.Day}");
+            Directory.CreateDirectory(dir);
+            var baseFilename = $"telescope.{now.Year}-{now.Month}-{now.Day}.{now.Hour}-{now.Minute}-{now.Second}";
+            var filename = Path.Combine(dir, baseFilename + ".png");
+            for (var index = 1; File.Exists(filename); index++)
+            {
+                filename = Path.Combine(dir, $"{baseFilename}_{index}.png");
+            }
+            // @jaredpar, this race condition is for you <3
+            return filename;
         }
     }
 }

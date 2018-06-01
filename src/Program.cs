@@ -11,6 +11,7 @@ namespace Scopie
         {
             QhyCcd camera = null;
             Mount mount = null;
+            CameraDisplay display = null;
             while (true)
             {
                 Console.Write("> ");
@@ -28,7 +29,7 @@ namespace Scopie
                 {
                     if (camera != null)
                     {
-                        ReplCamera(cmd, camera);
+                        ReplCamera(cmd, camera, ref display);
                     }
                     else if (mount != null)
                     {
@@ -116,18 +117,35 @@ namespace Scopie
             }
         }
 
-        private static void ReplCamera(string[] cmd, QhyCcd camera)
+        private static void ReplCamera(string[] cmd, QhyCcd camera, ref CameraDisplay cameraDisplay)
         {
             switch (cmd[0])
             {
                 case "help":
                     Console.WriteLine("open - runs display");
+                    Console.WriteLine("save - saves image");
+                    Console.WriteLine("save [n] - saves next n images");
                     Console.WriteLine("controls - prints all controls");
                     Console.WriteLine("[control name] - prints single control");
                     Console.WriteLine("[control name] [value] - set control value");
                     break;
                 case "open":
-                    new CameraDisplay(camera).Start();
+                    cameraDisplay = new CameraDisplay(camera);
+                    cameraDisplay.Start();
+                    break;
+                case "save":
+                    if (cmd.Length == 1)
+                    {
+                        cameraDisplay.Save(1);
+                    }
+                    else if (cmd.Length == 2 && int.TryParse(cmd[1], out var numToSave))
+                    {
+                        cameraDisplay.Save(numToSave);
+                    }
+                    else
+                    {
+                        goto default;
+                    }
                     break;
                 case "controls":
                     {
@@ -166,7 +184,7 @@ namespace Scopie
                     Console.WriteLine("pos - get current direction");
                     Console.WriteLine("setpos - overwrite current direction");
                     Console.WriteLine("azalt - get current az/alt");
-                    Console.WriteLine("slewazalt [az] [alt] - slew to az/alt");
+                    Console.WriteLine("azalt [az] [alt] - slew to az/alt");
                     Console.WriteLine("track - get tracking mode");
                     Console.WriteLine("track [value] - set tracking mode");
                     Console.WriteLine("location - get lat/lon");
