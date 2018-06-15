@@ -69,6 +69,11 @@ namespace Scopie
                         else
                         {
                             Console.WriteLine($"Num cameras: {numCameras}");
+                            for (var i = 0; i < numCameras; i++)
+                            {
+                                var name = QhyCcd.CameraName(i);
+                                Console.WriteLine($"{i} = {name}");
+                            }
                         }
                     }
                     else if (cmd.Length == 2 && int.TryParse(cmd[1], out var index))

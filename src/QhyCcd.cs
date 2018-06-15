@@ -40,6 +40,13 @@ namespace Scopie
 
         public static uint NumCameras() => QhyCcdDll.ScanQHYCCD();
 
+        public static string CameraName(int index)
+        {
+            var builder = new StringBuilder(512);
+            Check(QhyCcdDll.GetQHYCCDId(index, builder));
+            return builder.ToString();
+        }
+
         public QhyCcd(int index)
         {
             var num = NumCameras();

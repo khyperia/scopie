@@ -123,6 +123,7 @@ namespace Scopie
                 Buffer.BlockCopy(rawBytePixels, 0, rawShortPixels, 0, rawBytePixels.Length);
                 if (_save > 0)
                 {
+                    _save--;
                     SaveImage(rawShortPixels, _camera.Width, _camera.Height);
                 }
                 var pixels = ProcessImage(rawShortPixels);
