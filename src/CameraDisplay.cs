@@ -1,4 +1,4 @@
-﻿using DotImaging;
+using DotImaging;
 using System;
 using System.Diagnostics;
 using System.Drawing;
@@ -6,6 +6,7 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace Scopie
@@ -25,6 +26,8 @@ namespace Scopie
         private readonly Bitmap _bitmap;
         private string _status;
         private int _save;
+        private bool _solve;
+        private Task _solveTask;
 
         public CameraDisplay(QhyCcd camera)
         {
@@ -44,15 +47,16 @@ namespace Scopie
             formThread.IsBackground = true;
             formThread.Start();
 
-            var imageThread = new Thread(() => DoImage());
-            imageThread.IsBackground = true;
+            var imageThread = new Thread(() => DoImage())
+            {
+                IsBackground = true
+            };
             imageThread.Start();
         }
 
-        public void Save(int n)
-        {
-            _save += n;
-        }
+        public void Save(int n) => _save += n;
+
+        internal void Solve() => _solve = true;
 
         private void OnPaint(object sender, PaintEventArgs e)
         {
@@ -112,6 +116,21 @@ namespace Scopie
             return pixels;
         }
 
+        private async Task DoSolve(ushort[] pixels, int width, int height)
+        {
+            var result = await PlateSolve.Solve(pixels, width, height);
+            if (result.HasValue)
+            {
+                var (ra, dec) = result.Value;
+                Console.WriteLine("Solved position:");
+                Console.WriteLine($"{new Dms(ra).ToDmsString('h')}, {new Dms(dec).ToDmsString('d')}");
+            }
+            else
+            {
+                Console.WriteLine("Failed to solve");
+            }
+        }
+
         private void DoImage()
         {
             _camera.StartLive();
@@ -125,6 +144,15 @@ namespace Scopie
                 {
                     _save--;
                     SaveImage(rawShortPixels, _camera.Width, _camera.Height);
+                }
+                if (_solveTask.IsCompleted)
+                {
+                    _solveTask = null;
+                }
+                if (_solve && _solveTask == null)
+                {
+                    _solve = false;
+                    _solveTask = DoSolve(rawShortPixels, _camera.Width, _camera.Height);
                 }
                 var pixels = ProcessImage(rawShortPixels);
                 try

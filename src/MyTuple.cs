@@ -1,4 +1,4 @@
-﻿namespace Scopie
+namespace Scopie
 {
     public struct MyTuple<T>
     {

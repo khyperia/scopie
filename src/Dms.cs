@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 
 namespace Scopie
 {
@@ -53,8 +53,8 @@ namespace Scopie
 
         public string ToDmsString(char degreesSymbol)
         {
-            var tup = DegreesMinutesSeconds;
-            return $"{(tup.isNegative ? "-" : "")}{tup.degrees}{degreesSymbol}{tup.minutes}m{tup.seconds}s";
+            var (isNegative, degrees, minutes, seconds, _) = DegreesMinutesSeconds;
+            return $"{(isNegative ? "-" : "")}{degrees}{degreesSymbol}{minutes}m{seconds}s";
         }
 
         public override string ToString() => ToDmsString('d');

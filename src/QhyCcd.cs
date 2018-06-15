@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -76,10 +76,7 @@ namespace Scopie
             Check(QhyCcdDll.SetQHYCCDResolution(_handle, 0, 0, _width, _height));
         }
 
-        public void StartLive()
-        {
-            Check(QhyCcdDll.BeginQHYCCDLive(_handle));
-        }
+        public void StartLive() => Check(QhyCcdDll.BeginQHYCCDLive(_handle));
 
         public bool GetLive(ref byte[] imgdata)
         {
@@ -103,15 +100,9 @@ namespace Scopie
             }
         }
 
-        public void StopLive()
-        {
-            Check(QhyCcdDll.StopQHYCCDLive(_handle));
-        }
+        public void StopLive() => Check(QhyCcdDll.StopQHYCCDLive(_handle));
 
-        public void Dispose()
-        {
-            Check(QhyCcdDll.CloseQHYCCD(_handle));
-        }
+        public void Dispose() => Check(QhyCcdDll.CloseQHYCCD(_handle));
     }
 
     class Control
@@ -150,10 +141,7 @@ namespace Scopie
             }
         }
 
-        public override string ToString()
-        {
-            return $"{Name} = {Value} ({_min}-{_max} by {_step})";
-        }
+        public override string ToString() => $"{Name} = {Value} ({_min}-{_max} by {_step})";
     }
 
     public enum CONTROL_ID

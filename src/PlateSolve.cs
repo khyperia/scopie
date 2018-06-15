@@ -1,0 +1,72 @@
+﻿using DotImaging;
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+
+namespace Scopie
+{
+    public static class PlateSolve
+    {
+        // %LOCALAPPDATA%\cygwin_ansvr\tmp\
+        // %LOCALAPPDATA%\cygwin_ansvr\bin\bash.exe --login -c "/usr/bin/solve-field -p -O -U none -B none -R none -M none -N none -C cancel --crpix-center -z 2 --objs 100 -u arcsecperpix -L 1.3752 -H 1.5199 /tmp/stars.fit"
+
+        // RA,Dec = (303.147,38.4887), pixel scale 0.980471 arcsec/pix.
+        private static readonly Regex _regex = new Regex(@"RA,Dec = \((\d+\.?\d*),(\d+\.?\d*)\)");
+        private static readonly string _windowsFileName;
+        private static readonly string _bashLocation;
+
+        static PlateSolve()
+        {
+            var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            _windowsFileName = Path.Combine(localAppData, "cygwin_ansvr", "tmp", "stars.png");
+            _bashLocation = Path.Combine(localAppData, "cygwin_ansvr", "bin", "bash.exe");
+        }
+
+        private static string BuildCommand(double low, double high, int downsample)
+        {
+            var maxObjects = 100;
+            return $@"--login -c ""/usr/bin/solve-field -p -O -U none -B none -R none -M none -N none -W none -C cancel --crpix-center -z {downsample} --objs {maxObjects} -u arcsecperpix -L {low} -H {high} /tmp/stars.png""";
+        }
+
+        private static void SaveImage(ushort[] pixels, int width, int height)
+        {
+            var greyPixels = new Gray<ushort>[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    greyPixels[y, x] = pixels[y * width + x];
+                }
+            }
+            greyPixels.Save(_windowsFileName);
+        }
+
+        public static async Task<(double ra, double dec)?> Solve(ushort[] pixels, int width, int height)
+        {
+            //SaveImage(pixels, width, height);
+            var low = 0.9;
+            var high = 1.1;
+            var downsample = 4;
+            var info = new ProcessStartInfo(_bashLocation, BuildCommand(low, high, downsample))
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+            };
+            var process = Process.Start(info);
+            var output = await process.StandardOutput.ReadToEndAsync();
+            var matches = _regex.Match(output);
+            if (matches.Success)
+            {
+                var one = matches.Groups[1].Value;
+                var two = matches.Groups[2].Value;
+                if (double.TryParse(one, out var oneValue) && double.TryParse(two, out var twoValue))
+                {
+                    return (oneValue, twoValue);
+                }
+            }
+            return null;
+        }
+    }
+}
