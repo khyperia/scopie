@@ -116,6 +116,16 @@ namespace Scopie
                         goto default;
                     }
                     break;
+                case "solve":
+                    if (cmd.Length == 2)
+                    {
+                        var task = PlateSolve.SolveFile(cmd[1]);
+                    }
+                    else
+                    {
+                        goto default;
+                    }
+                    break;
                 default:
                     Console.WriteLine($"Unknown command {string.Join(" ", cmd)}");
                     break;
@@ -130,6 +140,8 @@ namespace Scopie
                     Console.WriteLine("open - runs display");
                     Console.WriteLine("save - saves image");
                     Console.WriteLine("save [n] - saves next n images");
+                    Console.WriteLine("solve - plate-solve next image with ANSVR");
+                    Console.WriteLine("solve [filename] - plate-solve image with ANSVR");
                     Console.WriteLine("controls - prints all controls");
                     Console.WriteLine("[control name] - prints single control");
                     Console.WriteLine("[control name] [value] - set control value");
@@ -153,7 +165,18 @@ namespace Scopie
                     }
                     break;
                 case "solve":
-                    cameraDisplay.Solve();
+                    if (cmd.Length == 1)
+                    {
+                        cameraDisplay.Solve();
+                    }
+                    else if (cmd.Length == 2)
+                    {
+                        var task = PlateSolve.SolveFile(cmd[1]);
+                    }
+                    else
+                    {
+                        goto default;
+                    }
                     break;
                 case "controls":
                     {
@@ -201,6 +224,7 @@ namespace Scopie
                     Console.WriteLine("time now - set mount's time to now");
                     Console.WriteLine("aligned - get true/false if mount is aligned");
                     Console.WriteLine("ping - ping mount, prints time it took");
+                    Console.WriteLine("solve [filename] - plate-solve image with ANSVR");
                     break;
                 case "slew":
                     {
@@ -310,6 +334,16 @@ namespace Scopie
                         var timer = Stopwatch.StartNew();
                         var res = await mount.Echo('p');
                         Console.WriteLine($"{timer.ElapsedMilliseconds}ms");
+                    }
+                    break;
+                case "solve":
+                    if (cmd.Length == 2)
+                    {
+                        var task = PlateSolve.SolveFile(cmd[1]);
+                    }
+                    else
+                    {
+                        goto default;
                     }
                     break;
                 default:

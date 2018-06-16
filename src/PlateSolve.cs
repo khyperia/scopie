@@ -14,23 +14,23 @@ namespace Scopie
 
         // RA,Dec = (303.147,38.4887), pixel scale 0.980471 arcsec/pix.
         private static readonly Regex _regex = new Regex(@"RA,Dec = \((\d+\.?\d*),(\d+\.?\d*)\)");
-        private static readonly string _windowsFileName;
+        private static readonly string _windowsFileDir;
         private static readonly string _bashLocation;
 
         static PlateSolve()
         {
             var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
-            _windowsFileName = Path.Combine(localAppData, "cygwin_ansvr", "tmp", "stars.png");
+            _windowsFileDir = Path.Combine(localAppData, "cygwin_ansvr", "tmp");
             _bashLocation = Path.Combine(localAppData, "cygwin_ansvr", "bin", "bash.exe");
         }
 
-        private static string BuildCommand(double low, double high, int downsample)
+        private static string BuildCommand(double low, double high, int downsample, string filename)
         {
             var maxObjects = 100;
-            return $@"--login -c ""/usr/bin/solve-field -p -O -U none -B none -R none -M none -N none -W none -C cancel --crpix-center -z {downsample} --objs {maxObjects} -u arcsecperpix -L {low} -H {high} /tmp/stars.png""";
+            return $@"--login -c ""/usr/bin/solve-field -p -O -U none -B none -R none -M none -N none -W none -C cancel --crpix-center -z {downsample} --objs {maxObjects} -u arcsecperpix -L {low} -H {high} /tmp/{filename}""";
         }
 
-        private static void SaveImage(ushort[] pixels, int width, int height)
+        private static string SaveImage(ushort[] pixels, int width, int height)
         {
             var greyPixels = new Gray<ushort>[height, width];
             for (var y = 0; y < height; y++)
@@ -40,16 +40,17 @@ namespace Scopie
                     greyPixels[y, x] = pixels[y * width + x];
                 }
             }
-            greyPixels.Save(_windowsFileName);
+            var fileName = "image.png";
+            greyPixels.Save(Path.Combine(_windowsFileDir, fileName));
+            return fileName;
         }
 
-        public static async Task<(double ra, double dec)?> Solve(ushort[] pixels, int width, int height)
+        private static async Task<(double ra, double dec)?> SolveOne(string filename)
         {
-            //SaveImage(pixels, width, height);
             var low = 0.9;
             var high = 1.1;
             var downsample = 4;
-            var info = new ProcessStartInfo(_bashLocation, BuildCommand(low, high, downsample))
+            var info = new ProcessStartInfo(_bashLocation, BuildCommand(low, high, downsample, filename))
             {
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -67,6 +68,15 @@ namespace Scopie
                 }
             }
             return null;
+        }
+
+        public static Task<(double ra, double dec)?> Solve(ushort[] pixels, int width, int height) => SolveOne(SaveImage(pixels, width, height));
+
+        public static Task<(double ra, double dec)?> SolveFile(string path)
+        {
+            var filename = Path.GetFileName(path);
+            File.Copy(path, Path.Combine(_windowsFileDir, filename));
+            return SolveOne(filename);
         }
     }
 }

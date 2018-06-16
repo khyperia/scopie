@@ -9,12 +9,12 @@
     <PackageReference Include="System.ValueTuple" Version="4.5.0" />
     <PackageReference Include="DotImaging.IO" Version="4.8.3" />
   </ItemGroup>
-  <Target Name="CopyQhyCcdDlls" AfterTargets="Build">
-    <ItemGroup>
-      <NativeBinary Include="$(MSBuildProjectDirectory)/qhyccd/*.dll" />
-    </ItemGroup>
-    <Copy SkipUnchangedFiles="true" SourceFiles="@(NativeBinary)" DestinationFiles="@(NativeBinary->'$(OutputPath)\%(Filename).dll')" />
-  </Target>
+  <ItemGroup>
+    <None Update="qhyccd/*.dll">
+      <Link>%(FileName)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />
   </ItemGroup>
