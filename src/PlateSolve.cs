@@ -1,4 +1,4 @@
-﻿using DotImaging;
+using DotImaging;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -45,7 +45,7 @@ namespace Scopie
             return fileName;
         }
 
-        private static async Task<(double ra, double dec)?> SolveOne(string filename)
+        private static async Task<(Dms ra, Dms dec)?> SolveOne(string filename)
         {
             var low = 0.9;
             var high = 1.1;
@@ -64,15 +64,15 @@ namespace Scopie
                 var two = matches.Groups[2].Value;
                 if (double.TryParse(one, out var oneValue) && double.TryParse(two, out var twoValue))
                 {
-                    return (oneValue, twoValue);
+                    return (Dms.FromDegrees(oneValue), Dms.FromDegrees(twoValue));
                 }
             }
             return null;
         }
 
-        public static Task<(double ra, double dec)?> Solve(ushort[] pixels, int width, int height) => SolveOne(SaveImage(pixels, width, height));
+        public static Task<(Dms ra, Dms dec)?> Solve(ushort[] pixels, int width, int height) => SolveOne(SaveImage(pixels, width, height));
 
-        public static Task<(double ra, double dec)?> SolveFile(string path)
+        public static Task<(Dms ra, Dms dec)?> SolveFile(string path)
         {
             var filename = Path.GetFileName(path);
             File.Copy(path, Path.Combine(_windowsFileDir, filename));

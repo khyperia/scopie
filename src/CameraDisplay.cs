@@ -122,8 +122,12 @@ namespace Scopie
             if (result.HasValue)
             {
                 var (ra, dec) = result.Value;
-                Console.WriteLine("Solved position:");
-                Console.WriteLine($"{new Dms(ra).ToDmsString('h')}, {new Dms(dec).ToDmsString('d')}");
+                Console.WriteLine("Solved position (degrees):");
+                Console.WriteLine($"{ra.Degrees}d {dec.Degrees}d");
+                Console.WriteLine("Solved position (dms):");
+                Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Degrees)} {dec.ToDmsString(Dms.Unit.Degrees)}");
+                Console.WriteLine("Solved position (hms/dms):");
+                Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Hours)} {dec.ToDmsString(Dms.Unit.Degrees)}");
             }
             else
             {
@@ -145,8 +149,9 @@ namespace Scopie
                     _save--;
                     SaveImage(rawShortPixels, _camera.Width, _camera.Height);
                 }
-                if (_solveTask.IsCompleted)
+                if (_solveTask != null && (_solveTask.IsCompleted || _solveTask.IsFaulted || _solveTask.IsCanceled))
                 {
+                    _solveTask.Wait();
                     _solveTask = null;
                 }
                 if (_solve && _solveTask == null)

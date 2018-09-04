@@ -119,7 +119,8 @@ namespace Scopie
                 case "solve":
                     if (cmd.Length == 2)
                     {
-                        var task = PlateSolve.SolveFile(cmd[1]);
+                        //var task = PlateSolve.SolveFile(cmd[1]);
+                        Console.WriteLine("TODO");
                     }
                     else
                     {
@@ -172,6 +173,7 @@ namespace Scopie
                     else if (cmd.Length == 2)
                     {
                         var task = PlateSolve.SolveFile(cmd[1]);
+                        Console.WriteLine("TODO");
                     }
                     else
                     {
@@ -211,9 +213,12 @@ namespace Scopie
             {
                 case "help":
                     Console.WriteLine("slew [ra] [dec] - slew to direction");
+                    Console.WriteLine("slewra [ra] - slow goto");
+                    Console.WriteLine("slewdec [dec] - slow goto");
                     Console.WriteLine("cancel - cancel slew");
                     Console.WriteLine("pos - get current direction");
                     Console.WriteLine("setpos - overwrite current direction");
+                    Console.WriteLine("syncpos - sync/calibrate current direction");
                     Console.WriteLine("azalt - get current az/alt");
                     Console.WriteLine("azalt [az] [alt] - slew to az/alt");
                     Console.WriteLine("track - get tracking mode");
@@ -231,7 +236,31 @@ namespace Scopie
                         cmd[1] = cmd[1].TrimEnd(',');
                         if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var ra) && Dms.TryParse(cmd[2], out var dec))
                         {
-                            await mount.Slew(ra.Value, dec.Value);
+                            await mount.Slew(ra, dec);
+                        }
+                        else
+                        {
+                            goto default;
+                        }
+                    }
+                    break;
+                case "slewra":
+                    {
+                        if (cmd.Length == 2 && Dms.TryParse(cmd[1], out var ra))
+                        {
+                            await mount.SlowGotoRA(ra);
+                        }
+                        else
+                        {
+                            goto default;
+                        }
+                    }
+                    break;
+                case "slewdec":
+                    {
+                        if (cmd.Length == 2 && Dms.TryParse(cmd[1], out var ra))
+                        {
+                            await mount.SlowGotoDec(ra);
                         }
                         else
                         {
@@ -245,7 +274,7 @@ namespace Scopie
                 case "pos":
                     {
                         var (ra, dec) = await mount.GetRaDec();
-                        Console.WriteLine($"{new Dms(ra).ToDmsString('h')}, {new Dms(dec).ToDmsString('d')}");
+                        Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Hours)}, {dec.ToDmsString(Dms.Unit.Degrees)}");
                     }
                     break;
                 case "setpos":
@@ -253,7 +282,21 @@ namespace Scopie
                         cmd[1] = cmd[1].TrimEnd(',');
                         if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var ra) && Dms.TryParse(cmd[2], out var dec))
                         {
-                            await mount.OverwriteRaDec(ra.Value, dec.Value);
+                            await mount.ResetRA(ra);
+                            await mount.ResetDec(dec);
+                        }
+                        else
+                        {
+                            goto default;
+                        }
+                    }
+                    break;
+                case "syncpos":
+                    {
+                        cmd[1] = cmd[1].TrimEnd(',');
+                        if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var ra) && Dms.TryParse(cmd[2], out var dec))
+                        {
+                            await mount.OverwriteRaDec(ra, dec);
                         }
                         else
                         {
@@ -265,11 +308,11 @@ namespace Scopie
                     if (cmd.Length == 1)
                     {
                         var (az, alt) = await mount.GetAzAlt();
-                        Console.WriteLine($"{new Dms(az).ToDmsString('d')}, {new Dms(alt).ToDmsString('d')}");
+                        Console.WriteLine($"{az.ToDmsString(Dms.Unit.Degrees)}, {alt.ToDmsString(Dms.Unit.Degrees)}");
                     }
                     else if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var az) && Dms.TryParse(cmd[2], out var alt))
                     {
-                        await mount.SlewAzAlt(az.Value, alt.Value);
+                        await mount.SlewAzAlt(az, alt);
                     }
                     else
                     {
@@ -296,11 +339,11 @@ namespace Scopie
                     if (cmd.Length == 1)
                     {
                         var (lat, lon) = await mount.GetLocation();
-                        Console.WriteLine($"{new Dms(lat).ToDmsString('d')}, {new Dms(lon).ToDmsString('d')}");
+                        Console.WriteLine($"{lat.ToDmsString(Dms.Unit.Degrees)}, {lon.ToDmsString(Dms.Unit.Degrees)}");
                     }
                     else if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var lat) && Dms.TryParse(cmd[2], out var lon))
                     {
-                        await mount.SetLocation(lat.Value, lon.Value);
+                        await mount.SetLocation(lat, lon);
                     }
                     else
                     {

@@ -30,7 +30,7 @@ namespace Scopie
             _port = new SerialPort(port, 9600, Parity.None, 8, StopBits.One)
             {
                 ReadTimeout = 1000,
-                WriteTimeout = 1000
+                WriteTimeout = 1000,
             };
             _port.Open();
         }
@@ -90,17 +90,7 @@ namespace Scopie
             }
         }
 
-        private static double Mod(double x, double y)
-        {
-            var r = x % y;
-            if (r < 0)
-            {
-                r += y;
-            }
-            return r;
-        }
-
-        public async Task<(double, double)> GetRaDec()
+        public async Task<(Dms, Dms)> GetRaDec()
         {
             var line = await Interact("e");
             var split = line.Split(',');
@@ -110,22 +100,18 @@ namespace Scopie
             }
             var ra = Convert.ToUInt32(split[0], 16) / (uint.MaxValue + 1.0);
             var dec = Convert.ToUInt32(split[1], 16) / (uint.MaxValue + 1.0);
-            ra = ra * 24;
-            dec = dec * 360;
-            return (ra, dec);
+            return (Dms.From0to1(ra), Dms.From0to1(dec));
         }
 
-        private static string ToMountHex(double value)
+        private static string ToMountHex(Dms value)
         {
-            var intval = (uint)(value * (uint.MaxValue + 1.0));
+            var intval = (uint)(value.ValueMod * (uint.MaxValue + 1.0));
             intval &= 0xffffff00;
             return intval.ToString("X8");
         }
 
-        public async Task OverwriteRaDec(double ra, double dec)
+        public async Task OverwriteRaDec(Dms ra, Dms dec)
         {
-            ra = Mod(ra / 24, 1);
-            dec = Mod(dec / 360, 1);
             var res = await Interact($"s{ToMountHex(ra)},{ToMountHex(dec)}");
             if (res != "")
             {
@@ -133,10 +119,8 @@ namespace Scopie
             }
         }
 
-        public async Task Slew(double ra, double dec)
+        public async Task Slew(Dms ra, Dms dec)
         {
-            ra = Mod(ra / 24, 1);
-            dec = Mod(dec / 360, 1);
             var res = await Interact($"r{ToMountHex(ra)},{ToMountHex(dec)}");
             if (res != "")
             {
@@ -144,7 +128,7 @@ namespace Scopie
             }
         }
 
-        public async Task<(double, double)> GetAzAlt()
+        public async Task<(Dms, Dms)> GetAzAlt()
         {
             var line = await Interact("z");
             var split = line.Split(',');
@@ -154,15 +138,11 @@ namespace Scopie
             }
             var az = Convert.ToUInt32(split[0], 16) / (uint.MaxValue + 1.0);
             var alt = Convert.ToUInt32(split[1], 16) / (uint.MaxValue + 1.0);
-            az = az * 360;
-            alt = alt * 360;
-            return (az, alt);
+            return (Dms.From0to1(az), Dms.From0to1(alt));
         }
 
-        public async Task SlewAzAlt(double az, double alt)
+        public async Task SlewAzAlt(Dms az, Dms alt)
         {
-            az = Mod(az / 360, 1);
-            alt = Mod(alt / 360, 1);
             var res = await Interact($"b{ToMountHex(az)},{ToMountHex(alt)}");
             if (res != "")
             {
@@ -203,10 +183,10 @@ namespace Scopie
             }
         }
 
-        private string FormatLatLon(double lat, double lon)
+        private string FormatLatLon(Dms lat, Dms lon)
         {
-            var (latSign, latDeg, latMin, latSec, _) = new Dms(lat).DegreesMinutesSeconds;
-            var (lonSign, lonDeg, lonMin, lonSec, _) = new Dms(lon).DegreesMinutesSeconds;
+            var (latSign, latDeg, latMin, latSec, _) = lat.DegreesMinutesSeconds;
+            var (lonSign, lonDeg, lonMin, lonSec, _) = lon.DegreesMinutesSeconds;
             // The format of the location commands is: ABCDEFGH, where:
             // A is the number of degrees of latitude.
             // B is the number of minutes of latitude.
@@ -228,7 +208,7 @@ namespace Scopie
             return builder.ToString();
         }
 
-        private (double, double) ParseLatLon(string value)
+        private (Dms, Dms) ParseLatLon(string value)
         {
             if (value.Length != 8)
             {
@@ -242,18 +222,18 @@ namespace Scopie
             var lonMin = (int)value[5];
             var lonSec = (int)value[6];
             var lonSign = value[7] == 1;
-            var lat = new Dms(latSign, latDeg, latMin, latSec).Value;
-            var lon = new Dms(lonSign, lonDeg, lonMin, lonSec).Value;
+            var lat = Dms.FromDms(latSign, latDeg, latMin, latSec);
+            var lon = Dms.FromDms(lonSign, lonDeg, lonMin, lonSec);
             return (lat, lon);
         }
 
-        public async Task<(double lat, double lon)> GetLocation()
+        public async Task<(Dms lat, Dms lon)> GetLocation()
         {
             var result = await Interact("w");
             return ParseLatLon(result);
         }
 
-        public async Task SetLocation(double lat, double lon)
+        public async Task SetLocation(Dms lat, Dms lon)
         {
             var location = FormatLatLon(lat, lon);
             var result = await Interact($"W{location}");
@@ -356,5 +336,41 @@ namespace Scopie
             var echo = await Interact($"K{c}");
             return echo[0];
         }
+
+        static void SplitThreeBytes(Dms valueDms, out byte high, out byte med, out byte low)
+        {
+            var value = valueDms.ValueMod;
+            value *= 256;
+            high = (byte)value;
+            value = Dms.Mod(value, 1);
+            value *= 256;
+            med = (byte)value;
+            value = Dms.Mod(value, 1);
+            value *= 256;
+            low = (byte)value;
+        }
+
+        async Task PCommandThree(byte one, byte two, byte three, Dms data)
+        {
+            SplitThreeBytes(data, out var high, out var med, out var low);
+            var cmd = new char[8];
+            cmd[0] = 'P';
+            cmd[1] = (char)one;
+            cmd[2] = (char)two;
+            cmd[3] = (char)three;
+            cmd[4] = (char)high;
+            cmd[5] = (char)med;
+            cmd[6] = (char)low;
+            cmd[7] = (char)0;
+            await Interact(new string(cmd));
+        }
+
+        public Task ResetRA(Dms data) => PCommandThree(4, 16, 4, data);
+
+        public Task ResetDec(Dms data) => PCommandThree(4, 17, 4, data);
+
+        public Task SlowGotoRA(Dms data) => PCommandThree(4, 16, 23, data);
+
+        public Task SlowGotoDec(Dms data) => PCommandThree(4, 17, 23, data);
     }
 }
