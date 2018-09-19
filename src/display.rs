@@ -1,9 +1,9 @@
+use Result;
 use sdl2::event::Event;
 use sdl2::init;
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
-use std::error::Error;
 use std::sync::mpsc;
 
 pub struct Image {
@@ -22,7 +22,7 @@ impl Image {
     }
 }
 
-pub fn display(image_stream: &mpsc::Receiver<Image>) -> Result<(), Box<Error>> {
+pub fn display(image_stream: &mpsc::Receiver<Image>) -> Result<()> {
     let mut width = 400;
     let mut height = 400;
     let sdl = init()?;

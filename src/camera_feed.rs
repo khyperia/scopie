@@ -1,8 +1,8 @@
+use Result;
 use camera::Camera;
 use camera::CameraInfo;
 use display::Image;
 use display::display;
-use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
@@ -12,6 +12,7 @@ use std::thread;
 pub struct ImageAdjustOptions {
     pub zoom: bool,
     pub cross: bool,
+    pub individual: bool,
 }
 
 pub struct CameraFeed {
@@ -20,16 +21,18 @@ pub struct CameraFeed {
 }
 
 impl CameraFeed {
-    pub fn run(camera_index: u32) -> Result<Arc<CameraFeed>, Box<Error>> {
+    pub fn run(camera_index: u32) -> Result<Arc<CameraFeed>> {
         let camera = CameraInfo::new(camera_index)?.open()?;
         let options = Mutex::new(ImageAdjustOptions::default());
         Ok(Arc::new(CameraFeed::new(camera, options)))
     }
 
-    pub fn init(feed: &Arc<CameraFeed>, individual: bool) -> Result<(), Box<Error>> {
+    pub fn init(feed: &Arc<CameraFeed>) -> Result<()> {
         feed.camera.init()?;
         let (send, recv) = mpsc::channel();
         let second_feed = feed.clone();
+        let individual = feed.options.lock().unwrap().individual;
+        println!("Init {}", if individual { "individual frames" } else { "video" });
         thread::spawn(move || match display(&recv) {
             Ok(()) => (),
             Err(err) => println!("Display thread error: {}", err),
@@ -105,7 +108,7 @@ impl CameraFeed {
     fn run_camera_exposures_individual(
         &self,
         sender: &mpsc::Sender<Image>,
-    ) -> Result<(), Box<Error>> {
+    ) -> Result<()> {
         let (width, height) = (self.camera.width(), self.camera.height());
         loop {
             let exposed = Camera::expose(&self.camera)?;
@@ -119,7 +122,7 @@ impl CameraFeed {
         Ok(())
     }
 
-    fn run_camera_exposures_video(&self, sender: &mpsc::Sender<Image>) -> Result<(), Box<Error>> {
+    fn run_camera_exposures_video(&self, sender: &mpsc::Sender<Image>) -> Result<()> {
         let (width, height) = (self.camera.width(), self.camera.height());
         self.camera.start_video_capture()?;
         loop {

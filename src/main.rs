@@ -10,11 +10,13 @@ mod camera;
 mod camera_feed;
 mod display;
 mod dms;
+mod init_script;
 mod mount;
 
 use camera::Camera;
 use camera::CameraInfo;
 use camera_feed::CameraFeed;
+use init_script::InitScript;
 use mount::Mount;
 use std::error::Error;
 use std::io::BufRead;
@@ -29,7 +31,7 @@ type Result<T> = std::result::Result<T, Box<Error>>;
 fn print_control(control: &camera::Control) -> Result<()> {
     let (value, auto) = control.get()?;
     println!(
-        "{} = {} ({}-{}; {}) a={}({}) w={}: {}",
+        "{:>23} = {:<10} ({:5}-{:<10}; {:<5}) auto={:5} (can_auto={:5}) writable={:5} : {}",
         control.name(),
         value,
         control.min_value(),
@@ -49,12 +51,13 @@ fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
             println!("info -- print variable information");
             println!("zoom -- zoom to center 100x100px");
             println!("cross -- overlay red cross in middle of image");
+            println!("mode {{individual|video}} -- switch between individual/video mode (needs feed restart)");
             println!("{{var_name}} -- print variable's value");
             println!("{{var_name}} {{value}} -- set variable to value");
             true
         }
         Some(&"init") if command.len() == 1 => {
-            CameraFeed::init(&camera, true)?;
+            CameraFeed::init(&camera)?;
             true
         }
         Some(&"info") if command.len() == 1 => {
@@ -70,6 +73,14 @@ fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
         }
         Some(&"cross") if command.len() == 1 => {
             camera.image_adjust_options().lock().unwrap().cross ^= true;
+            true
+        }
+        Some(&"mode") if command.len() == 2 && command[1] == "individual" => {
+            camera.image_adjust_options().lock().unwrap().individual = true;
+            true
+        }
+        Some(&"mode") if command.len() == 2 && command[1] == "video" => {
+            camera.image_adjust_options().lock().unwrap().individual = false;
             true
         }
         Some(cmd) if command.len() == 2 => {
@@ -207,7 +218,8 @@ fn repl_mount(command: &[&str], mount: &mut Mount) -> Result<bool> {
             let now = Instant::now();
             let ok = mount.echo('U' as u8)? == 'U' as u8;
             let duration = now.elapsed();
-            let duration_seconds = duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1e-9;
+            let duration_seconds =
+                duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1e-9;
             println!("{} seconds (ok={})", duration_seconds, ok);
             true
         }
@@ -217,16 +229,37 @@ fn repl_mount(command: &[&str], mount: &mut Mount) -> Result<bool> {
     Ok(good_command)
 }
 
+fn do_script(
+    name: &str,
+    camera: &mut Option<Arc<CameraFeed>>,
+    mount: &mut Option<Mount>,
+) -> Result<()> {
+    let init = match InitScript::new("init") {
+        Ok(x) => x,
+        Err(err) => {
+            println!("Couldn't open init script, not running: {}", err);
+            return Ok(());
+        }
+    };
+    let script = init.script(name);
+    for line in script {
+        println!("script> {}", line);
+        repl_one(&line, camera, mount)?;
+    }
+    Ok(())
+}
+
 fn repl_one(
-    command: &[&str],
+    line: &str,
     camera: &mut Option<Arc<CameraFeed>>,
     mount: &mut Option<Mount>,
 ) -> Result<bool> {
+    let command = line.split(' ').collect::<Vec<_>>();
     if let Some(camera) = camera.as_ref() {
-        return Ok(repl_camera(command, camera)?);
+        return Ok(repl_camera(&command, camera)?);
     }
     if let Some(mount) = mount.as_mut() {
-        return Ok(repl_mount(command, mount)?);
+        return Ok(repl_mount(&command, mount)?);
     }
     let good_command = match command.first() {
         Some(&"list") if command.len() == 1 => {
@@ -240,10 +273,16 @@ fn repl_one(
             }
             true
         }
-        Some(&"open") if command.len() == 2 => if let Ok(value) = command[1].parse() {
-            let new_camera = CameraFeed::run(value)?;
-            println!("Opened: {}", new_camera.camera().name());
-            *camera = Some(new_camera);
+        Some(&"camera") if command.len() == 2 => if let Ok(value) = command[1].parse() {
+            let num_cameras = Camera::num_cameras();
+            if value < num_cameras {
+                *camera = Some(CameraFeed::run(value)?);
+                let name = camera.as_ref().unwrap().camera().name();
+                println!("Opened: {}", name);
+                do_script(&name, camera, mount)?;
+            } else {
+                println!("Camera index out of range");
+            }
             true
         } else {
             false
@@ -253,6 +292,7 @@ fn repl_one(
                 if let Some(path) = Mount::list().get(num) {
                     *mount = Some(Mount::new(path)?);
                     println!("Opened mount connection: {}", path);
+                    do_script("mount", camera, mount)?;
                 } else {
                     println!("Mount index out of range");
                 }
@@ -276,9 +316,8 @@ fn try_main() -> Result<()> {
     stdout().flush()?;
     for line in stdin.lock().lines() {
         let line = line?;
-        let command = line.split(' ').collect::<Vec<_>>();
         // maybe we should catch/print error here, instead of exiting
-        let ok = repl_one(&command, &mut camera, &mut mount)?;
+        let ok = repl_one(&line, &mut camera, &mut mount)?;
         if !ok {
             println!("Unknown command: {}", line);
         }

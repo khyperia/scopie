@@ -1,3 +1,4 @@
+use Result;
 use asicamera;
 use std::error::Error;
 use std::ffi::CStr;
@@ -50,7 +51,7 @@ impl From<asicamera::ASI_ERROR_CODE> for AsiError {
     }
 }
 
-fn check(code: c_int) -> Result<(), AsiError> {
+fn check(code: c_int) -> ::std::result::Result<(), AsiError> {
     let code = code as asicamera::ASI_ERROR_CODE;
     if code == asicamera::ASI_ERROR_CODE_ASI_SUCCESS {
         Ok(())
@@ -64,7 +65,7 @@ pub struct CameraInfo {
 }
 
 impl CameraInfo {
-    pub fn new(id: u32) -> Result<CameraInfo, Box<Error>> {
+    pub fn new(id: u32) -> Result<CameraInfo> {
         let result = unsafe {
             let mut props = mem::zeroed();
             check(asicamera::ASIGetCameraProperty(&mut props, id as c_int))?;
@@ -73,7 +74,7 @@ impl CameraInfo {
         Ok(result)
     }
 
-    pub fn open(self) -> Result<Camera, Box<Error>> {
+    pub fn open(self) -> Result<Camera> {
         Camera::open(self)
     }
 
@@ -106,7 +107,7 @@ impl Camera {
         unsafe { asicamera::ASIGetNumOfConnectedCameras() as u32 }
     }
 
-    fn open(info: CameraInfo) -> Result<Camera, Box<Error>> {
+    fn open(info: CameraInfo) -> Result<Camera> {
         let result = unsafe {
             check(asicamera::ASIOpenCamera(info.props.CameraID))?;
             let controls = Self::get_controls(info.props.CameraID)?;
@@ -131,12 +132,12 @@ impl Camera {
         self.info.height()
     }
 
-    fn get_controls(id: c_int) -> Result<Vec<Control>, Box<Error>> {
+    fn get_controls(id: c_int) -> Result<Vec<Control>> {
         let mut num_controls = 0;
         check(unsafe { asicamera::ASIGetNumOfControls(id, &mut num_controls) })?;
         let result = (0..num_controls)
             .map(|control| Control::new(id, control))
-            .collect::<Result<Vec<_>, _>>();
+            .collect::<Result<Vec<_>>>();
         Ok(result?)
     }
 
@@ -144,7 +145,7 @@ impl Camera {
         &self.controls
     }
 
-    pub fn init(&self) -> Result<(), Box<Error>> {
+    pub fn init(&self) -> Result<()> {
         check(unsafe{asicamera::ASIInitCamera(self.info.props.CameraID)})?;
         self.set_16_bit()?;
         Ok(())
@@ -154,7 +155,7 @@ impl Camera {
         &self,
         bin: i32,
         img_type: asicamera::ASI_IMG_TYPE,
-    ) -> Result<(), Box<Error>> {
+    ) -> Result<()> {
         check(unsafe {
             asicamera::ASISetROIFormat(
                 self.id(),
@@ -167,21 +168,21 @@ impl Camera {
         Ok(())
     }
 
-    fn set_16_bit(&self) -> Result<(), Box<Error>> {
+    fn set_16_bit(&self) -> Result<()> {
         self.set_roi_format(1, asicamera::ASI_IMG_TYPE_ASI_IMG_RAW16)
     }
 
-    fn start_exposure(&self) -> Result<(), Box<Error>> {
+    fn start_exposure(&self) -> Result<()> {
         check(unsafe { asicamera::ASIStartExposure(self.id(), 0) })?;
         Ok(())
     }
 
-    pub fn stop_exposure(&self) -> Result<(), Box<Error>> {
+    pub fn stop_exposure(&self) -> Result<()> {
         check(unsafe { asicamera::ASIStopExposure(self.id()) })?;
         Ok(())
     }
 
-    fn exposure_status(&self) -> Result<asicamera::ASI_EXPOSURE_STATUS, Box<Error>> {
+    fn exposure_status(&self) -> Result<asicamera::ASI_EXPOSURE_STATUS> {
         unsafe {
             let mut status = 0;
             check(asicamera::ASIGetExpStatus(self.id(), &mut status))?;
@@ -189,7 +190,7 @@ impl Camera {
         }
     }
 
-    fn exposure_data(&self) -> Result<Vec<u16>, Box<Error>> {
+    fn exposure_data(&self) -> Result<Vec<u16>> {
         let mut result = vec![0; self.width() as usize * self.height() as usize];
         unsafe {
             check(asicamera::ASIGetDataAfterExp(
@@ -201,7 +202,7 @@ impl Camera {
         }
     }
 
-    pub fn expose(&self) -> Result<Vec<u16>, Box<Error>> {
+    pub fn expose(&self) -> Result<Vec<u16>> {
         if self.exposure_status()? == asicamera::ASI_EXPOSURE_STATUS_ASI_EXP_WORKING {
             Err("Camera already exposing".to_owned())?
         }
@@ -222,17 +223,17 @@ impl Camera {
         }
     }
 
-    pub fn start_video_capture(&self) -> Result<(), Box<Error>> {
+    pub fn start_video_capture(&self) -> Result<()> {
         check(unsafe { asicamera::ASIStartVideoCapture(self.id()) })?;
         Ok(())
     }
 
-    pub fn stop_video_capture(&self) -> Result<(), Box<Error>> {
+    pub fn stop_video_capture(&self) -> Result<()> {
         check(unsafe { asicamera::ASIStopVideoCapture(self.id()) })?;
         Ok(())
     }
 
-    fn exposure(&self) -> Result<i64, Box<Error>> {
+    fn exposure(&self) -> Result<i64> {
         for control in &self.controls {
             if control.control_type() == asicamera::ASI_CONTROL_TYPE_ASI_EXPOSURE {
                 return Ok(control.get()?.0);
@@ -241,7 +242,7 @@ impl Camera {
         Err("Exposure control not found".to_owned())?
     }
 
-    pub fn get_video_data(&self) -> Result<Vec<u16>, Box<Error>> {
+    pub fn get_video_data(&self) -> Result<Vec<u16>> {
         let exposure = self.exposure()?;
         let mut result = vec![0; self.width() as usize * self.height() as usize];
         check(unsafe {
@@ -271,7 +272,7 @@ pub struct Control {
 }
 
 impl Control {
-    fn new(camera_id: c_int, control_id: c_int) -> Result<Control, Box<Error>> {
+    fn new(camera_id: c_int, control_id: c_int) -> Result<Control> {
         unsafe {
             let mut caps = mem::zeroed();
             check(asicamera::ASIGetControlCaps(
@@ -314,7 +315,7 @@ impl Control {
         self.caps.ControlType
     }
 
-    pub fn get(&self) -> Result<(i64, bool), Box<Error>> {
+    pub fn get(&self) -> Result<(i64, bool)> {
         let mut value = 0;
         let mut auto = 0;
         check(unsafe {
@@ -331,7 +332,7 @@ impl Control {
         ))
     }
 
-    pub fn set(&self, value: i64, auto: bool) -> Result<(), Box<Error>> {
+    pub fn set(&self, value: i64, auto: bool) -> Result<()> {
         check(unsafe {
             asicamera::ASISetControlValue(
                 self.camera_id,
