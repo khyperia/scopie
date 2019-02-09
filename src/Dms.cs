@@ -96,7 +96,7 @@ namespace Scopie
             var match = _parseRegex.Match(s);
             if (!match.Success)
             {
-                dms = default(Dms);
+                dms = default;
                 return false;
             }
             var signMatch = match.Groups["sign"];

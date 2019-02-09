@@ -12,7 +12,7 @@ namespace Scopie
         private readonly string _name;
         private readonly IntPtr _handle;
         private readonly Control[] _controls;
-
+        private readonly bool _useLive;
         private double _chipWidth;
         private double _chipHeight;
         private uint _width;
@@ -47,7 +47,7 @@ namespace Scopie
             return builder.ToString();
         }
 
-        public QhyCcd(int index)
+        public QhyCcd(bool useLive, int index)
         {
             var num = NumCameras();
             if (index >= num)
@@ -58,6 +58,7 @@ namespace Scopie
             Check(QhyCcdDll.GetQHYCCDId(index, builder));
             _name = builder.ToString();
             _handle = QhyCcdDll.OpenQHYCCD(builder);
+            _useLive = useLive;
             Init();
             _controls = ((CONTROL_ID[])Enum.GetValues(typeof(CONTROL_ID))).Select(x => Control.Make(_handle, x)).Where(x => x != null).ToArray();
         }
@@ -66,41 +67,82 @@ namespace Scopie
 
         private void Init()
         {
-            Check(QhyCcdDll.SetQHYCCDStreamMode(_handle, 1)); // 0 == single, 1 == stream
+            Check(QhyCcdDll.SetQHYCCDStreamMode(_handle, _useLive ? 1U : 0U)); // 0 == single, 1 == stream
             Check(QhyCcdDll.InitQHYCCD(_handle));
             Check(QhyCcdDll.GetQHYCCDChipInfo(_handle, ref _chipWidth, ref _chipHeight, ref _width, ref _height, ref _pixelWidth, ref _pixelHeight, ref _bpp));
-            Console.WriteLine($"chip width: {_chipWidth}, chip height: {_chipHeight}, image width: {_width}, image height: {_height}, pixel width: {_pixelWidth}, pixel height: {_pixelHeight}, bits per pixel: {_bpp}");
+            Console.WriteLine($"chip name: {_name}, chip width: {_chipWidth}, chip height: {_chipHeight}, image width: {_width}, image height: {_height}, pixel width: {_pixelWidth}, pixel height: {_pixelHeight}, bits per pixel: {_bpp}");
             Check(QhyCcdDll.IsQHYCCDControlAvailable(_handle, CONTROL_ID.CONTROL_TRANSFERBIT));
             Check(QhyCcdDll.SetQHYCCDBitsMode(_handle, 16));
             _bpp = 16;
+            Check(QhyCcdDll.SetQHYCCDBinMode(_handle, 1, 1));
             Check(QhyCcdDll.SetQHYCCDResolution(_handle, 0, 0, _width, _height));
         }
 
-        public void StartLive() => Check(QhyCcdDll.BeginQHYCCDLive(_handle));
+        private void ExpSingleFrame()
+        {
+            var res = QhyCcdDll.ExpQHYCCDSingleFrame(_handle);
+            if (res == 0x2001)
+            {
+                // QHYCCD_READ_DIRECTLY = 0x2001
+                return;
+            }
+            Check(res);
+        }
 
-        public bool GetLive(ref byte[] imgdata)
+        public void StartExposure()
+        {
+            if (_useLive)
+            {
+                Check(QhyCcdDll.BeginQHYCCDLive(_handle));
+            }
+            else
+            {
+                ExpSingleFrame();
+            }
+        }
+
+        public bool GetExposure(ref byte[] imgdata)
         {
             if (imgdata == null)
             {
                 var mem_len = QhyCcdDll.GetQHYCCDMemLength(_handle);
                 imgdata = new byte[mem_len];
             }
-            var res = QhyCcdDll.GetQHYCCDLiveFrame(_handle, ref _width, ref _height, ref _bpp, ref _channels, imgdata);
-            if (res == uint.MaxValue)
+            if (_useLive)
             {
-                return false;
-            }
-            else if (res == 0)
-            {
-                return true;
+                var res = QhyCcdDll.GetQHYCCDLiveFrame(_handle, ref _width, ref _height, ref _bpp, ref _channels, imgdata);
+                if (res == uint.MaxValue)
+                {
+                    return false;
+                }
+                else if (res == 0)
+                {
+                    return true;
+                }
+                else
+                {
+                    throw new Exception($"Unknown error in GetQHYCCDLiveFrame: {res}");
+                }
             }
             else
             {
-                throw new Exception($"Unknown error in GetQHYCCDLiveFrame: {res}");
+                Check(QhyCcdDll.GetQHYCCDSingleFrame(_handle, ref _width, ref _height, ref _bpp, ref _channels, imgdata));
+                ExpSingleFrame();
+                return true;
             }
         }
 
-        public void StopLive() => Check(QhyCcdDll.StopQHYCCDLive(_handle));
+        public void StopExposure()
+        {
+            if (_useLive)
+            {
+                Check(QhyCcdDll.StopQHYCCDLive(_handle));
+            }
+            else
+            {
+                Check(QhyCcdDll.CancelQHYCCDExposing(_handle));
+            }
+        }
 
         public void Dispose() => Check(QhyCcdDll.CloseQHYCCD(_handle));
     }

@@ -63,7 +63,7 @@ namespace Scopie
                         }
                         else if (numCameras == 1)
                         {
-                            camera = new QhyCcd(0);
+                            camera = new QhyCcd(false, 0);
                             Console.WriteLine("One QHY camera found, automatically connected");
                         }
                         else
@@ -78,7 +78,7 @@ namespace Scopie
                     }
                     else if (cmd.Length == 2 && int.TryParse(cmd[1], out var index))
                     {
-                        camera = new QhyCcd(index);
+                        camera = new QhyCcd(false, index);
                     }
                     else
                     {

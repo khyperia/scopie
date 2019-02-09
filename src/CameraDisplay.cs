@@ -137,11 +137,11 @@ namespace Scopie
 
         private void DoImage()
         {
-            _camera.StartLive();
+            _camera.StartExposure();
             byte[] rawBytePixels = null;
             while (true)
             {
-                while (!_camera.GetLive(ref rawBytePixels)) { }
+                while (!_camera.GetExposure(ref rawBytePixels)) { }
                 var rawShortPixels = new ushort[rawBytePixels.Length / 2];
                 Buffer.BlockCopy(rawBytePixels, 0, rawShortPixels, 0, rawBytePixels.Length);
                 if (_save > 0)
@@ -176,7 +176,7 @@ namespace Scopie
                     break;
                 }
             }
-            _camera.StopLive();
+            _camera.StopExposure();
         }
 
         private static void SaveImage(ushort[] pixels, int width, int height)
