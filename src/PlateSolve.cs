@@ -75,7 +75,14 @@ namespace Scopie
         public static Task<(Dms ra, Dms dec)?> SolveFile(string path)
         {
             var filename = Path.GetFileName(path);
-            File.Copy(path, Path.Combine(_windowsFileDir, filename));
+            try
+            {
+                File.Copy(path, Path.Combine(_windowsFileDir, filename));
+            }
+            catch (FileNotFoundException)
+            {
+                return Task.FromResult<(Dms ra, Dms dec)?>(null);
+            }
             return SolveOne(filename);
         }
     }

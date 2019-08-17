@@ -13,14 +13,10 @@ namespace Scopie
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1);
         private readonly byte[] _readBuffer = new byte[1];
 
-        public static Mount Create()
+        public static Mount? Create()
         {
             var ports = SerialPort.GetPortNames();
-            if (ports.Length != 1)
-            {
-                return null;
-            }
-            return new Mount(ports[0]);
+            return ports.Length == 1 ? new Mount(ports[0]) : null;
         }
 
         public static string[] Ports() => SerialPort.GetPortNames();
@@ -37,14 +33,14 @@ namespace Scopie
 
         private async Task<string> Interact(string command)
         {
-            void Debug(string prefix, string value)
+            static void Debug(string prefix, string value)
             {
                 var nums = string.Join(", ", value.Select(c => (int)c));
                 if (value.Length > 0 && value.All(c => c >= 32 && c < 128))
                 {
-                    nums += " (" + value + ")";
+                    nums += $" ({value})";
                 }
-                Console.WriteLine(prefix + " " + nums);
+                Console.WriteLine($"{prefix} {nums}");
             }
 
             Task Write(string cmd)

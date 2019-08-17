@@ -7,16 +7,16 @@ namespace Scopie
 {
     public class Program
     {
-        static void Main(string[] args)
+        static void Main()
         {
-            QhyCcd camera = null;
-            Mount mount = null;
-            CameraDisplay display = null;
+            QhyCcd? camera = null;
+            Mount? mount = null;
+            CameraDisplay? display = null;
             while (true)
             {
                 Console.Write("> ");
                 Console.Out.Flush();
-                var cmd = Console.ReadLine().Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                var cmd = Console.ReadLine().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
                 if (cmd.Length == 0)
                 {
                     continue;
@@ -27,17 +27,18 @@ namespace Scopie
                 }
                 try
                 {
-                    if (camera != null)
+                    var ok = ReplMain(cmd, ref camera, ref mount);
+                    if (!ok && camera != null)
                     {
-                        ReplCamera(cmd, camera, ref display);
+                        ok = ReplCamera(cmd, camera, ref display);
                     }
-                    else if (mount != null)
+                    if (!ok && mount != null)
                     {
                         ReplMount(cmd, mount).Wait();
                     }
-                    else
+                    if (!ok)
                     {
-                        ReplMain(cmd, ref camera, ref mount);
+                        Console.WriteLine($"Unknown command {string.Join(" ", cmd)}");
                     }
                 }
                 catch (Exception e)
@@ -49,10 +50,68 @@ namespace Scopie
             camera?.Dispose();
         }
 
-        static void ReplMain(string[] cmd, ref QhyCcd camera, ref Mount mount)
+        public static void PrintSolved((Dms ra, Dms dec)? result)
+        {
+            if (result.HasValue)
+            {
+                var (ra, dec) = result.Value;
+                Console.WriteLine("Solved position (degrees):");
+                Console.WriteLine($"{ra.Degrees}d {dec.Degrees}d");
+                Console.WriteLine("Solved position (dms):");
+                Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Degrees)} {dec.ToDmsString(Dms.Unit.Degrees)}");
+                Console.WriteLine("Solved position (hms/dms):");
+                Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Hours)} {dec.ToDmsString(Dms.Unit.Degrees)}");
+            }
+            else
+            {
+                Console.WriteLine("Could not solve file position");
+            }
+        }
+
+        static bool ReplMain(string[] cmd, ref QhyCcd? camera, ref Mount? mount)
         {
             switch (cmd[0])
             {
+                case "help":
+                    Console.WriteLine("camera [index] - opens camera");
+                    Console.WriteLine("mount [serial port] - opens mount");
+                    Console.WriteLine("solve [filename] - solves file");
+
+                    if (camera != null)
+                    {
+                        Console.WriteLine("--- camera ---");
+                        Console.WriteLine("open - runs display");
+                        Console.WriteLine("save - saves image");
+                        Console.WriteLine("save [n] - saves next n images");
+                        Console.WriteLine("solve - plate-solve next image with ANSVR");
+                        Console.WriteLine("solve [filename] - plate-solve image with ANSVR");
+                        Console.WriteLine("controls - prints all controls");
+                        Console.WriteLine("[control name] - prints single control");
+                        Console.WriteLine("[control name] [value] - set control value");
+                    }
+
+                    if (mount != null)
+                    {
+                        Console.WriteLine("--- mount ---");
+                        Console.WriteLine("slew [ra] [dec] - slew to direction");
+                        Console.WriteLine("slewra [ra] - slow goto");
+                        Console.WriteLine("slewdec [dec] - slow goto");
+                        Console.WriteLine("cancel - cancel slew");
+                        Console.WriteLine("pos - get current direction");
+                        Console.WriteLine("setpos - overwrite current direction");
+                        Console.WriteLine("syncpos - sync/calibrate current direction");
+                        Console.WriteLine("azalt - get current az/alt");
+                        Console.WriteLine("azalt [az] [alt] - slew to az/alt");
+                        Console.WriteLine("track - get tracking mode");
+                        Console.WriteLine("track [value] - set tracking mode");
+                        Console.WriteLine("location - get lat/lon");
+                        Console.WriteLine("location [lat] [lon] - set lat/lon");
+                        Console.WriteLine("time - get mount's time");
+                        Console.WriteLine("time now - set mount's time to now");
+                        Console.WriteLine("aligned - get true/false if mount is aligned");
+                        Console.WriteLine("ping - ping mount, prints time it took");
+                    }
+                    break;
                 case "camera":
                     if (cmd.Length == 1)
                     {
@@ -119,8 +178,9 @@ namespace Scopie
                 case "solve":
                     if (cmd.Length == 2)
                     {
-                        //var task = PlateSolve.SolveFile(cmd[1]);
-                        Console.WriteLine("TODO");
+                        var task = PlateSolve.SolveFile(cmd[1]);
+                        SolveFile();
+                        async void SolveFile() => PrintSolved(await task);
                     }
                     else
                     {
@@ -128,31 +188,25 @@ namespace Scopie
                     }
                     break;
                 default:
-                    Console.WriteLine($"Unknown command {string.Join(" ", cmd)}");
-                    break;
+                    return false;
             }
+            return true;
         }
 
-        private static void ReplCamera(string[] cmd, QhyCcd camera, ref CameraDisplay cameraDisplay)
+        private static bool ReplCamera(string[] cmd, QhyCcd camera, ref CameraDisplay? cameraDisplay)
         {
             switch (cmd[0])
             {
-                case "help":
-                    Console.WriteLine("open - runs display");
-                    Console.WriteLine("save - saves image");
-                    Console.WriteLine("save [n] - saves next n images");
-                    Console.WriteLine("solve - plate-solve next image with ANSVR");
-                    Console.WriteLine("solve [filename] - plate-solve image with ANSVR");
-                    Console.WriteLine("controls - prints all controls");
-                    Console.WriteLine("[control name] - prints single control");
-                    Console.WriteLine("[control name] [value] - set control value");
-                    break;
                 case "open":
                     cameraDisplay = new CameraDisplay(camera);
                     cameraDisplay.Start();
                     break;
                 case "save":
-                    if (cmd.Length == 1)
+                    if (cameraDisplay == null)
+                    {
+                        goto default;
+                    }
+                    else if (cmd.Length == 1)
                     {
                         cameraDisplay.Save(1);
                     }
@@ -166,14 +220,19 @@ namespace Scopie
                     }
                     break;
                 case "solve":
-                    if (cmd.Length == 1)
+                    if (cameraDisplay == null)
+                    {
+                        goto default;
+                    }
+                    else if (cmd.Length == 1)
                     {
                         cameraDisplay.Solve();
                     }
                     else if (cmd.Length == 2)
                     {
                         var task = PlateSolve.SolveFile(cmd[1]);
-                        Console.WriteLine("TODO");
+                        SolveFile();
+                        async void SolveFile() => PrintSolved(await task);
                     }
                     else
                     {
@@ -201,36 +260,16 @@ namespace Scopie
                             control.Value = value;
                             break;
                         }
-                        Console.WriteLine($"Unknown command {string.Join(" ", cmd)}");
+                        return false;
                     }
-                    break;
             }
+            return true;
         }
 
-        private static async Task ReplMount(string[] cmd, Mount mount)
+        private static async Task<bool> ReplMount(string[] cmd, Mount mount)
         {
             switch (cmd[0])
             {
-                case "help":
-                    Console.WriteLine("slew [ra] [dec] - slew to direction");
-                    Console.WriteLine("slewra [ra] - slow goto");
-                    Console.WriteLine("slewdec [dec] - slow goto");
-                    Console.WriteLine("cancel - cancel slew");
-                    Console.WriteLine("pos - get current direction");
-                    Console.WriteLine("setpos - overwrite current direction");
-                    Console.WriteLine("syncpos - sync/calibrate current direction");
-                    Console.WriteLine("azalt - get current az/alt");
-                    Console.WriteLine("azalt [az] [alt] - slew to az/alt");
-                    Console.WriteLine("track - get tracking mode");
-                    Console.WriteLine("track [value] - set tracking mode");
-                    Console.WriteLine("location - get lat/lon");
-                    Console.WriteLine("location [lat] [lon] - set lat/lon");
-                    Console.WriteLine("time - get mount's time");
-                    Console.WriteLine("time now - set mount's time to now");
-                    Console.WriteLine("aligned - get true/false if mount is aligned");
-                    Console.WriteLine("ping - ping mount, prints time it took");
-                    Console.WriteLine("solve [filename] - plate-solve image with ANSVR");
-                    break;
                 case "slew":
                     {
                         cmd[1] = cmd[1].TrimEnd(',');
@@ -375,24 +414,14 @@ namespace Scopie
                 case "ping":
                     {
                         var timer = Stopwatch.StartNew();
-                        var res = await mount.Echo('p');
+                        _ = await mount.Echo('p');
                         Console.WriteLine($"{timer.ElapsedMilliseconds}ms");
                     }
                     break;
-                case "solve":
-                    if (cmd.Length == 2)
-                    {
-                        var task = PlateSolve.SolveFile(cmd[1]);
-                    }
-                    else
-                    {
-                        goto default;
-                    }
-                    break;
                 default:
-                    Console.WriteLine($"Unknown command {string.Join(" ", cmd)}");
-                    break;
+                    return false;
             }
+            return true;
         }
     }
 }

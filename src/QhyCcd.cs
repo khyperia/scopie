@@ -60,7 +60,9 @@ namespace Scopie
             _handle = QhyCcdDll.OpenQHYCCD(builder);
             _useLive = useLive;
             Init();
-            _controls = ((CONTROL_ID[])Enum.GetValues(typeof(CONTROL_ID))).Select(x => Control.Make(_handle, x)).Where(x => x != null).ToArray();
+            var control_ids = (CONTROL_ID[])Enum.GetValues(typeof(CONTROL_ID));
+            var controls = control_ids.Select(x => Control.Make(_handle, x));
+            _controls = controls.Where(x => x != null).ToArray()!;
         }
 
         public IReadOnlyList<Control> Controls => _controls;
@@ -101,7 +103,7 @@ namespace Scopie
             }
         }
 
-        public bool GetExposure(ref byte[] imgdata)
+        public bool GetExposure(ref byte[]? imgdata)
         {
             if (imgdata == null)
             {
@@ -170,17 +172,10 @@ namespace Scopie
             set => QhyCcdDll.SetQHYCCDParam(_cameraHandle, _id, value);
         }
 
-        public static Control Make(IntPtr cameraHandle, CONTROL_ID id)
+        public static Control? Make(IntPtr cameraHandle, CONTROL_ID id)
         {
             var okay = QhyCcdDll.IsQHYCCDControlAvailable(cameraHandle, id);
-            if (okay == 0)
-            {
-                return new Control(cameraHandle, id);
-            }
-            else
-            {
-                return null;
-            }
+            return okay == 0 ? new Control(cameraHandle, id) : null;
         }
 
         public override string ToString() => $"{Name} = {Value} ({_min}-{_max} by {_step})";
@@ -258,138 +253,138 @@ namespace Scopie
 
     static class QhyCcdDll
     {
-        private const string _dllName = "qhyccd_x64.dll";
+        private const string DLL_NAME = "qhyccd_x64.dll";
 
-        [DllImport(_dllName, EntryPoint = "InitQHYCCDResource",
+        [DllImport(DLL_NAME, EntryPoint = "InitQHYCCDResource",
             CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint InitQHYCCDResource();
 
-        [DllImport(_dllName, EntryPoint = "ReleaseQHYCCDResource",
+        [DllImport(DLL_NAME, EntryPoint = "ReleaseQHYCCDResource",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint ReleaseQHYCCDResource();
 
-        [DllImport(_dllName, EntryPoint = "ScanQHYCCD",
+        [DllImport(DLL_NAME, EntryPoint = "ScanQHYCCD",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint ScanQHYCCD();
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDId",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDId",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDId(int index, StringBuilder id);
 
-        [DllImport(_dllName, EntryPoint = "OpenQHYCCD",
+        [DllImport(DLL_NAME, EntryPoint = "OpenQHYCCD",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern IntPtr OpenQHYCCD(StringBuilder id);
 
-        [DllImport(_dllName, EntryPoint = "InitQHYCCD",
+        [DllImport(DLL_NAME, EntryPoint = "InitQHYCCD",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint InitQHYCCD(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "CloseQHYCCD",
+        [DllImport(DLL_NAME, EntryPoint = "CloseQHYCCD",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint CloseQHYCCD(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "SetQHYCCDBinMode",
+        [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDBinMode",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDBinMode(IntPtr handle, uint wbin, uint hbin);
 
-        [DllImport(_dllName, EntryPoint = "SetQHYCCDParam",
+        [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDParam",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDParam(IntPtr handle, CONTROL_ID controlid, double value);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDMemLength",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDMemLength",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDMemLength(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "ExpQHYCCDSingleFrame",
+        [DllImport(DLL_NAME, EntryPoint = "ExpQHYCCDSingleFrame",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint ExpQHYCCDSingleFrame(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "CancelQHYCCDExposing",
+        [DllImport(DLL_NAME, EntryPoint = "CancelQHYCCDExposing",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint CancelQHYCCDExposing(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "CancelQHYCCDExposingAndReadout",
+        [DllImport(DLL_NAME, EntryPoint = "CancelQHYCCDExposingAndReadout",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint CancelQHYCCDExposingAndReadout(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDSingleFrame",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDSingleFrame",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDSingleFrame(IntPtr handle, ref uint w, ref uint h, ref uint bpp, ref uint channels, [Out] byte[] rawArray);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDChipInfo",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDChipInfo",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDChipInfo(IntPtr handle, ref double chipw, ref double chiph, ref uint imagew, ref uint imageh, ref double pixelw, ref double pixelh, ref uint bpp);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDOverScanArea",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDOverScanArea",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDOverScanArea(IntPtr handle, ref uint startx, ref uint starty, ref uint sizex, ref uint sizey);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDEffectiveArea",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDEffectiveArea",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDEffectiveArea(IntPtr handle, ref uint startx, ref uint starty, ref uint sizex, ref uint sizey);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDFWVersion",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDFWVersion",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDFWVersion(IntPtr handle, [Out]byte[] verBuf);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDParam",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDParam",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern double GetQHYCCDParam(IntPtr handle, CONTROL_ID controlid);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDParamMinMaxStep",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDParamMinMaxStep",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDParamMinMaxStep(IntPtr handle, CONTROL_ID controlid, ref double min, ref double max, ref double step);
 
-        [DllImport(_dllName, EntryPoint = "ControlQHYCCDGuide",
+        [DllImport(DLL_NAME, EntryPoint = "ControlQHYCCDGuide",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint ControlQHYCCDGuide(IntPtr handle, byte Direction, ushort PulseTime);
 
-        [DllImport(_dllName, EntryPoint = "ControlQHYCCDTemp",
+        [DllImport(DLL_NAME, EntryPoint = "ControlQHYCCDTemp",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint ControlQHYCCDTemp(IntPtr handle, double targettemp);
 
-        [DllImport(_dllName, EntryPoint = "SendOrder2QHYCCDCFW",
+        [DllImport(DLL_NAME, EntryPoint = "SendOrder2QHYCCDCFW",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SendOrder2QHYCCDCFW(IntPtr handle, string order, int length);
 
-        [DllImport(_dllName, EntryPoint = "IsQHYCCDControlAvailable",
+        [DllImport(DLL_NAME, EntryPoint = "IsQHYCCDControlAvailable",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint IsQHYCCDControlAvailable(IntPtr handle, CONTROL_ID controlid);
 
-        [DllImport(_dllName, EntryPoint = "ControlQHYCCDShutter",
+        [DllImport(DLL_NAME, EntryPoint = "ControlQHYCCDShutter",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint ControlQHYCCDShutter(IntPtr handle, byte targettemp);
 
-        [DllImport(_dllName, EntryPoint = "SetQHYCCDResolution",
+        [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDResolution",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDResolution(IntPtr handle, uint startx, uint starty, uint sizex, uint sizey);
 
-        [DllImport(_dllName, EntryPoint = "SetQHYCCDStreamMode",
+        [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDStreamMode",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDStreamMode(IntPtr handle, uint mode);
 
         //EXPORTFUNC uint32_t STDCALL GetQHYCCDCFWStatus(qhyccd_handle *handle,char *status)
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDCFWStatus",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDCFWStatus",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDCFWStatus(IntPtr handle, StringBuilder cfwStatus);
 
-        [DllImport(_dllName, EntryPoint = "SetQHYCCDBitsMode",
+        [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDBitsMode",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDBitsMode(IntPtr handle, uint bits);
 
-        [DllImport(_dllName, EntryPoint = "BeginQHYCCDLive",
+        [DllImport(DLL_NAME, EntryPoint = "BeginQHYCCDLive",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint BeginQHYCCDLive(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "GetQHYCCDLiveFrame",
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDLiveFrame",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint GetQHYCCDLiveFrame(IntPtr handle, ref uint w, ref uint h, ref uint bpp, ref uint channels, [In, Out] byte[] imgdata);
 
-        [DllImport(_dllName, EntryPoint = "StopQHYCCDLive",
+        [DllImport(DLL_NAME, EntryPoint = "StopQHYCCDLive",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint StopQHYCCDLive(IntPtr handle);
 
-        [DllImport(_dllName, EntryPoint = "SetQHYCCDDebayerOnOff",
+        [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDDebayerOnOff",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDDebayerOnOff(IntPtr handle, bool onoff);
     }

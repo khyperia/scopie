@@ -30,7 +30,7 @@ namespace Scopie
             var minutes = (int)value;
             value = (value - minutes) * 60;
             var seconds = (int)value;
-            value = value - seconds;
+            value -= seconds;
             return (sign, degrees, minutes, seconds, value);
         }
 
@@ -109,14 +109,9 @@ namespace Scopie
             var unitMatch = match.Groups["unit"];
             if (unitMatch.Success)
             {
-                if (unitMatch.Value == "h" || unitMatch.Value == "H")
-                {
-                    dms = FromHms(isNegative, degrees, minutes, seconds);
-                }
-                else
-                {
-                    dms = FromDms(isNegative, degrees, minutes, seconds);
-                }
+                dms = unitMatch.Value == "h" || unitMatch.Value == "H"
+                    ? FromHms(isNegative, degrees, minutes, seconds)
+                    : FromDms(isNegative, degrees, minutes, seconds);
             }
             else
             {
@@ -125,7 +120,7 @@ namespace Scopie
                     dms = From0to1(rawValue);
                     if (rawValue < 0 || rawValue > 1)
                     {
-                        Console.WriteLine("Got a value outside [0,1] for raw value - did you mean to add a unit? e.g. " + s + "d for degrees");
+                        Console.WriteLine($"Got a value outside [0,1] for raw value - did you mean to add a unit? e.g. {s}d for degrees");
                         return false;
                     }
                 }
