@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
@@ -7,16 +8,24 @@ namespace Scopie
 {
     public class Program
     {
-        static void Main()
+        private static readonly HashSet<System.Windows.Forms.Keys> _pressedKeys = new HashSet<System.Windows.Forms.Keys>();
+        private static int _mountMoveSpeed = 1;
+        private static bool _live = false;
+        private static QhyCcd? _camera = null;
+        private static Mount? _mount = null;
+        private static CameraDisplay? _display = null;
+
+        private static void Main()
         {
-            QhyCcd? camera = null;
-            Mount? mount = null;
-            CameraDisplay? display = null;
             while (true)
             {
                 Console.Write("> ");
                 Console.Out.Flush();
-                var cmd = Console.ReadLine().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                var cmd = Console.ReadLine()?.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+                if (cmd == null)
+                {
+                    break;
+                }
                 if (cmd.Length == 0)
                 {
                     continue;
@@ -27,14 +36,14 @@ namespace Scopie
                 }
                 try
                 {
-                    var ok = ReplMain(cmd, ref camera, ref mount);
-                    if (!ok && camera != null)
+                    var ok = ReplMain(cmd, ref _camera, ref _mount);
+                    if (!ok && _camera != null)
                     {
-                        ok = ReplCamera(cmd, camera, ref display);
+                        ok = ReplCamera(cmd, _camera, ref _display);
                     }
-                    if (!ok && mount != null)
+                    if (!ok && _mount != null)
                     {
-                        ReplMount(cmd, mount).Wait();
+                        ok = ReplMount(cmd, _mount).Result;
                     }
                     if (!ok)
                     {
@@ -47,7 +56,7 @@ namespace Scopie
                     Console.WriteLine(e.ToString());
                 }
             }
-            camera?.Dispose();
+            _camera?.Dispose();
         }
 
         public static void PrintSolved((Dms ra, Dms dec)? result)
@@ -73,8 +82,14 @@ namespace Scopie
             switch (cmd[0])
             {
                 case "help":
-                    Console.WriteLine("camera [index] - opens camera");
-                    Console.WriteLine("mount [serial port] - opens mount");
+                    if (camera == null)
+                    {
+                        Console.WriteLine("camera [index] - opens camera");
+                    }
+                    if (mount == null)
+                    {
+                        Console.WriteLine("mount [serial port] - opens mount");
+                    }
                     Console.WriteLine("solve [filename] - solves file");
 
                     if (camera != null)
@@ -82,12 +97,18 @@ namespace Scopie
                         Console.WriteLine("--- camera ---");
                         Console.WriteLine("open - runs display");
                         Console.WriteLine("save - saves image");
+                        Console.WriteLine("zoom [soft|hard] - zooms image");
+                        Console.WriteLine("bin - toggles bin 2x2");
                         Console.WriteLine("save [n] - saves next n images");
                         Console.WriteLine("solve - plate-solve next image with ANSVR");
                         Console.WriteLine("solve [filename] - plate-solve image with ANSVR");
                         Console.WriteLine("controls - prints all controls");
                         Console.WriteLine("[control name] - prints single control");
                         Console.WriteLine("[control name] [value] - set control value");
+                    }
+                    else
+                    {
+                        Console.WriteLine("live - toggle usage of qhy live api");
                     }
 
                     if (mount != null)
@@ -111,9 +132,26 @@ namespace Scopie
                         Console.WriteLine("aligned - get true/false if mount is aligned");
                         Console.WriteLine("ping - ping mount, prints time it took");
                     }
+
+                    if (mount != null && camera != null)
+                    {
+                        Console.WriteLine("WASD (on camera display window) - fixed slew mount");
+                        Console.WriteLine("RF (on camera display window) - change fixed slew speed");
+                    }
+                    break;
+                case "live":
+                    if (camera == null && cmd.Length == 1)
+                    {
+                        _live = !_live;
+                        Console.WriteLine($"Use live camera: {_live}");
+                    }
+                    else
+                    {
+                        goto default;
+                    }
                     break;
                 case "camera":
-                    if (cmd.Length == 1)
+                    if (camera == null && cmd.Length == 1)
                     {
                         var numCameras = QhyCcd.NumCameras();
                         if (numCameras == 0)
@@ -122,7 +160,7 @@ namespace Scopie
                         }
                         else if (numCameras == 1)
                         {
-                            camera = new QhyCcd(false, 0);
+                            camera = new QhyCcd(_live, 0);
                             Console.WriteLine("One QHY camera found, automatically connected");
                         }
                         else
@@ -135,9 +173,9 @@ namespace Scopie
                             }
                         }
                     }
-                    else if (cmd.Length == 2 && int.TryParse(cmd[1], out var index))
+                    else if (camera == null && cmd.Length == 2 && int.TryParse(cmd[1], out var index))
                     {
-                        camera = new QhyCcd(false, index);
+                        camera = new QhyCcd(_live, index);
                     }
                     else
                     {
@@ -145,28 +183,25 @@ namespace Scopie
                     }
                     break;
                 case "mount":
-                    if (cmd.Length == 1)
+                    if (mount == null && cmd.Length == 1)
                     {
-                        mount = Mount.Create();
-                        if (mount == null)
+                        var ports = Mount.Ports();
+                        if (ports.Length == 0)
                         {
-                            var ports = Mount.Ports();
-                            if (ports.Length == 0)
-                            {
-                                Console.WriteLine("No serial ports");
-                            }
-                            else
-                            {
-                                Console.WriteLine("More than one serial ports:");
-                                Console.WriteLine(string.Join(", ", ports));
-                            }
+                            Console.WriteLine("No serial ports");
+                        }
+                        else if (ports.Length == 1)
+                        {
+                            Console.WriteLine($"One serial port, automatically connected to mount at port {ports[0]}");
+                            mount = new Mount(ports[0]);
                         }
                         else
                         {
-                            Console.WriteLine("One serial port, automatically connected to mount");
+                            Console.WriteLine("More than one serial ports:");
+                            Console.WriteLine(string.Join(", ", ports));
                         }
                     }
-                    else if (cmd.Length == 2)
+                    else if (mount == null && cmd.Length == 2)
                     {
                         mount = new Mount(cmd[1]);
                     }
@@ -180,7 +215,7 @@ namespace Scopie
                     {
                         var task = PlateSolve.SolveFile(cmd[1]);
                         SolveFile();
-                        async void SolveFile() => PrintSolved(await task);
+                        async void SolveFile() => PrintSolved(await task.ConfigureAwait(false));
                     }
                     else
                     {
@@ -198,8 +233,16 @@ namespace Scopie
             switch (cmd[0])
             {
                 case "open":
-                    cameraDisplay = new CameraDisplay(camera);
-                    cameraDisplay.Start();
+                    // TODO: Null check here isn't enough, have to check if closed
+                    if (cmd.Length == 1)
+                    {
+                        cameraDisplay = new CameraDisplay(camera);
+                        cameraDisplay.Start();
+                    }
+                    else
+                    {
+                        goto default;
+                    }
                     break;
                 case "save":
                     if (cameraDisplay == null)
@@ -232,7 +275,49 @@ namespace Scopie
                     {
                         var task = PlateSolve.SolveFile(cmd[1]);
                         SolveFile();
-                        async void SolveFile() => PrintSolved(await task);
+                        async void SolveFile() => PrintSolved(await task.ConfigureAwait(false));
+                    }
+                    else
+                    {
+                        goto default;
+                    }
+                    break;
+                case "bin":
+                    if (camera == null)
+                    {
+                        goto default;
+                    }
+                    else if (cmd.Length == 1)
+                    {
+                        camera.Bin = !camera.Bin;
+                        Console.WriteLine($"Bin: {camera.Bin}");
+                    }
+                    else
+                    {
+                        goto default;
+                    }
+                    break;
+                case "zoom":
+                    if (cameraDisplay != null && (cmd.Length == 1 || cmd.Length == 2 && cmd[1] == "soft"))
+                    {
+                        cameraDisplay.SoftZoom = !cameraDisplay.SoftZoom;
+                        Console.WriteLine($"Software Zoom: {cameraDisplay.SoftZoom}");
+                    }
+                    else if (camera != null && cmd.Length == 2 && cmd[1] == "hard")
+                    {
+                        camera.Zoom = !camera.Zoom;
+                        Console.WriteLine($"Hardware Zoom: {camera.Zoom}");
+                    }
+                    else
+                    {
+                        goto default;
+                    }
+                    break;
+                case "cross":
+                    if (cameraDisplay != null && cmd.Length == 1)
+                    {
+                        cameraDisplay.Cross = !cameraDisplay.Cross;
+                        Console.WriteLine($"Cross: {camera.Zoom}");
                     }
                     else
                     {
@@ -244,6 +329,36 @@ namespace Scopie
                         foreach (var control in camera.Controls)
                         {
                             Console.WriteLine(control.ToString());
+                        }
+                    }
+                    break;
+                case "exposure":
+                    {
+                        if (cmd.Length == 1)
+                        {
+                            foreach (var control in camera.Controls)
+                            {
+                                if (control.Id == CONTROL_ID.CONTROL_EXPOSURE)
+                                {
+                                    var exposureUs = control.Value;
+                                    var exposureSeconds = exposureUs / 1_000_000;
+                                    Console.WriteLine($"Exposure: {exposureSeconds} seconds");
+                                }
+                            }
+                        }
+                        else if (cmd.Length == 2 && double.TryParse(cmd[1], out var exposureSeconds))
+                        {
+                            foreach (var control in camera.Controls)
+                            {
+                                if (control.Id == CONTROL_ID.CONTROL_EXPOSURE)
+                                {
+                                    control.Value = exposureSeconds * 1_000_000;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            goto default;
                         }
                     }
                     break;
@@ -275,7 +390,7 @@ namespace Scopie
                         cmd[1] = cmd[1].TrimEnd(',');
                         if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var ra) && Dms.TryParse(cmd[2], out var dec))
                         {
-                            await mount.Slew(ra, dec);
+                            await mount.Slew(ra, dec).ConfigureAwait(false);
                         }
                         else
                         {
@@ -287,7 +402,7 @@ namespace Scopie
                     {
                         if (cmd.Length == 2 && Dms.TryParse(cmd[1], out var ra))
                         {
-                            await mount.SlowGotoRA(ra);
+                            await mount.SlowGotoRA(ra).ConfigureAwait(false);
                         }
                         else
                         {
@@ -299,7 +414,7 @@ namespace Scopie
                     {
                         if (cmd.Length == 2 && Dms.TryParse(cmd[1], out var ra))
                         {
-                            await mount.SlowGotoDec(ra);
+                            await mount.SlowGotoDec(ra).ConfigureAwait(false);
                         }
                         else
                         {
@@ -308,11 +423,11 @@ namespace Scopie
                     }
                     break;
                 case "cancel":
-                    await mount.CancelSlew();
+                    await mount.CancelSlew().ConfigureAwait(false);
                     break;
                 case "pos":
                     {
-                        var (ra, dec) = await mount.GetRaDec();
+                        var (ra, dec) = await mount.GetRaDec().ConfigureAwait(false);
                         Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Hours)}, {dec.ToDmsString(Dms.Unit.Degrees)}");
                     }
                     break;
@@ -321,8 +436,8 @@ namespace Scopie
                         cmd[1] = cmd[1].TrimEnd(',');
                         if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var ra) && Dms.TryParse(cmd[2], out var dec))
                         {
-                            await mount.ResetRA(ra);
-                            await mount.ResetDec(dec);
+                            await mount.ResetRA(ra).ConfigureAwait(false);
+                            await mount.ResetDec(dec).ConfigureAwait(false);
                         }
                         else
                         {
@@ -335,7 +450,7 @@ namespace Scopie
                         cmd[1] = cmd[1].TrimEnd(',');
                         if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var ra) && Dms.TryParse(cmd[2], out var dec))
                         {
-                            await mount.OverwriteRaDec(ra, dec);
+                            await mount.OverwriteRaDec(ra, dec).ConfigureAwait(false);
                         }
                         else
                         {
@@ -346,12 +461,12 @@ namespace Scopie
                 case "azalt":
                     if (cmd.Length == 1)
                     {
-                        var (az, alt) = await mount.GetAzAlt();
+                        var (az, alt) = await mount.GetAzAlt().ConfigureAwait(false);
                         Console.WriteLine($"{az.ToDmsString(Dms.Unit.Degrees)}, {alt.ToDmsString(Dms.Unit.Degrees)}");
                     }
                     else if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var az) && Dms.TryParse(cmd[2], out var alt))
                     {
-                        await mount.SlewAzAlt(az, alt);
+                        await mount.SlewAzAlt(az, alt).ConfigureAwait(false);
                     }
                     else
                     {
@@ -361,13 +476,13 @@ namespace Scopie
                 case "track":
                     if (cmd.Length == 1)
                     {
-                        var track = await mount.GetTrackingMode();
+                        var track = await mount.GetTrackingMode().ConfigureAwait(false);
                         Console.WriteLine($"Mode: {track}");
                         Console.WriteLine($"(available: {string.Join(", ", (Mount.TrackingMode[])Enum.GetValues(typeof(Mount.TrackingMode)))})");
                     }
                     else if (cmd.Length == 2 && Enum.TryParse<Mount.TrackingMode>(cmd[1], out var mode))
                     {
-                        await mount.SetTrackingMode(mode);
+                        await mount.SetTrackingMode(mode).ConfigureAwait(false);
                     }
                     else
                     {
@@ -377,12 +492,12 @@ namespace Scopie
                 case "location":
                     if (cmd.Length == 1)
                     {
-                        var (lat, lon) = await mount.GetLocation();
+                        var (lat, lon) = await mount.GetLocation().ConfigureAwait(false);
                         Console.WriteLine($"{lat.ToDmsString(Dms.Unit.Degrees)}, {lon.ToDmsString(Dms.Unit.Degrees)}");
                     }
                     else if (cmd.Length == 3 && Dms.TryParse(cmd[1], out var lat) && Dms.TryParse(cmd[2], out var lon))
                     {
-                        await mount.SetLocation(lat, lon);
+                        await mount.SetLocation(lat, lon).ConfigureAwait(false);
                     }
                     else
                     {
@@ -393,12 +508,12 @@ namespace Scopie
                     if (cmd.Length == 1)
                     {
                         var now_one = DateTime.Now;
-                        var time = await mount.GetTime();
+                        var time = await mount.GetTime().ConfigureAwait(false);
                         Console.WriteLine($"Mount time: {time} (off by {now_one - time})");
                     }
                     else if (cmd.Length == 2 && cmd[1] == "now")
                     {
-                        await mount.SetTime(DateTime.Now);
+                        await mount.SetTime(DateTime.Now).ConfigureAwait(false);
                     }
                     else
                     {
@@ -407,14 +522,14 @@ namespace Scopie
                     break;
                 case "aligned":
                     {
-                        var aligned = await mount.IsAligned();
+                        var aligned = await mount.IsAligned().ConfigureAwait(false);
                         Console.WriteLine($"IsAligned: {aligned}");
                     }
                     break;
                 case "ping":
                     {
                         var timer = Stopwatch.StartNew();
-                        _ = await mount.Echo('p');
+                        _ = await mount.Echo('p').ConfigureAwait(false);
                         Console.WriteLine($"{timer.ElapsedMilliseconds}ms");
                     }
                     break;
@@ -422,6 +537,98 @@ namespace Scopie
                     return false;
             }
             return true;
+        }
+
+        public static async Task OnActiveSolve(Dms ra, Dms dec)
+        {
+            if (_mount != null)
+            {
+                Console.WriteLine("Setting mount's RA/Dec");
+                await _mount.OverwriteRaDec(ra, dec).ConfigureAwait(false);
+            }
+        }
+
+        public static async Task Wasd(System.Windows.Forms.KeyEventArgs key, bool pressed)
+        {
+            if (_mount != null)
+            {
+                await Wasd(_mount, key, pressed).ConfigureAwait(false);
+            }
+        }
+
+        public static async Task Wasd(Mount mount, System.Windows.Forms.KeyEventArgs key, bool pressed)
+        {
+            if (pressed)
+            {
+                if (!_pressedKeys.Add(key.KeyCode))
+                {
+                    return;
+                }
+            }
+            else
+            {
+                if (!_pressedKeys.Remove(key.KeyCode))
+                {
+                    return;
+                }
+            }
+            switch (key.KeyCode)
+            {
+                case System.Windows.Forms.Keys.W:
+                    if (pressed)
+                    {
+                        await mount.FixedSlewDec(_mountMoveSpeed).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await mount.FixedSlewDec(0).ConfigureAwait(false);
+                    }
+                    break;
+                case System.Windows.Forms.Keys.S:
+                    if (pressed)
+                    {
+                        await mount.FixedSlewDec(-_mountMoveSpeed).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await mount.FixedSlewDec(0).ConfigureAwait(false);
+                    }
+                    break;
+                case System.Windows.Forms.Keys.A:
+                    if (pressed)
+                    {
+                        await mount.FixedSlewRA(_mountMoveSpeed).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await mount.FixedSlewRA(0).ConfigureAwait(false);
+                    }
+                    break;
+                case System.Windows.Forms.Keys.D:
+                    if (pressed)
+                    {
+                        await mount.FixedSlewRA(-_mountMoveSpeed).ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        await mount.FixedSlewRA(0).ConfigureAwait(false);
+                    }
+                    break;
+                case System.Windows.Forms.Keys.R:
+                    if (pressed)
+                    {
+                        _mountMoveSpeed = Math.Min(Math.Max(_mountMoveSpeed + 1, 1), 9);
+                        Console.WriteLine($"Mount move speed: {_mountMoveSpeed}");
+                    }
+                    break;
+                case System.Windows.Forms.Keys.F:
+                    if (pressed)
+                    {
+                        _mountMoveSpeed = Math.Min(Math.Max(_mountMoveSpeed - 1, 1), 9);
+                        Console.WriteLine($"Mount move speed: {_mountMoveSpeed}");
+                    }
+                    break;
+            }
         }
     }
 }

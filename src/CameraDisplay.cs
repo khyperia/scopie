@@ -11,7 +11,7 @@ using System.Windows.Forms;
 
 namespace Scopie
 {
-    class CameraDisplay
+    class CameraDisplay : IDisposable
     {
         class DoubleBufferedForm : Form
         {
@@ -21,22 +21,31 @@ namespace Scopie
             }
         }
 
+        private const PixelFormat PIXEL_FORMAT = PixelFormat.Format32bppRgb;
+
         private readonly QhyCcd _camera;
         private readonly Form _form;
-        private readonly Bitmap _bitmap;
+
+        private Bitmap? _bitmap;
+
         private string _status;
         private int _save;
         private bool _solve;
         private Task? _solveTask;
 
+        public const int ZOOM_AMOUNT = 10;
+
+        public bool HardZoom { get => _camera.Zoom; set => _camera.Zoom = value; }
+        public bool SoftZoom { get; set; }
+        public bool Cross { get; internal set; }
+
         public CameraDisplay(QhyCcd camera)
         {
             _camera = camera;
             _form = new DoubleBufferedForm();
+            _form.KeyDown += async (o, e) => await Program.Wasd(e, true).ConfigureAwait(false);
+            _form.KeyUp += async (o, e) => await Program.Wasd(e, false).ConfigureAwait(false);
             _status = "starting...";
-            Console.WriteLine(camera.Width);
-            Console.WriteLine(camera.Height);
-            _bitmap = new Bitmap(camera.Width, camera.Height, PixelFormat.Format32bppArgb);
             _form.Paint += OnPaint;
         }
 
@@ -60,15 +69,26 @@ namespace Scopie
 
         private void OnPaint(object sender, PaintEventArgs e)
         {
-            var calcWidth = _form.Height * _bitmap.Width / _bitmap.Height;
-            var calcHeight = _form.Width * _bitmap.Height / _bitmap.Width;
-            var realWidth = Math.Min(_form.Width, calcWidth);
-            var realHeight = Math.Min(_form.Height, calcHeight);
-            e.Graphics.DrawImage(_bitmap, new Rectangle(0, 0, realWidth, realHeight));
-            e.Graphics.DrawString(_status, SystemFonts.DefaultFont, Brushes.Red, 1, 1);
+            if (_bitmap != null)
+            {
+                var calcWidth = _form.Height * _bitmap.Width / _bitmap.Height;
+                var calcHeight = _form.Width * _bitmap.Height / _bitmap.Width;
+                var realWidth = Math.Min(_form.Width, calcWidth);
+                var realHeight = Math.Min(_form.Height, calcHeight);
+                e.Graphics.DrawImage(_bitmap, new Rectangle(0, 0, realWidth, realHeight));
+                if (Cross)
+                {
+                    e.Graphics.DrawLine(Pens.Red, realWidth / 2, 0, realWidth / 2, realHeight);
+                    e.Graphics.DrawLine(Pens.Red, 0, realHeight / 2, realWidth, realHeight / 2);
+                }
+            }
+            if (!string.IsNullOrEmpty(_status))
+            {
+                e.Graphics.DrawString(_status, SystemFonts.DefaultFont, Brushes.Red, 1, 1);
+            }
         }
 
-        private double Mean(ushort[] data)
+        private static double Mean(ushort[] data)
         {
             var sum = 0.0;
             foreach (var datum in data)
@@ -78,23 +98,45 @@ namespace Scopie
             return sum / data.Length;
         }
 
-        private double Stdev(ushort[] data, double mean)
+        private static double Stdev(ushort[] data, double mean)
         {
             var sum = 0.0;
             foreach (var datum in data)
             {
-                var diff = (datum - mean);
+                var diff = datum - mean;
                 sum += diff * diff;
             }
             return Math.Sqrt(sum / data.Length);
         }
 
-        private int[] ProcessImage(ushort[] data)
+        private static void DoZoom(ref Frame frame, ref ushort[]? dataZoom)
         {
-            var start = Stopwatch.StartNew();
+            var widthZoom = frame.Width / ZOOM_AMOUNT;
+            var heightZoom = frame.Height / ZOOM_AMOUNT;
+            if (dataZoom == null || dataZoom.Length != widthZoom * heightZoom)
+            {
+                dataZoom = new ushort[widthZoom * heightZoom];
+            }
+            var xstart = frame.Width / 2 - widthZoom / 2;
+            var ystart = frame.Height / 2 - heightZoom / 2;
+            for (var y = 0; y < heightZoom; y++)
+            {
+                for (var x = 0; x < widthZoom; x++)
+                {
+                    dataZoom[y * widthZoom + x] = frame.Imgdata[(y + ystart) * frame.Width + (x + xstart)];
+                }
+            }
+            frame = new Frame(dataZoom, widthZoom, heightZoom);
+        }
+
+        private static void ProcessImage(ushort[] data, ref int[]? pixels, out string status)
+        {
             var mean = Mean(data);
             var stdev = Stdev(data, mean);
-            var pixels = new int[data.Length];
+            if (pixels == null || pixels.Length != data.Length)
+            {
+                pixels = new int[data.Length];
+            }
 
             // ((x - mean) / (stdev * size) + 0.5) * 255
             // ((x / (stdev * size) - mean / (stdev * size)) + 0.5) * 255
@@ -111,28 +153,31 @@ namespace Scopie
                 pixels[i] = (value << 16) | (value << 8) | value;
             }
 
-            var procMs = start.ElapsedMilliseconds;
-            _status = $"Time to proc: {procMs}\nmean: {mean:f3}\nstdev: {stdev:f3}";
-            return pixels;
+            status = $"mean: {mean:f3} ({mean * (100.0 / ushort.MaxValue):f3}%)\nstdev: {stdev:f3}";
         }
 
-        private void ProcessSolve(ushort[] rawShortPixels)
+        private void TryWaitSolveTask()
         {
-            if (_solveTask != null && (_solveTask.IsCompleted || _solveTask.IsFaulted || _solveTask.IsCanceled))
+            if (_solveTask != null && _solveTask.IsCompleted)
             {
                 _solveTask.Wait();
                 _solveTask = null;
             }
+        }
+
+        private void ProcessSolve(Frame frame)
+        {
+            TryWaitSolveTask();
             if (_solve && _solveTask == null)
             {
                 _solve = false;
-                _solveTask = DoSolve(rawShortPixels, _camera.Width, _camera.Height);
+                _solveTask = DoSolve(frame);
             }
         }
 
-        private async Task DoSolve(ushort[] pixels, int width, int height)
+        private async Task DoSolve(Frame frame)
         {
-            var result = await PlateSolve.Solve(pixels, width, height);
+            var result = await PlateSolve.Solve(frame).ConfigureAwait(false);
             if (result.HasValue)
             {
                 var (ra, dec) = result.Value;
@@ -142,6 +187,7 @@ namespace Scopie
                 Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Degrees)} {dec.ToDmsString(Dms.Unit.Degrees)}");
                 Console.WriteLine("Solved position (hms/dms):");
                 Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Hours)} {dec.ToDmsString(Dms.Unit.Degrees)}");
+                await Program.OnActiveSolve(ra, dec).ConfigureAwait(false);
             }
             else
             {
@@ -152,46 +198,73 @@ namespace Scopie
         private void DoImage()
         {
             _camera.StartExposure();
-            byte[]? rawBytePixels = null;
+            int[]? _bitmapPixels = null;
+            ushort[]? _imageDataZoom = null;
+            var stopwatch = Stopwatch.StartNew();
             while (true)
             {
-                while (!_camera.GetExposure(ref rawBytePixels) || rawBytePixels == null) { }
-                var rawShortPixels = new ushort[rawBytePixels.Length / 2];
-                Buffer.BlockCopy(rawBytePixels, 0, rawShortPixels, 0, rawBytePixels.Length);
+                TryWaitSolveTask();
+
+                stopwatch.Restart();
+                var frame = _camera.GetExposure();
+                var timeToExpose = stopwatch.ElapsedMilliseconds;
+                stopwatch.Restart();
+
                 if (_save > 0)
                 {
                     _save--;
-                    SaveImage(rawShortPixels, _camera.Width, _camera.Height);
+                    SaveImage(frame);
                 }
-                ProcessSolve(rawShortPixels);
-                var pixels = ProcessImage(rawShortPixels);
-                try
+                ProcessSolve(frame);
+                if (SoftZoom)
                 {
-                    _form.BeginInvoke((Action)(() =>
-                    {
-                        var locked = _bitmap.LockBits(new Rectangle(0, 0, _bitmap.Width, _bitmap.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
-                        Marshal.Copy(pixels, 0, locked.Scan0, locked.Width * locked.Height);
-                        _bitmap.UnlockBits(locked);
-                        _form.Invalidate();
-                    }));
+                    DoZoom(ref frame, ref _imageDataZoom);
                 }
-                catch
+                ProcessImage(frame.Imgdata, ref _bitmapPixels, out var processStatus);
+                if (_bitmapPixels != null && !SetBitmap(_bitmapPixels, (int)frame.Width, (int)frame.Height))
                 {
-                    // form is closed
                     break;
                 }
+
+                var procMs = stopwatch.ElapsedMilliseconds;
+                _status = $"Time to expose: {timeToExpose} ms\nTime to proc: {procMs} ms\n{processStatus}";
             }
             _camera.StopExposure();
+            Console.WriteLine("Camera loop shut down");
         }
 
-        private static void SaveImage(ushort[] pixels, int width, int height)
+        private bool SetBitmap(int[] rgbPixels, int width, int height)
         {
-            var greyPixels = new Gray<ushort>[height, width];
-            for (var y = 0; y < height; y++)
+            try
             {
-                for (var x = 0; x < width; x++)
+                _form.BeginInvoke((Action)(() =>
                 {
-                    greyPixels[y, x] = pixels[y * width + x];
+                    if (_bitmap == null || _bitmap.Width != width || _bitmap.Height != height)
+                    {
+                        _bitmap = new Bitmap(width, height, PIXEL_FORMAT);
+                    }
+                    var locked = _bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PIXEL_FORMAT);
+                    Marshal.Copy(rgbPixels, 0, locked.Scan0, locked.Width * locked.Height);
+                    _bitmap.UnlockBits(locked);
+                    _form.Invalidate();
+                }));
+                return true;
+            }
+            catch
+            {
+                // form is closed
+                return false;
+            }
+        }
+
+        private static void SaveImage(Frame frame)
+        {
+            var greyPixels = new Gray<ushort>[frame.Height, frame.Width];
+            for (var y = 0; y < frame.Height; y++)
+            {
+                for (var x = 0; x < frame.Width; x++)
+                {
+                    greyPixels[y, x] = frame.Imgdata[y * frame.Width + x];
                 }
             }
             var filename = GetNextImageFilename();
@@ -212,6 +285,15 @@ namespace Scopie
             }
             // @jaredpar, this race condition is for you <3
             return filename;
+        }
+
+        public void Dispose()
+        {
+            if (_bitmap != null)
+            {
+                _bitmap.Dispose();
+            }
+            _form.Dispose();
         }
     }
 }

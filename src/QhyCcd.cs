@@ -7,23 +7,31 @@ using System.Text;
 
 namespace Scopie
 {
+    struct Frame
+    {
+        public ushort[] Imgdata;
+        public uint Width;
+        public uint Height;
+
+        public Frame(ushort[] imgdata, uint width, uint height)
+        {
+            Imgdata = imgdata;
+            Width = width;
+            Height = height;
+        }
+    }
+
     class QhyCcd : IDisposable
     {
         private readonly string _name;
         private readonly IntPtr _handle;
         private readonly Control[] _controls;
         private readonly bool _useLive;
-        private double _chipWidth;
-        private double _chipHeight;
-        private uint _width;
-        private uint _height;
-        private double _pixelWidth;
-        private double _pixelHeight;
-        private uint _bpp;
-        private uint _channels = 1;
+        private uint _originalWidth;
+        private uint _originalHeight;
 
-        internal int Width => (int)_width;
-        internal int Height => (int)_height;
+        private byte[]? _imgdataByte;
+        private ushort[]? _imgdataShort;
 
         private static void Check(uint result, [CallerMemberName] string name = "", [CallerFilePath] string filePath = "", [CallerLineNumber] int line = 0)
         {
@@ -67,17 +75,44 @@ namespace Scopie
 
         public IReadOnlyList<Control> Controls => _controls;
 
+        private bool _zoomChanged;
+        private bool _zoom;
+
+        public bool Zoom
+        {
+            get => _zoom;
+            set
+            {
+                _zoomChanged = true;
+                _zoom = value;
+            }
+        }
+
+        private bool _binChanged;
+        private bool _bin;
+
+        public bool Bin
+        {
+            get => _bin;
+            set
+            {
+                _binChanged = true;
+                _bin = value;
+            }
+        }
+
         private void Init()
         {
+            uint bpp = 0;
+            double chipWidth = 0, chipHeight = 0, pixelWidth = 0, pixelHeight = 0;
             Check(QhyCcdDll.SetQHYCCDStreamMode(_handle, _useLive ? 1U : 0U)); // 0 == single, 1 == stream
             Check(QhyCcdDll.InitQHYCCD(_handle));
-            Check(QhyCcdDll.GetQHYCCDChipInfo(_handle, ref _chipWidth, ref _chipHeight, ref _width, ref _height, ref _pixelWidth, ref _pixelHeight, ref _bpp));
-            Console.WriteLine($"chip name: {_name}, chip width: {_chipWidth}, chip height: {_chipHeight}, image width: {_width}, image height: {_height}, pixel width: {_pixelWidth}, pixel height: {_pixelHeight}, bits per pixel: {_bpp}");
+            Check(QhyCcdDll.GetQHYCCDChipInfo(_handle, ref chipWidth, ref chipHeight, ref _originalWidth, ref _originalHeight, ref pixelWidth, ref pixelHeight, ref bpp));
+            Console.WriteLine($"chip name: {_name}, chip width: {chipWidth}, chip height: {chipHeight}, image width: {_originalWidth}, image height: {_originalHeight}, pixel width: {pixelWidth}, pixel height: {pixelHeight}, bits per pixel: {bpp}");
             Check(QhyCcdDll.IsQHYCCDControlAvailable(_handle, CONTROL_ID.CONTROL_TRANSFERBIT));
             Check(QhyCcdDll.SetQHYCCDBitsMode(_handle, 16));
-            _bpp = 16;
             Check(QhyCcdDll.SetQHYCCDBinMode(_handle, 1, 1));
-            Check(QhyCcdDll.SetQHYCCDResolution(_handle, 0, 0, _width, _height));
+            Check(QhyCcdDll.SetQHYCCDResolution(_handle, 0, 0, _originalWidth, _originalHeight));
         }
 
         private void ExpSingleFrame()
@@ -103,35 +138,79 @@ namespace Scopie
             }
         }
 
-        public bool GetExposure(ref byte[]? imgdata)
+        private void DoZoomAdjustment()
         {
-            if (imgdata == null)
+            if (_zoomChanged || _binChanged)
             {
-                var mem_len = QhyCcdDll.GetQHYCCDMemLength(_handle);
-                imgdata = new byte[mem_len];
-            }
-            if (_useLive)
-            {
-                var res = QhyCcdDll.GetQHYCCDLiveFrame(_handle, ref _width, ref _height, ref _bpp, ref _channels, imgdata);
-                if (res == uint.MaxValue)
+                Console.WriteLine("Changing zoom and/or bin");
+                var bin = _bin ? 2u : 1;
+                if (_zoom)
                 {
-                    return false;
-                }
-                else if (res == 0)
-                {
-                    return true;
+                    var zoom_amount = CameraDisplay.ZOOM_AMOUNT / bin;
+                    var widthZoom = _originalWidth / (bin * zoom_amount);
+                    var heightZoom = _originalHeight / (bin * zoom_amount);
+                    var xstart = _originalWidth / (bin * 2) - widthZoom / 2;
+                    var ystart = _originalHeight / (bin * 2) - heightZoom / 2;
+                    Check(QhyCcdDll.SetQHYCCDResolution(_handle, xstart, ystart, widthZoom, heightZoom));
+                    Check(QhyCcdDll.SetQHYCCDBinMode(_handle, bin, bin));
                 }
                 else
                 {
-                    throw new Exception($"Unknown error in GetQHYCCDLiveFrame: {res}");
+                    var width = _originalWidth / bin;
+                    var height = _originalHeight / bin;
+                    Check(QhyCcdDll.SetQHYCCDBinMode(_handle, bin, bin));
+                    Check(QhyCcdDll.SetQHYCCDResolution(_handle, 0, 0, width, height));
+                }
+                _zoomChanged = false;
+                _binChanged = false;
+            }
+        }
+
+        public Frame GetExposure()
+        {
+            uint width = 0, height = 0, bpp = 0, channels = 0;
+            if (_useLive)
+            {
+                DoZoomAdjustment();
+            }
+
+            var mem_len = QhyCcdDll.GetQHYCCDMemLength(_handle);
+            if (_imgdataByte == null || _imgdataByte.Length != mem_len)
+            {
+                _imgdataByte = new byte[mem_len];
+            }
+            if (_useLive)
+            {
+                while (true)
+                {
+                    var res = QhyCcdDll.GetQHYCCDLiveFrame(_handle, ref width, ref height, ref bpp, ref channels, _imgdataByte);
+                    if (res == uint.MaxValue)
+                    {
+                        continue;
+                    }
+                    else if (res == 0)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        throw new Exception($"Unknown error in GetQHYCCDLiveFrame: {res}");
+                    }
                 }
             }
             else
             {
-                Check(QhyCcdDll.GetQHYCCDSingleFrame(_handle, ref _width, ref _height, ref _bpp, ref _channels, imgdata));
+                Check(QhyCcdDll.GetQHYCCDSingleFrame(_handle, ref width, ref height, ref bpp, ref channels, _imgdataByte));
+                DoZoomAdjustment();
                 ExpSingleFrame();
-                return true;
             }
+
+            if (_imgdataShort == null || _imgdataShort.Length != width * height)
+            {
+                _imgdataShort = new ushort[width * height];
+            }
+            Buffer.BlockCopy(_imgdataByte, 0, _imgdataShort, 0, (int)width * (int)height * 2);
+            return new Frame(_imgdataShort, width, height);
         }
 
         public void StopExposure()
@@ -152,7 +231,6 @@ namespace Scopie
     class Control
     {
         private readonly IntPtr _cameraHandle;
-        private readonly CONTROL_ID _id;
         private readonly double _min;
         private readonly double _max;
         private readonly double _step;
@@ -160,16 +238,17 @@ namespace Scopie
         private Control(IntPtr cameraHandle, CONTROL_ID id)
         {
             _cameraHandle = cameraHandle;
-            _id = id;
+            Id = id;
             QhyCcdDll.GetQHYCCDParamMinMaxStep(cameraHandle, id, ref _min, ref _max, ref _step);
         }
 
-        public string Name => _id.ToString().ToLower();
+        public CONTROL_ID Id { get; }
+        public string Name => Id.ToString().ToLower();
 
         public double Value
         {
-            get => QhyCcdDll.GetQHYCCDParam(_cameraHandle, _id);
-            set => QhyCcdDll.SetQHYCCDParam(_cameraHandle, _id, value);
+            get => QhyCcdDll.GetQHYCCDParam(_cameraHandle, Id);
+            set => QhyCcdDll.SetQHYCCDParam(_cameraHandle, Id, value);
         }
 
         public static Control? Make(IntPtr cameraHandle, CONTROL_ID id)
@@ -256,7 +335,7 @@ namespace Scopie
         private const string DLL_NAME = "qhyccd_x64.dll";
 
         [DllImport(DLL_NAME, EntryPoint = "InitQHYCCDResource",
-            CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+         CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint InitQHYCCDResource();
 
         [DllImport(DLL_NAME, EntryPoint = "ReleaseQHYCCDResource",
@@ -325,7 +404,7 @@ namespace Scopie
 
         [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDFWVersion",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
-        public static extern uint GetQHYCCDFWVersion(IntPtr handle, [Out]byte[] verBuf);
+        public static extern uint GetQHYCCDFWVersion(IntPtr handle, [Out] byte[] verBuf);
 
         [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDParam",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
@@ -387,5 +466,9 @@ namespace Scopie
         [DllImport(DLL_NAME, EntryPoint = "SetQHYCCDDebayerOnOff",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
         public static extern uint SetQHYCCDDebayerOnOff(IntPtr handle, bool onoff);
+
+        [DllImport(DLL_NAME, EntryPoint = "GetQHYCCDSDKVersion",
+           CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]
+        public static extern uint GetQHYCCDSDKVersion(ref uint year, ref uint month, ref uint day, ref uint subday);
     }
 }

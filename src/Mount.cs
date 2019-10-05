@@ -33,6 +33,7 @@ namespace Scopie
 
         private async Task<string> Interact(string command)
         {
+            /*
             static void Debug(string prefix, string value)
             {
                 var nums = string.Join(", ", value.Select(c => (int)c));
@@ -42,10 +43,11 @@ namespace Scopie
                 }
                 Console.WriteLine($"{prefix} {nums}");
             }
+            */
 
             Task Write(string cmd)
             {
-                Debug("  >", cmd);
+                //Debug("  >", cmd);
                 var array = new byte[cmd.Length];
                 var i = 0;
                 foreach (var chr in cmd)
@@ -60,7 +62,7 @@ namespace Scopie
                 var builder = new StringBuilder();
                 while (true)
                 {
-                    var length = await _port.BaseStream.ReadAsync(_readBuffer, 0, 1);
+                    var length = await _port.BaseStream.ReadAsync(_readBuffer, 0, 1).ConfigureAwait(false);
                     var data = (char)_readBuffer[0];
                     // all responses end with #
                     if (length <= 0 || data == '#')
@@ -70,15 +72,15 @@ namespace Scopie
                     builder.Append(data);
                 }
                 var result = builder.ToString();
-                Debug("  <", result);
+                // Debug("  <", result);
                 return result;
             }
 
-            await _semaphore.WaitAsync();
+            await _semaphore.WaitAsync().ConfigureAwait(false);
             try
             {
-                await Write(command);
-                return await ReadLine();
+                await Write(command).ConfigureAwait(false);
+                return await ReadLine().ConfigureAwait(false);
             }
             finally
             {
@@ -88,7 +90,7 @@ namespace Scopie
 
         public async Task<(Dms, Dms)> GetRaDec()
         {
-            var line = await Interact("e");
+            var line = await Interact("e").ConfigureAwait(false);
             var split = line.Split(',');
             if (split.Length != 2)
             {
@@ -108,7 +110,7 @@ namespace Scopie
 
         public async Task OverwriteRaDec(Dms ra, Dms dec)
         {
-            var res = await Interact($"s{ToMountHex(ra)},{ToMountHex(dec)}");
+            var res = await Interact($"s{ToMountHex(ra)},{ToMountHex(dec)}").ConfigureAwait(false);
             if (res != "")
             {
                 throw new Exception($"Overwrite RA/DEC failed: {res}");
@@ -117,7 +119,7 @@ namespace Scopie
 
         public async Task Slew(Dms ra, Dms dec)
         {
-            var res = await Interact($"r{ToMountHex(ra)},{ToMountHex(dec)}");
+            var res = await Interact($"r{ToMountHex(ra)},{ToMountHex(dec)}").ConfigureAwait(false);
             if (res != "")
             {
                 throw new Exception($"Slew RA/DEC failed: {res}");
@@ -126,7 +128,7 @@ namespace Scopie
 
         public async Task<(Dms, Dms)> GetAzAlt()
         {
-            var line = await Interact("z");
+            var line = await Interact("z").ConfigureAwait(false);
             var split = line.Split(',');
             if (split.Length != 2)
             {
@@ -139,7 +141,7 @@ namespace Scopie
 
         public async Task SlewAzAlt(Dms az, Dms alt)
         {
-            var res = await Interact($"b{ToMountHex(az)},{ToMountHex(alt)}");
+            var res = await Interact($"b{ToMountHex(az)},{ToMountHex(alt)}").ConfigureAwait(false);
             if (res != "")
             {
                 throw new Exception($"Slew az/alt failed: {res}");
@@ -148,7 +150,7 @@ namespace Scopie
 
         public async Task CancelSlew()
         {
-            var res = await Interact("M");
+            var res = await Interact("M").ConfigureAwait(false);
             if (res != "")
             {
                 throw new Exception($"Cancel slew failed: {res}");
@@ -165,14 +167,14 @@ namespace Scopie
 
         public async Task<TrackingMode> GetTrackingMode()
         {
-            var result = await Interact("t");
+            var result = await Interact("t").ConfigureAwait(false);
             return (TrackingMode)(int)result[0];
         }
 
         public async Task SetTrackingMode(TrackingMode mode)
         {
             var modeStr = (char)(int)mode;
-            var result = await Interact($"T{modeStr}");
+            var result = await Interact($"T{modeStr}").ConfigureAwait(false);
             if (result != "")
             {
                 throw new Exception($"Set tracking mode failed: {result}");
@@ -225,14 +227,14 @@ namespace Scopie
 
         public async Task<(Dms lat, Dms lon)> GetLocation()
         {
-            var result = await Interact("w");
+            var result = await Interact("w").ConfigureAwait(false);
             return ParseLatLon(result);
         }
 
         public async Task SetLocation(Dms lat, Dms lon)
         {
             var location = FormatLatLon(lat, lon);
-            var result = await Interact($"W{location}");
+            var result = await Interact($"W{location}").ConfigureAwait(false);
             if (result != "")
             {
                 throw new Exception($"Set location failed: {result}");
@@ -307,14 +309,14 @@ namespace Scopie
 
         public async Task<DateTime> GetTime()
         {
-            var result = await Interact("h");
+            var result = await Interact("h").ConfigureAwait(false);
             return ParseTime(result);
         }
 
         public async Task SetTime(DateTime time)
         {
             var location = FormatTime(time);
-            var result = await Interact($"H{location}");
+            var result = await Interact($"H{location}").ConfigureAwait(false);
             if (result != "")
             {
                 throw new Exception($"Set time failed: {result}");
@@ -323,13 +325,13 @@ namespace Scopie
 
         public async Task<bool> IsAligned()
         {
-            var aligned = await Interact("J");
+            var aligned = await Interact("J").ConfigureAwait(false);
             return aligned != "0";
         }
 
         public async Task<char> Echo(char c)
         {
-            var echo = await Interact($"K{c}");
+            var echo = await Interact($"K{c}").ConfigureAwait(false);
             return echo[0];
         }
 
@@ -358,7 +360,7 @@ namespace Scopie
             cmd[5] = (char)med;
             cmd[6] = (char)low;
             cmd[7] = (char)0;
-            await Interact(new string(cmd));
+            await Interact(new string(cmd)).ConfigureAwait(false);
         }
 
         public Task ResetRA(Dms data) => PCommandThree(4, 16, 4, data);
@@ -368,5 +370,27 @@ namespace Scopie
         public Task SlowGotoRA(Dms data) => PCommandThree(4, 16, 23, data);
 
         public Task SlowGotoDec(Dms data) => PCommandThree(4, 17, 23, data);
+
+        async Task FixedSlewCommand(byte one, byte two, byte three, byte rate)
+        {
+            var cmd = new char[8];
+            cmd[0] = 'P';
+            cmd[1] = (char)one;
+            cmd[2] = (char)two;
+            cmd[3] = (char)three;
+            cmd[4] = (char)rate;
+            cmd[5] = (char)0;
+            cmd[6] = (char)0;
+            cmd[7] = (char)0;
+            await Interact(new string(cmd)).ConfigureAwait(false);
+        }
+
+        public Task FixedSlewRA(int speed) => speed > 0 ?
+            FixedSlewCommand(2, 16, 36, (byte)speed) :
+            FixedSlewCommand(2, 16, 37, (byte)-speed);
+
+        public Task FixedSlewDec(int speed) => speed > 0 ?
+            FixedSlewCommand(2, 17, 36, (byte)speed) :
+            FixedSlewCommand(2, 17, 37, (byte)-speed);
     }
 }

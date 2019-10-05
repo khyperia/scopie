@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Scopie
 {
-    public static class PlateSolve
+    static class PlateSolve
     {
         // %LOCALAPPDATA%\cygwin_ansvr\tmp\
         // %LOCALAPPDATA%\cygwin_ansvr\bin\bash.exe --login -c "/usr/bin/solve-field -p -O -U none -B none -R none -M none -N none -C cancel --crpix-center -z 2 --objs 100 -u arcsecperpix -L 1.3752 -H 1.5199 /tmp/stars.fit"
@@ -30,14 +30,14 @@ namespace Scopie
             return $@"--login -c ""/usr/bin/solve-field -p -O -U none -B none -R none -M none -N none -W none -C cancel --crpix-center -z {downsample} --objs {maxObjects} -u arcsecperpix -L {low} -H {high} /tmp/{filename}""";
         }
 
-        private static string SaveImage(ushort[] pixels, int width, int height)
+        private static string SaveImage(Frame frame)
         {
-            var greyPixels = new Gray<ushort>[height, width];
-            for (var y = 0; y < height; y++)
+            var greyPixels = new Gray<ushort>[frame.Height, frame.Width];
+            for (var y = 0; y < frame.Height; y++)
             {
-                for (var x = 0; x < width; x++)
+                for (var x = 0; x < frame.Width; x++)
                 {
-                    greyPixels[y, x] = pixels[y * width + x];
+                    greyPixels[y, x] = frame.Imgdata[y * frame.Width + x];
                 }
             }
             var fileName = "image.png";
@@ -56,7 +56,7 @@ namespace Scopie
                 RedirectStandardOutput = true,
             };
             var process = Process.Start(info);
-            var output = await process.StandardOutput.ReadToEndAsync();
+            var output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
             var matches = _regex.Match(output);
             if (matches.Success)
             {
@@ -70,7 +70,7 @@ namespace Scopie
             return null;
         }
 
-        public static Task<(Dms ra, Dms dec)?> Solve(ushort[] pixels, int width, int height) => SolveOne(SaveImage(pixels, width, height));
+        public static Task<(Dms ra, Dms dec)?> Solve(Frame frame) => SolveOne(SaveImage(frame));
 
         public static Task<(Dms ra, Dms dec)?> SolveFile(string path)
         {
