@@ -175,13 +175,13 @@ namespace Scopie
         {
             var modeStr = (char)(int)mode;
             var result = await Interact($"T{modeStr}").ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(res))
+            if (!string.IsNullOrEmpty(result))
             {
                 throw new Exception($"Set tracking mode failed: {result}");
             }
         }
 
-        private string FormatLatLon(Dms lat, Dms lon)
+        private static string FormatLatLon(Dms lat, Dms lon)
         {
             var (latSign, latDeg, latMin, latSec, _) = lat.DegreesMinutesSeconds;
             var (lonSign, lonDeg, lonMin, lonSec, _) = lon.DegreesMinutesSeconds;
@@ -206,7 +206,7 @@ namespace Scopie
             return builder.ToString();
         }
 
-        private (Dms, Dms) ParseLatLon(string value)
+        private static (Dms, Dms) ParseLatLon(string value)
         {
             if (value.Length != 8)
             {
@@ -235,13 +235,13 @@ namespace Scopie
         {
             var location = FormatLatLon(lat, lon);
             var result = await Interact($"W{location}").ConfigureAwait(false);
-            if (!string.IsNullOrEmpty(res))
+            if (!string.IsNullOrEmpty(result))
             {
                 throw new Exception($"Set location failed: {result}");
             }
         }
 
-        private DateTime ParseTime(string time)
+        private static DateTime ParseTime(string time)
         {
             if (time.Length != 8)
             {
@@ -280,7 +280,7 @@ namespace Scopie
             return res;
         }
 
-        private string FormatTime(DateTime time)
+        private static string FormatTime(DateTime time)
         {
             var timeZoneOffset = TimeZoneInfo.Local.GetUtcOffset(time).Hours;
             if (timeZoneOffset < 0)

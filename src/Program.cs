@@ -273,6 +273,7 @@ namespace Scopie
                     }
                     else if (cmd.Length == 2)
                     {
+                        // TODO: Why is this distinct?
                         var task = PlateSolve.SolveFile(cmd[1]);
                         SolveFile();
                         async void SolveFile() => PrintSolved(await task.ConfigureAwait(false));

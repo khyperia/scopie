@@ -79,8 +79,9 @@ namespace Scopie
             {
                 File.Copy(path, Path.Combine(_windowsFileDir, filename));
             }
-            catch (FileNotFoundException)
+            catch (FileNotFoundException e)
             {
+                Console.WriteLine(e.Message);
                 return Task.FromResult<(Dms ra, Dms dec)?>(null);
             }
             return SolveOne(filename);
