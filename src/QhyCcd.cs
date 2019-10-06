@@ -33,6 +33,14 @@ namespace Scopie
         private byte[]? _imgdataByte;
         private ushort[]? _imgdataShort;
 
+        private bool _zoomChanged;
+        private bool _zoom;
+
+        private bool _binChanged;
+        private bool _bin;
+
+        private bool _exposing;
+
         public static void Check(uint result, [CallerMemberName] string name = "", [CallerFilePath] string filePath = "", [CallerLineNumber] int line = 0)
         {
             if (result != 0)
@@ -69,14 +77,11 @@ namespace Scopie
             _useLive = useLive;
             Init();
             var control_ids = (CONTROL_ID[])Enum.GetValues(typeof(CONTROL_ID));
-            var controls = control_ids.Select(x => Control.Make(_handle, x));
+            var controls = control_ids.Select(x => Control.Make(this, x));
             _controls = controls.Where(x => x != null).ToArray()!;
         }
 
         public IReadOnlyList<Control> Controls => _controls;
-
-        private bool _zoomChanged;
-        private bool _zoom;
 
         public bool Zoom
         {
@@ -87,9 +92,6 @@ namespace Scopie
                 _zoom = value;
             }
         }
-
-        private bool _binChanged;
-        private bool _bin;
 
         public bool Bin
         {
@@ -115,6 +117,9 @@ namespace Scopie
             Check(QhyCcdDll.SetQHYCCDResolution(_handle, 0, 0, _originalWidth, _originalHeight));
         }
 
+        // Apparently this needs to be called frequently
+        public void SetTemp(double temperature) => Check(QhyCcdDll.ControlQHYCCDTemp(_handle, temperature));
+
         private void ExpSingleFrame()
         {
             var res = QhyCcdDll.ExpQHYCCDSingleFrame(_handle);
@@ -128,6 +133,7 @@ namespace Scopie
 
         public void StartExposure()
         {
+            _exposing = true;
             if (_useLive)
             {
                 Check(QhyCcdDll.BeginQHYCCDLive(_handle));
@@ -135,6 +141,14 @@ namespace Scopie
             else
             {
                 ExpSingleFrame();
+            }
+        }
+
+        private void ControlUpdate()
+        {
+            foreach (var control in Controls)
+            {
+                control.SetValue();
             }
         }
 
@@ -197,11 +211,23 @@ namespace Scopie
                         throw new Exception($"Unknown error in GetQHYCCDLiveFrame: {res}");
                     }
                 }
+                var updatePending = false;
+                foreach (var control in Controls)
+                {
+                    updatePending |= control.UpdatePending;
+                }
+                if (updatePending)
+                {
+                    StopExposure();
+                    ControlUpdate();
+                    StartExposure();
+                }
             }
             else
             {
                 Check(QhyCcdDll.GetQHYCCDSingleFrame(_handle, ref width, ref height, ref bpp, ref channels, _imgdataByte));
                 DoZoomAdjustment();
+                ControlUpdate();
                 ExpSingleFrame();
             }
 
@@ -215,6 +241,8 @@ namespace Scopie
 
         public void StopExposure()
         {
+            ControlUpdate();
+            _exposing = false;
             if (_useLive)
             {
                 Check(QhyCcdDll.StopQHYCCDLive(_handle));
@@ -226,38 +254,87 @@ namespace Scopie
         }
 
         public void Dispose() => Check(QhyCcdDll.CloseQHYCCD(_handle));
-    }
 
-    class Control
-    {
-        private readonly IntPtr _cameraHandle;
-        private readonly double _min;
-        private readonly double _max;
-        private readonly double _step;
-
-        private Control(IntPtr cameraHandle, CONTROL_ID id)
+        public class Control
         {
-            _cameraHandle = cameraHandle;
-            Id = id;
-            QhyCcdDll.GetQHYCCDParamMinMaxStep(cameraHandle, id, ref _min, ref _max, ref _step);
+            private readonly QhyCcd _camera;
+            private readonly double _min;
+            private readonly double _max;
+            private readonly double _step;
+            private readonly bool _readonly;
+            private double _targetValue;
+            public bool UpdatePending { get; private set; }
+
+            private Control(QhyCcd camera, CONTROL_ID id)
+            {
+                _camera = camera;
+                Id = id;
+                var result = QhyCcdDll.GetQHYCCDParamMinMaxStep(Handle, id, ref _min, ref _max, ref _step);
+                if (result == uint.MaxValue)
+                {
+                    _readonly = true;
+                }
+                else
+                {
+                    Check(result);
+                }
+            }
+
+            public CONTROL_ID Id { get; }
+            public string Name => Id.ToString().ToLower();
+
+            private IntPtr Handle => _camera._handle;
+
+            public double Value
+            {
+                get
+                {
+                    var result = QhyCcdDll.GetQHYCCDParam(Handle, Id);
+                    // hacks~
+                    return (_readonly && result == uint.MaxValue) ? -1 : result;
+                }
+
+                set
+                {
+                    if (_readonly)
+                    {
+                        Console.WriteLine($"Error setting value: {Name} is readonly");
+                        return;
+                    }
+                    _targetValue = value;
+                    UpdatePending = true;
+                    if (!_camera._exposing)
+                    {
+                        SetValue();
+                    }
+                }
+            }
+
+            public void SetValue()
+            {
+                if (UpdatePending)
+                {
+                    UpdatePending = false;
+                    Console.WriteLine($"{Name} -> {_targetValue}");
+                    try
+                    {
+                        Check(QhyCcdDll.SetQHYCCDParam(Handle, Id, _targetValue));
+                    }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine($"Setting value failed: {e.Message}");
+                    }
+                }
+            }
+
+            public static Control? Make(QhyCcd camera, CONTROL_ID id)
+            {
+                var okay = QhyCcdDll.IsQHYCCDControlAvailable(camera._handle, id);
+                return okay == 0 ? new Control(camera, id) : null;
+            }
+
+            public override string ToString() => _readonly ? $"{Name} = {Value} (readonly)" : $"{Name} = {Value} ({_min}-{_max} by {_step})";
         }
-
-        public CONTROL_ID Id { get; }
-        public string Name => Id.ToString().ToLower();
-
-        public double Value
-        {
-            get => QhyCcdDll.GetQHYCCDParam(_cameraHandle, Id);
-            set => QhyCcd.Check(QhyCcdDll.SetQHYCCDParam(_cameraHandle, Id, value));
-        }
-
-        public static Control? Make(IntPtr cameraHandle, CONTROL_ID id)
-        {
-            var okay = QhyCcdDll.IsQHYCCDControlAvailable(cameraHandle, id);
-            return okay == 0 ? new Control(cameraHandle, id) : null;
-        }
-
-        public override string ToString() => $"{Name} = {Value} ({_min}-{_max} by {_step})";
     }
 
     public enum CONTROL_ID

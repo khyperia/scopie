@@ -28,10 +28,18 @@ namespace Scopie
 
         private Bitmap? _bitmap;
 
-        private string _status;
         private int _save;
         private bool _solve;
         private Task? _solveTask;
+
+        private long _statusTimeToExpose;
+        private long _statusTimeToProc;
+        private double _statusMean;
+        private double _statusStdev;
+
+        private Stopwatch? _paintStopwatch;
+        private long _lastTempUpdate;
+        private double _currentTemp;
 
         public const int ZOOM_AMOUNT = 10;
 
@@ -45,7 +53,6 @@ namespace Scopie
             _form = new DoubleBufferedForm();
             _form.KeyDown += async (o, e) => await Program.Wasd(e, true).ConfigureAwait(false);
             _form.KeyUp += async (o, e) => await Program.Wasd(e, false).ConfigureAwait(false);
-            _status = "starting...";
             _form.Paint += OnPaint;
         }
 
@@ -69,23 +76,48 @@ namespace Scopie
 
         private void OnPaint(object sender, PaintEventArgs e)
         {
+            if (_paintStopwatch == null)
+            {
+                _paintStopwatch = Stopwatch.StartNew();
+            }
+            var paintStopwatchSeconds = _paintStopwatch.ElapsedMilliseconds / 1000;
+            if (_lastTempUpdate < paintStopwatchSeconds)
+            {
+                _lastTempUpdate = paintStopwatchSeconds;
+                foreach (var control in _camera.Controls)
+                {
+                    if (control.Id == CONTROL_ID.CONTROL_CURTEMP)
+                    {
+                        _currentTemp = control.Value;
+                    }
+                }
+            }
             if (_bitmap != null)
             {
                 var calcWidth = _form.Height * _bitmap.Width / _bitmap.Height;
                 var calcHeight = _form.Width * _bitmap.Height / _bitmap.Width;
-                var realWidth = Math.Min(_form.Width, calcWidth);
-                var realHeight = Math.Min(_form.Height, calcHeight);
-                e.Graphics.DrawImage(_bitmap, new Rectangle(0, 0, realWidth, realHeight));
+                var imageFormWidth = Math.Min(_form.Width, calcWidth);
+                var imageFormHeight = Math.Min(_form.Height, calcHeight);
+                if (SoftZoom)
+                {
+                    var widthZoom = _bitmap.Width / ZOOM_AMOUNT;
+                    var heightZoom = _bitmap.Height / ZOOM_AMOUNT;
+                    var xstart = _bitmap.Width / 2 - widthZoom / 2;
+                    var ystart = _bitmap.Height / 2 - heightZoom / 2;
+                    e.Graphics.DrawImage(_bitmap, new Rectangle(0, 0, imageFormWidth, imageFormHeight), new Rectangle(xstart, ystart, widthZoom, heightZoom), GraphicsUnit.Pixel);
+                }
+                else
+                {
+                    e.Graphics.DrawImage(_bitmap, new Rectangle(0, 0, imageFormWidth, imageFormHeight));
+                }
                 if (Cross)
                 {
-                    e.Graphics.DrawLine(Pens.Red, realWidth / 2, 0, realWidth / 2, realHeight);
-                    e.Graphics.DrawLine(Pens.Red, 0, realHeight / 2, realWidth, realHeight / 2);
+                    e.Graphics.DrawLine(Pens.Red, imageFormWidth / 2, 0, imageFormWidth / 2, imageFormHeight);
+                    e.Graphics.DrawLine(Pens.Red, 0, imageFormHeight / 2, imageFormWidth, imageFormHeight / 2);
                 }
             }
-            if (!string.IsNullOrEmpty(_status))
-            {
-                e.Graphics.DrawString(_status, SystemFonts.DefaultFont, Brushes.Red, 1, 1);
-            }
+            var status = $"Time to expose: {_statusTimeToExpose} ms\nTime to proc: {_statusTimeToProc} ms\nmean: {_statusMean:f3} ({_statusMean * (100.0 / ushort.MaxValue):f3}%)\nstdev: {_statusStdev:f3}\ntemp: {_currentTemp}";
+            e.Graphics.DrawString(status, SystemFonts.DefaultFont, Brushes.Red, 1, 1);
         }
 
         private static double Mean(ushort[] data)
@@ -109,6 +141,7 @@ namespace Scopie
             return Math.Sqrt(sum / data.Length);
         }
 
+        /*
         private static void DoZoom(ref Frame frame, ref ushort[]? dataZoom)
         {
             var widthZoom = frame.Width / ZOOM_AMOUNT;
@@ -128,8 +161,9 @@ namespace Scopie
             }
             frame = new Frame(dataZoom, widthZoom, heightZoom);
         }
+        */
 
-        private static void ProcessImage(ushort[] data, ref int[]? pixels, out string status)
+        private void ProcessImage(ushort[] data, ref int[]? pixels)
         {
             var mean = Mean(data);
             var stdev = Stdev(data, mean);
@@ -153,7 +187,8 @@ namespace Scopie
                 pixels[i] = (value << 16) | (value << 8) | value;
             }
 
-            status = $"mean: {mean:f3} ({mean * (100.0 / ushort.MaxValue):f3}%)\nstdev: {stdev:f3}";
+            _statusMean = mean;
+            _statusStdev = stdev;
         }
 
         private void TryWaitSolveTask()
@@ -199,7 +234,7 @@ namespace Scopie
         {
             _camera.StartExposure();
             int[]? _bitmapPixels = null;
-            ushort[]? _imageDataZoom = null;
+            // ushort[]? _imageDataZoom = null;
             var stopwatch = Stopwatch.StartNew();
             while (true)
             {
@@ -207,7 +242,7 @@ namespace Scopie
 
                 stopwatch.Restart();
                 var frame = _camera.GetExposure();
-                var timeToExpose = stopwatch.ElapsedMilliseconds;
+                _statusTimeToExpose = stopwatch.ElapsedMilliseconds;
                 stopwatch.Restart();
 
                 if (_save > 0)
@@ -216,18 +251,17 @@ namespace Scopie
                     SaveImage(frame);
                 }
                 ProcessSolve(frame);
-                if (SoftZoom)
-                {
-                    DoZoom(ref frame, ref _imageDataZoom);
-                }
-                ProcessImage(frame.Imgdata, ref _bitmapPixels, out var processStatus);
+                // if (SoftZoom)
+                // {
+                //     DoZoom(ref frame, ref _imageDataZoom);
+                // }
+                ProcessImage(frame.Imgdata, ref _bitmapPixels);
                 if (_bitmapPixels != null && !SetBitmap(_bitmapPixels, (int)frame.Width, (int)frame.Height))
                 {
                     break;
                 }
 
-                var procMs = stopwatch.ElapsedMilliseconds;
-                _status = $"Time to expose: {timeToExpose} ms\nTime to proc: {procMs} ms\n{processStatus}";
+                _statusTimeToProc = stopwatch.ElapsedMilliseconds;
             }
             _camera.StopExposure();
             Console.WriteLine("Camera loop shut down");
