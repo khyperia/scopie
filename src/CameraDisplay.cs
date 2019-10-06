@@ -175,7 +175,7 @@ namespace Scopie
             }
         }
 
-        private async Task DoSolve(Frame frame)
+        private static async Task DoSolve(Frame frame)
         {
             var result = await PlateSolve.Solve(frame).ConfigureAwait(false);
             if (result.HasValue)

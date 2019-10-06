@@ -33,7 +33,7 @@ namespace Scopie
         private byte[]? _imgdataByte;
         private ushort[]? _imgdataShort;
 
-        private static void Check(uint result, [CallerMemberName] string name = "", [CallerFilePath] string filePath = "", [CallerLineNumber] int line = 0)
+        public static void Check(uint result, [CallerMemberName] string name = "", [CallerFilePath] string filePath = "", [CallerLineNumber] int line = 0)
         {
             if (result != 0)
             {
@@ -248,7 +248,7 @@ namespace Scopie
         public double Value
         {
             get => QhyCcdDll.GetQHYCCDParam(_cameraHandle, Id);
-            set => QhyCcdDll.SetQHYCCDParam(_cameraHandle, Id, value);
+            set => QhyCcd.Check(QhyCcdDll.SetQHYCCDParam(_cameraHandle, Id, value));
         }
 
         public static Control? Make(IntPtr cameraHandle, CONTROL_ID id)

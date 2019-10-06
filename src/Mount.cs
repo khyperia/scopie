@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace Scopie
 {
-    public class Mount
+    public class Mount : IDisposable
     {
         private readonly SerialPort _port;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1);
@@ -111,7 +111,7 @@ namespace Scopie
         public async Task OverwriteRaDec(Dms ra, Dms dec)
         {
             var res = await Interact($"s{ToMountHex(ra)},{ToMountHex(dec)}").ConfigureAwait(false);
-            if (res != "")
+            if (!string.IsNullOrEmpty(res))
             {
                 throw new Exception($"Overwrite RA/DEC failed: {res}");
             }
@@ -120,7 +120,7 @@ namespace Scopie
         public async Task Slew(Dms ra, Dms dec)
         {
             var res = await Interact($"r{ToMountHex(ra)},{ToMountHex(dec)}").ConfigureAwait(false);
-            if (res != "")
+            if (!string.IsNullOrEmpty(res))
             {
                 throw new Exception($"Slew RA/DEC failed: {res}");
             }
@@ -142,7 +142,7 @@ namespace Scopie
         public async Task SlewAzAlt(Dms az, Dms alt)
         {
             var res = await Interact($"b{ToMountHex(az)},{ToMountHex(alt)}").ConfigureAwait(false);
-            if (res != "")
+            if (!string.IsNullOrEmpty(res))
             {
                 throw new Exception($"Slew az/alt failed: {res}");
             }
@@ -151,7 +151,7 @@ namespace Scopie
         public async Task CancelSlew()
         {
             var res = await Interact("M").ConfigureAwait(false);
-            if (res != "")
+            if (!string.IsNullOrEmpty(res))
             {
                 throw new Exception($"Cancel slew failed: {res}");
             }
@@ -175,7 +175,7 @@ namespace Scopie
         {
             var modeStr = (char)(int)mode;
             var result = await Interact($"T{modeStr}").ConfigureAwait(false);
-            if (result != "")
+            if (!string.IsNullOrEmpty(res))
             {
                 throw new Exception($"Set tracking mode failed: {result}");
             }
@@ -235,7 +235,7 @@ namespace Scopie
         {
             var location = FormatLatLon(lat, lon);
             var result = await Interact($"W{location}").ConfigureAwait(false);
-            if (result != "")
+            if (!string.IsNullOrEmpty(res))
             {
                 throw new Exception($"Set location failed: {result}");
             }
@@ -317,7 +317,7 @@ namespace Scopie
         {
             var location = FormatTime(time);
             var result = await Interact($"H{location}").ConfigureAwait(false);
-            if (result != "")
+            if (!string.IsNullOrEmpty(result))
             {
                 throw new Exception($"Set time failed: {result}");
             }
@@ -392,5 +392,11 @@ namespace Scopie
         public Task FixedSlewDec(int speed) => speed > 0 ?
             FixedSlewCommand(2, 17, 36, (byte)speed) :
             FixedSlewCommand(2, 17, 37, (byte)-speed);
+
+        public void Dispose()
+        {
+            _semaphore.Dispose();
+            _port.Dispose();
+        }
     }
 }

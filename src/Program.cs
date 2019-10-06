@@ -283,11 +283,7 @@ namespace Scopie
                     }
                     break;
                 case "bin":
-                    if (camera == null)
-                    {
-                        goto default;
-                    }
-                    else if (cmd.Length == 1)
+                    if (cmd.Length == 1)
                     {
                         camera.Bin = !camera.Bin;
                         Console.WriteLine($"Bin: {camera.Bin}");
@@ -303,7 +299,7 @@ namespace Scopie
                         cameraDisplay.SoftZoom = !cameraDisplay.SoftZoom;
                         Console.WriteLine($"Software Zoom: {cameraDisplay.SoftZoom}");
                     }
-                    else if (camera != null && cmd.Length == 2 && cmd[1] == "hard")
+                    else if (cmd.Length == 2 && cmd[1] == "hard")
                     {
                         camera.Zoom = !camera.Zoom;
                         Console.WriteLine($"Hardware Zoom: {camera.Zoom}");
@@ -372,7 +368,14 @@ namespace Scopie
                         }
                         else if (control != null && cmd.Length == 2 && double.TryParse(cmd[1], out var value))
                         {
-                            control.Value = value;
+                            try
+                            {
+                                control.Value = value;
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine($"Failed to set control: {e.Message}");
+                            }
                             break;
                         }
                         return false;

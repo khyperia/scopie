@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace Scopie
 {
-    public struct Dms
+    public struct Dms : IEquatable<Dms>
     {
         public double ValueRaw { get; }
         public double ValueMod => Mod(ValueRaw, 1);
@@ -141,5 +141,12 @@ namespace Scopie
             }
             return r;
         }
+
+        public override bool Equals(object? obj) => obj is Dms dms && Equals(dms);
+        public bool Equals(Dms other) => ValueRaw == other.ValueRaw;
+        public override int GetHashCode() => ValueRaw.GetHashCode();
+
+        public static bool operator ==(Dms left, Dms right) => left.Equals(right);
+        public static bool operator !=(Dms left, Dms right) => !(left == right);
     }
 }
