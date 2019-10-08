@@ -309,7 +309,7 @@ namespace Scopie
         private static string GetNextImageFilename()
         {
             var now = DateTime.Now;
-            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"{now.Year}-{now.Month}-{now.Day}");
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), $"{now.Year:D2}_{now.Month:D2}_{now.Day:D2}");
             Directory.CreateDirectory(dir);
             var baseFilename = $"telescope.{now.Year}-{now.Month}-{now.Day}.{now.Hour}-{now.Minute}-{now.Second}";
             var filename = Path.Combine(dir, $"{baseFilename}.png");
