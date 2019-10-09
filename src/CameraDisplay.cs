@@ -25,6 +25,7 @@ namespace Scopie
 
         private readonly QhyCcd _camera;
         private readonly Form _form;
+        private readonly Font _font;
 
         private Bitmap? _bitmap;
 
@@ -36,10 +37,11 @@ namespace Scopie
         private long _statusTimeToProc;
         private double _statusMean;
         private double _statusStdev;
+        private DateTime _statusExposureTime = DateTime.UtcNow;
 
-        private Stopwatch? _paintStopwatch;
-        private long _lastTempUpdate;
         private double _currentTemp;
+
+        private System.Windows.Forms.Timer? _timer;
 
         public const int ZOOM_AMOUNT = 10;
 
@@ -54,6 +56,7 @@ namespace Scopie
             _form.KeyDown += (o, e) => Program.Wasd(e, true);
             _form.KeyUp += (o, e) => Program.Wasd(e, false);
             _form.Paint += OnPaint;
+            _font = new Font(FontFamily.GenericMonospace, 30);
         }
 
         public void Start()
@@ -68,30 +71,31 @@ namespace Scopie
                 IsBackground = true
             };
             imageThread.Start();
+
+            _timer = new System.Windows.Forms.Timer(_form.Container);
+            _timer.Interval = 100;
+            _timer.Tick += TimerTick;
+            _timer.Start();
         }
 
         public void Save(int n) => _save += n;
 
         internal void Solve() => _solve = true;
 
-        private void OnPaint(object sender, PaintEventArgs e)
+        private void TimerTick(object? sender, EventArgs e)
         {
-            if (_paintStopwatch == null)
+            foreach (var control in _camera.Controls)
             {
-                _paintStopwatch = Stopwatch.StartNew();
-            }
-            var paintStopwatchSeconds = _paintStopwatch.ElapsedMilliseconds / 1000;
-            if (_lastTempUpdate < paintStopwatchSeconds)
-            {
-                _lastTempUpdate = paintStopwatchSeconds;
-                foreach (var control in _camera.Controls)
+                if (control.Id == CONTROL_ID.CONTROL_CURTEMP)
                 {
-                    if (control.Id == CONTROL_ID.CONTROL_CURTEMP)
-                    {
-                        _currentTemp = control.Value;
-                    }
+                    _currentTemp = control.Value;
                 }
             }
+            _form.Invalidate();
+        }
+
+        private void OnPaint(object sender, PaintEventArgs e)
+        {
             if (_bitmap != null)
             {
                 var calcWidth = _form.Height * _bitmap.Width / _bitmap.Height;
@@ -116,8 +120,13 @@ namespace Scopie
                     e.Graphics.DrawLine(Pens.Red, 0, imageFormHeight / 2, imageFormWidth, imageFormHeight / 2);
                 }
             }
-            var status = $"Time to expose: {_statusTimeToExpose} ms\nTime to proc: {_statusTimeToProc} ms\nmean: {_statusMean:f3} ({_statusMean * (100.0 / ushort.MaxValue):f3}%)\nstdev: {_statusStdev:f3}\ntemp: {_currentTemp}";
-            e.Graphics.DrawString(status, SystemFonts.DefaultFont, Brushes.Red, 1, 1);
+            var status = $"time to expose: {_statusTimeToExpose} ms\n" +
+                $"time to proc: {_statusTimeToProc} ms\n" +
+                $"mean: {_statusMean:f3} ({_statusMean * (100.0 / ushort.MaxValue):f3}%)\n" +
+                $"stdev: {_statusStdev:f3}\n" +
+                $"temp: {_currentTemp}\n" +
+                $"current exposure time: {DateTime.UtcNow - _statusExposureTime}";
+            e.Graphics.DrawString(status, _font, Brushes.Red, 1, 1);
         }
 
         private static double Mean(ushort[] data)
@@ -140,28 +149,6 @@ namespace Scopie
             }
             return Math.Sqrt(sum / data.Length);
         }
-
-        /*
-        private static void DoZoom(ref Frame frame, ref ushort[]? dataZoom)
-        {
-            var widthZoom = frame.Width / ZOOM_AMOUNT;
-            var heightZoom = frame.Height / ZOOM_AMOUNT;
-            if (dataZoom == null || dataZoom.Length != widthZoom * heightZoom)
-            {
-                dataZoom = new ushort[widthZoom * heightZoom];
-            }
-            var xstart = frame.Width / 2 - widthZoom / 2;
-            var ystart = frame.Height / 2 - heightZoom / 2;
-            for (var y = 0; y < heightZoom; y++)
-            {
-                for (var x = 0; x < widthZoom; x++)
-                {
-                    dataZoom[y * widthZoom + x] = frame.Imgdata[(y + ystart) * frame.Width + (x + xstart)];
-                }
-            }
-            frame = new Frame(dataZoom, widthZoom, heightZoom);
-        }
-        */
 
         private void ProcessImage(ushort[] data, ref int[]? pixels)
         {
@@ -239,6 +226,7 @@ namespace Scopie
             {
                 TryWaitSolveTask();
 
+                _statusExposureTime = DateTime.UtcNow;
                 stopwatch.Restart();
                 var frame = _camera.GetExposure();
                 _statusTimeToExpose = stopwatch.ElapsedMilliseconds;
@@ -322,11 +310,16 @@ namespace Scopie
 
         public void Dispose()
         {
+            _form.Dispose();
+            _font.Dispose();
             if (_bitmap != null)
             {
                 _bitmap.Dispose();
             }
-            _form.Dispose();
+            if (_timer != null)
+            {
+                _timer.Dispose();
+            }
         }
     }
 }
