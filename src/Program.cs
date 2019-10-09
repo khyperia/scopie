@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 
 namespace Scopie
 {
@@ -403,7 +402,7 @@ namespace Scopie
         }
 
         [Cmd("bin")]
-        public static bool Bin(int num)
+        public static bool Bin()
         {
             if (_camera != null)
             {

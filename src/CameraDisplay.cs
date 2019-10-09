@@ -56,7 +56,8 @@ namespace Scopie
             _form.KeyDown += (o, e) => Program.Wasd(e, true);
             _form.KeyUp += (o, e) => Program.Wasd(e, false);
             _form.Paint += OnPaint;
-            _font = new Font(FontFamily.GenericMonospace, 30);
+            _form.Shown += Shown;
+            _font = new Font(FontFamily.GenericMonospace, 20);
         }
 
         public void Start()
@@ -65,14 +66,17 @@ namespace Scopie
             formThread.SetApartmentState(ApartmentState.STA);
             formThread.IsBackground = true;
             formThread.Start();
+        }
 
+        private void Shown(object? sender, EventArgs e)
+        {
             var imageThread = new Thread(() => DoImage())
             {
                 IsBackground = true
             };
             imageThread.Start();
 
-            _timer = new System.Windows.Forms.Timer(_form.Container);
+            _timer = new System.Windows.Forms.Timer();
             _timer.Interval = 100;
             _timer.Tick += TimerTick;
             _timer.Start();
@@ -170,7 +174,7 @@ namespace Scopie
             var b = 255 * (-mean / (stdev * SIZE) + 0.5);
             for (var i = 0; i < pixels.Length; i++)
             {
-                var value = (byte)Math.Max(0.0, Math.Min(255.0, data[i] * a + b));
+                var value = (byte)Math.Clamp(data[i] * a + b, 0, 255);
                 pixels[i] = (value << 16) | (value << 8) | value;
             }
 
