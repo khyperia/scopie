@@ -20,6 +20,10 @@ namespace Scopie
         static PlateSolve()
         {
             var localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            if (localAppData == null)
+            {
+                throw new Exception("LOCALAPPDATA environment variable not found");
+            }
             _windowsFileDir = Path.Combine(localAppData, "cygwin_ansvr", "tmp");
             _bashLocation = Path.Combine(localAppData, "cygwin_ansvr", "bin", "bash.exe");
         }

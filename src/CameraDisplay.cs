@@ -51,8 +51,8 @@ namespace Scopie
         {
             _camera = camera;
             _form = new DoubleBufferedForm();
-            _form.KeyDown += async (o, e) => await Program.Wasd(e, true).ConfigureAwait(false);
-            _form.KeyUp += async (o, e) => await Program.Wasd(e, false).ConfigureAwait(false);
+            _form.KeyDown += (o, e) => Program.Wasd(e, true);
+            _form.KeyUp += (o, e) => Program.Wasd(e, false);
             _form.Paint += OnPaint;
         }
 
@@ -222,7 +222,7 @@ namespace Scopie
                 Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Degrees)} {dec.ToDmsString(Dms.Unit.Degrees)}");
                 Console.WriteLine("Solved position (hms/dms):");
                 Console.WriteLine($"{ra.ToDmsString(Dms.Unit.Hours)} {dec.ToDmsString(Dms.Unit.Degrees)}");
-                await Program.OnActiveSolve(ra, dec).ConfigureAwait(false);
+                Program.OnActiveSolve(ra, dec);
             }
             else
             {
@@ -234,7 +234,6 @@ namespace Scopie
         {
             _camera.StartExposure();
             int[]? _bitmapPixels = null;
-            // ushort[]? _imageDataZoom = null;
             var stopwatch = Stopwatch.StartNew();
             while (true)
             {

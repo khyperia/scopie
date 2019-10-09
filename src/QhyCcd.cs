@@ -63,6 +63,20 @@ namespace Scopie
             return builder.ToString();
         }
 
+        public static QhyCcd? AutoConnect(bool useLive)
+        {
+            var numCameras = NumCameras();
+            var best = -1;
+            for (var i = 0; i < numCameras; i++)
+            {
+                if (i == 0 || CameraName(i).Contains("163"))
+                {
+                    best = i;
+                }
+            }
+            return best == -1 ? null : new QhyCcd(useLive, best);
+        }
+
         public QhyCcd(bool useLive, int index)
         {
             var num = NumCameras();
@@ -254,6 +268,17 @@ namespace Scopie
         }
 
         public void Dispose() => Check(QhyCcdDll.CloseQHYCCD(_handle));
+
+        public void SetControl(CONTROL_ID id, double value)
+        {
+            foreach (var c in _controls)
+            {
+                if (c.Id == id)
+                {
+                    c.Value = value;
+                }
+            }
+        }
 
         public class Control
         {
