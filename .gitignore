@@ -1,4 +1,5 @@
 /Properties/
 /bin/
 /obj/
-/.vs/
+.vs/
+target/
