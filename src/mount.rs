@@ -1,12 +1,12 @@
-use Result;
-use dms;
-use serialport;
+use crate::dms;
+use crate::serialport;
+use crate::Result;
+use crate::dms::Angle;
 use std::ffi::OsStr;
-use std::fmt::Display;
 use std::fmt;
+use std::fmt::Display;
 use std::str::FromStr;
 use std::time::Duration;
-use time;
 
 pub enum TrackingMode {
     Off,
@@ -90,7 +90,18 @@ impl MountTime {
 }
 impl Display for MountTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}-{}-{} {}:{}:{} tz={} dst={}", self.year as u32 + 2000, self.month, self.day, self.hour, self.minute, self.second, self.time_zone_offset, self.dst)
+        write!(
+            f,
+            "{}-{}-{} {}:{}:{} tz={} dst={}",
+            self.year as u32 + 2000,
+            self.month,
+            self.day,
+            self.hour,
+            self.minute,
+            self.second,
+            self.time_zone_offset,
+            self.dst
+        )
     }
 }
 
@@ -104,7 +115,7 @@ fn mod_positive(value: f64) -> f64 {
 }
 
 pub struct Mount {
-    port: Box<serialport::SerialPort>,
+    port: Box<dyn serialport::SerialPort>,
 }
 
 impl Mount {
@@ -203,9 +214,9 @@ impl Mount {
         Ok(())
     }
 
-    fn format_lat_lon(lat: f64, lon: f64) -> Vec<u8> {
-        let (lat_sign, lat_deg, lat_min, lat_sec, _) = dms::value_to_dms(lat);
-        let (lon_sign, lon_deg, lon_min, lon_sec, _) = dms::value_to_dms(lon);
+    fn format_lat_lon(cmd: u8, lat: Angle, lon: Angle) -> [u8; 9] {
+        let (lat_sign, lat_deg, lat_min, lat_sec, _) = lat.to_dms();
+        let (lon_sign, lon_deg, lon_min, lon_sec, _) = lon.to_dms();
         // The format of the location commands is: ABCDEFGH, where:
         // A is the number of degrees of latitude.
         // B is the number of minutes of latitude.
@@ -215,19 +226,20 @@ impl Mount {
         // F is the number of minutes of longitude.
         // G is the number of seconds of longitude.
         // H is 0 for east and 1 for west.
-        let mut builder = Vec::new();
-        builder.push(lat_deg as u8);
-        builder.push(lat_min as u8);
-        builder.push(lat_sec as u8);
-        builder.push(if lat_sign { 1 } else { 0 });
-        builder.push(lon_deg as u8);
-        builder.push(lon_min as u8);
-        builder.push(lon_sec as u8);
-        builder.push(if lon_sign { 1 } else { 0 });
-        builder
+        [
+            cmd,
+            lat_deg as u8,
+            lat_min as u8,
+            lat_sec as u8,
+            if lat_sign { 1 } else { 0 },
+            lon_deg as u8,
+            lon_min as u8,
+            lon_sec as u8,
+            if lon_sign { 1 } else { 0 },
+        ]
     }
 
-    fn parse_lat_lon(value: &[u8]) -> (f64, f64) {
+    fn parse_lat_lon(value: &[u8]) -> (Angle, Angle) {
         let lat_deg = value[0] as _;
         let lat_min = value[1] as _;
         let lat_sec = value[2] as _;
@@ -236,20 +248,19 @@ impl Mount {
         let lon_min = value[5] as _;
         let lon_sec = value[6] as _;
         let lon_sign = value[7] == 1;
-        let lat = dms::dms_to_value(lat_sign, lat_deg, lat_min, lat_sec, 0.0);
-        let lon = dms::dms_to_value(lon_sign, lon_deg, lon_min, lon_sec, 0.0);
+        let lat = Angle::from_dms(lat_sign, lat_deg, lat_min, lat_sec, 0.0);
+        let lon = Angle::from_dms(lon_sign, lon_deg, lon_min, lon_sec, 0.0);
         (lat, lon)
     }
 
-    pub fn location(&mut self) -> Result<(f64, f64)> {
+    pub fn location(&mut self) -> Result<(Angle, Angle)> {
         write!(self.port, "w")?;
         self.port.flush()?;
         Ok(Self::parse_lat_lon(&self.read_bytes()?))
     }
 
-    pub fn set_location(&mut self, lat: f64, lon: f64) -> Result<()> {
-        let mut to_write = Self::format_lat_lon(lat, lon);
-        to_write.insert(0, 'W' as u8);
+    pub fn set_location(&mut self, lat: Angle, lon: Angle) -> Result<()> {
+        let mut to_write = Self::format_lat_lon(b'W', lat, lon);
         self.port.write(&to_write)?;
         self.port.flush()?;
         if self.read()? != "" {

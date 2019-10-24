@@ -5,13 +5,14 @@ extern crate sdl2;
 extern crate serialport;
 extern crate time;
 
-mod asicamera;
 mod camera;
 mod camera_feed;
 mod display;
 mod dms;
 mod init_script;
 mod mount;
+mod qhycamera;
+mod process;
 
 use camera::Camera;
 use camera::CameraInfo;
@@ -19,30 +20,29 @@ use camera_feed::CameraFeed;
 use init_script::InitScript;
 use mount::Mount;
 use std::error::Error;
-use std::io::BufRead;
-use std::io::Write;
 use std::io::stdin;
 use std::io::stdout;
+use std::io::BufRead;
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Instant;
 
-type Result<T> = std::result::Result<T, Box<Error>>;
+type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-fn print_control(control: &camera::Control) -> Result<()> {
-    let (value, auto) = control.get()?;
-    println!(
-        "{:>23} = {:<10} ({:5}-{:<10}; {:<5}) auto={:5} (can_auto={:5}) writable={:5} : {}",
-        control.name(),
-        value,
-        control.min_value(),
-        control.max_value(),
-        control.default_value(),
-        auto,
-        control.is_auto_supported(),
-        control.writable(),
-        control.description(),
-    );
-    Ok(())
+pub struct Image<T> {
+    data: Vec<T>,
+    width: usize,
+    height: usize,
+}
+
+impl<T> Image<T> {
+    pub fn new(data: Vec<T>, width: usize, height: usize) -> Self {
+        Self {
+            data,
+            width,
+            height,
+        }
+    }
 }
 
 fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
@@ -51,7 +51,6 @@ fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
             println!("info -- print variable information");
             println!("zoom -- zoom to center 100x100px");
             println!("cross -- overlay red cross in middle of image");
-            println!("mode {{individual|video}} -- switch between individual/video mode (needs feed restart)");
             println!("{{var_name}} -- print variable's value");
             println!("{{var_name}} {{value}} -- set variable to value");
             true
@@ -62,7 +61,7 @@ fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
         }
         Some(&"info") if command.len() == 1 => {
             for control in camera.camera().controls() {
-                print_control(control)?;
+                println!("{}", control);
             }
             true
         }
@@ -75,20 +74,12 @@ fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
             camera.image_adjust_options().lock().unwrap().cross ^= true;
             true
         }
-        Some(&"mode") if command.len() == 2 && command[1] == "individual" => {
-            camera.image_adjust_options().lock().unwrap().individual = true;
-            true
-        }
-        Some(&"mode") if command.len() == 2 && command[1] == "video" => {
-            camera.image_adjust_options().lock().unwrap().individual = false;
-            true
-        }
         Some(cmd) if command.len() == 2 => {
             let mut ok = false;
             if let Ok(value) = command[1].parse() {
                 for control in camera.camera().controls() {
                     if control.name().eq_ignore_ascii_case(cmd) {
-                        control.set(value, false)?;
+                        control.set(value)?;
                         ok = true;
                         break;
                     }
@@ -100,7 +91,7 @@ fn repl_camera(command: &[&str], camera: &Arc<CameraFeed>) -> Result<bool> {
             let mut ok = false;
             for control in camera.camera().controls() {
                 if control.name().eq_ignore_ascii_case(cmd) {
-                    print_control(control)?;
+                    println!("{}", control);
                     ok = true;
                     break;
                 }
@@ -273,20 +264,21 @@ fn repl_one(
             }
             true
         }
-        Some(&"camera") if command.len() == 2 => if let Ok(value) = command[1].parse() {
-            let num_cameras = Camera::num_cameras();
-            if value < num_cameras {
-                *camera = Some(CameraFeed::run(value)?);
-                let name = camera.as_ref().unwrap().camera().name();
-                println!("Opened: {}", name);
-                do_script(&name, camera, mount)?;
+        Some(&"camera") if command.len() == 2 => {
+            if let Ok(value) = command[1].parse() {
+                let num_cameras = Camera::num_cameras();
+                if value < num_cameras {
+                    *camera = Some(CameraFeed::run(value)?);
+                    let name = camera.as_ref().unwrap().camera().name();
+                    do_script(name, camera, mount)?;
+                } else {
+                    println!("Camera index out of range");
+                }
+                true
             } else {
-                println!("Camera index out of range");
+                false
             }
-            true
-        } else {
-            false
-        },
+        }
         Some(&"mount") if command.len() == 2 => {
             if let Ok(num) = command[1].parse::<usize>() {
                 if let Some(path) = Mount::list().get(num) {
