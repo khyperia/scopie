@@ -7,7 +7,9 @@ pub struct Angle {
 
 impl Angle {
     pub fn from_0to1(value: f64) -> Self {
-        Self { value }
+        Self {
+            value: value.rem_euclid(1.0),
+        }
     }
 
     pub fn value_0to1(&self) -> f64 {
@@ -15,7 +17,7 @@ impl Angle {
     }
 
     pub fn from_degrees(deg: f64) -> Self {
-        Self { value: deg / 360.0 }
+        Self::from_0to1(deg / 360.0)
     }
 
     pub fn degrees(&self) -> f64 {
@@ -23,9 +25,7 @@ impl Angle {
     }
 
     pub fn from_hours(hours: f64) -> Self {
-        Self {
-            value: hours / 24.0,
-        }
+        Self::from_0to1(hours / 24.0)
     }
 
     pub fn hours(&self) -> f64 {

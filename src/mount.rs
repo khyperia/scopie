@@ -1,12 +1,5 @@
-use crate::dms;
-use crate::serialport;
-use crate::Result;
-use crate::dms::Angle;
-use std::ffi::OsStr;
-use std::fmt;
-use std::fmt::Display;
-use std::str::FromStr;
-use std::time::Duration;
+use crate::{dms::Angle, serialport, Result};
+use std::{ffi::OsStr, fmt, fmt::Display, str::FromStr, time::Duration};
 
 pub enum TrackingMode {
     Off,
@@ -105,13 +98,18 @@ impl Display for MountTime {
     }
 }
 
-fn mod_positive(value: f64) -> f64 {
-    let fract = value.fract();
-    if fract > 0.0 {
-        fract
-    } else {
-        fract + 1.0
+pub fn autoconnect() -> Result<Mount> {
+    for port in Mount::list() {
+        let mut m = match Mount::new(&port) {
+            Ok(ok) => ok,
+            Err(_) => continue,
+        };
+        match m.get_ra_dec() {
+            Ok(_) => return Ok(m),
+            Err(_) => continue,
+        };
     }
+    Err("No mount found".into())
 }
 
 pub struct Mount {
@@ -129,7 +127,7 @@ impl Mount {
 
     pub fn new<T: AsRef<OsStr> + ?Sized>(path: &T) -> Result<Mount> {
         let mut port = serialport::open(path)?;
-        port.set_timeout(Duration::from_secs(5))?;
+        port.set_timeout(Duration::from_secs(1))?;
         Ok(Mount { port })
     }
 
@@ -150,7 +148,7 @@ impl Mount {
         Ok(String::from_utf8(self.read_bytes()?)?)
     }
 
-    pub fn get_ra_dec(&mut self) -> Result<(f64, f64)> {
+    pub fn get_ra_dec(&mut self) -> Result<(Angle, Angle)> {
         write!(self.port, "e")?;
         self.port.flush()?;
         let response = self.read()?;
@@ -162,14 +160,14 @@ impl Mount {
             return Err("Invalid response".to_owned())?;
         }
         Ok((
-            response[0] as f64 / (u32::max_value() as f64 + 1.0) * 24.0,
-            response[1] as f64 / (u32::max_value() as f64 + 1.0) * 360.0,
+            Angle::from_0to1(response[0] as f64 / (u32::max_value() as f64 + 1.0)),
+            Angle::from_0to1(response[1] as f64 / (u32::max_value() as f64 + 1.0)),
         ))
     }
 
-    pub fn overwrite_ra_dec(&mut self, ra: f64, dec: f64) -> Result<()> {
-        let ra = (mod_positive(ra / 24.0) * (u32::max_value() as f64 + 1.0)) as u32;
-        let dec = (mod_positive(dec / 360.0) * (u32::max_value() as f64 + 1.0)) as u32;
+    pub fn overwrite_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
+        let ra = (ra.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
+        let dec = (dec.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
         write!(self.port, "s{:08X},{:08X}", ra, dec)?;
         self.port.flush()?;
         if self.read()? != "" {
@@ -178,9 +176,9 @@ impl Mount {
         Ok(())
     }
 
-    pub fn slew_ra_dec(&mut self, ra: f64, dec: f64) -> Result<()> {
-        let ra = (mod_positive(ra / 24.0) * (u32::max_value() as f64 + 1.0)) as u32;
-        let dec = (mod_positive(dec / 360.0) * (u32::max_value() as f64 + 1.0)) as u32;
+    pub fn slew_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
+        let ra = (ra.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
+        let dec = (dec.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
         write!(self.port, "r{:08X},{:08X}", ra, dec)?;
         self.port.flush()?;
         if self.read()? != "" {
@@ -260,7 +258,7 @@ impl Mount {
     }
 
     pub fn set_location(&mut self, lat: Angle, lon: Angle) -> Result<()> {
-        let mut to_write = Self::format_lat_lon(b'W', lat, lon);
+        let to_write = Self::format_lat_lon(b'W', lat, lon);
         self.port.write(&to_write)?;
         self.port.flush()?;
         if self.read()? != "" {

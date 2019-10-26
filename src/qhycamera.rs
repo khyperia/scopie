@@ -1,5 +1,4 @@
-use std::ffi::c_void;
-use std::fmt;
+use std::{ffi::c_void, fmt};
 
 pub type QHYCCD = *mut c_void;
 
@@ -134,77 +133,77 @@ impl ControlId {
     pub fn values() -> &'static [ControlId] {
         VALUES
     }
-}
 
-impl fmt::Display for ControlId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    pub fn to_str(&self) -> &'static str {
         match self {
-            ControlId::ControlBrightness => write!(f, "ControlBrightness"),
-            ControlId::ControlContrast => write!(f, "ControlContrast"),
-            ControlId::ControlWbr => write!(f, "ControlWbr"),
-            ControlId::ControlWbb => write!(f, "ControlWbb"),
-            ControlId::ControlWbg => write!(f, "ControlWbg"),
-            ControlId::ControlGamma => write!(f, "ControlGamma"),
-            ControlId::ControlGain => write!(f, "ControlGain"),
-            ControlId::ControlOffset => write!(f, "ControlOffset"),
-            ControlId::ControlExposure => write!(f, "ControlExposure"),
-            ControlId::ControlSpeed => write!(f, "ControlSpeed"),
-            ControlId::ControlTransferbit => write!(f, "ControlTransferbit"),
-            ControlId::ControlChannels => write!(f, "ControlChannels"),
-            ControlId::ControlUsbtraffic => write!(f, "ControlUsbtraffic"),
-            ControlId::ControlRownoisere => write!(f, "ControlRownoisere"),
-            ControlId::ControlCurtemp => write!(f, "ControlCurtemp"),
-            ControlId::ControlCurpwm => write!(f, "ControlCurpwm"),
-            ControlId::ControlManulpwm => write!(f, "ControlManulpwm"),
-            ControlId::ControlCfwport => write!(f, "ControlCfwport"),
-            ControlId::ControlCooler => write!(f, "ControlCooler"),
-            ControlId::ControlSt4port => write!(f, "ControlSt4port"),
-            ControlId::CamColor => write!(f, "CamColor"),
-            ControlId::CamBin1x1mode => write!(f, "CamBin1x1mode"),
-            ControlId::CamBin2x2mode => write!(f, "CamBin2x2mode"),
-            ControlId::CamBin3x3mode => write!(f, "CamBin3x3mode"),
-            ControlId::CamBin4x4mode => write!(f, "CamBin4x4mode"),
-            ControlId::CamMechanicalshutter => write!(f, "CamMechanicalshutter"),
-            ControlId::CamTrigerInterface => write!(f, "CamTrigerInterface"),
-            ControlId::CamTecoverprotectInterface => write!(f, "CamTecoverprotectInterface"),
-            ControlId::CamSingnalclampInterface => write!(f, "CamSingnalclampInterface"),
-            ControlId::CamFinetoneInterface => write!(f, "CamFinetoneInterface"),
-            ControlId::CamShuttermotorheatingInterface => {
-                write!(f, "CamShuttermotorheatingInterface")
-            }
-            ControlId::CamCalibratefpnInterface => write!(f, "CamCalibratefpnInterface"),
-            ControlId::CamChiptemperaturesensorInterface => {
-                write!(f, "CamChiptemperaturesensorInterface")
-            }
-            ControlId::CamUsbreadoutslowestInterface => write!(f, "CamUsbreadoutslowestInterface"),
-            ControlId::Cam8bits => write!(f, "Cam8bits"),
-            ControlId::Cam16bits => write!(f, "Cam16bits"),
-            ControlId::CamGps => write!(f, "CamGps"),
-            ControlId::CamIgnoreoverscanInterface => write!(f, "CamIgnoreoverscanInterface"),
-            ControlId::Qhyccd3aAutobalance => write!(f, "Qhyccd3aAutobalance"),
-            ControlId::Qhyccd3aAutoexposure => write!(f, "Qhyccd3aAutoexposure"),
-            ControlId::Qhyccd3aAutofocus => write!(f, "Qhyccd3aAutofocus"),
-            ControlId::ControlAmpv => write!(f, "ControlAmpv"),
-            ControlId::ControlVcam => write!(f, "ControlVcam"),
-            ControlId::CamViewMode => write!(f, "CamViewMode"),
-            ControlId::ControlCfwslotsnum => write!(f, "ControlCfwslotsnum"),
-            ControlId::IsExposingDone => write!(f, "IsExposingDone"),
-            ControlId::ScreenStretchB => write!(f, "ScreenStretchB"),
-            ControlId::ScreenStretchW => write!(f, "ScreenStretchW"),
-            ControlId::ControlDdr => write!(f, "ControlDdr"),
-            ControlId::CamLightPerformanceMode => write!(f, "CamLightPerformanceMode"),
-            ControlId::CamQhy5iiGuideMode => write!(f, "CamQhy5iiGuideMode"),
-            ControlId::DdrBufferCapacity => write!(f, "DdrBufferCapacity"),
-            ControlId::DdrBufferReadThreshold => write!(f, "DdrBufferReadThreshold"),
-            ControlId::DefaultGain => write!(f, "DefaultGain"),
-            ControlId::DefaultOffset => write!(f, "DefaultOffset"),
-            ControlId::OutputDataActualBits => write!(f, "OutputDataActualBits"),
-            ControlId::OutputDataAlignment => write!(f, "OutputDataAlignment"),
+            ControlId::ControlBrightness => "ControlBrightness",
+            ControlId::ControlContrast => "ControlContrast",
+            ControlId::ControlWbr => "ControlWbr",
+            ControlId::ControlWbb => "ControlWbb",
+            ControlId::ControlWbg => "ControlWbg",
+            ControlId::ControlGamma => "ControlGamma",
+            ControlId::ControlGain => "ControlGain",
+            ControlId::ControlOffset => "ControlOffset",
+            ControlId::ControlExposure => "ControlExposure",
+            ControlId::ControlSpeed => "ControlSpeed",
+            ControlId::ControlTransferbit => "ControlTransferbit",
+            ControlId::ControlChannels => "ControlChannels",
+            ControlId::ControlUsbtraffic => "ControlUsbtraffic",
+            ControlId::ControlRownoisere => "ControlRownoisere",
+            ControlId::ControlCurtemp => "ControlCurtemp",
+            ControlId::ControlCurpwm => "ControlCurpwm",
+            ControlId::ControlManulpwm => "ControlManulpwm",
+            ControlId::ControlCfwport => "ControlCfwport",
+            ControlId::ControlCooler => "ControlCooler",
+            ControlId::ControlSt4port => "ControlSt4port",
+            ControlId::CamColor => "CamColor",
+            ControlId::CamBin1x1mode => "CamBin1x1mode",
+            ControlId::CamBin2x2mode => "CamBin2x2mode",
+            ControlId::CamBin3x3mode => "CamBin3x3mode",
+            ControlId::CamBin4x4mode => "CamBin4x4mode",
+            ControlId::CamMechanicalshutter => "CamMechanicalshutter",
+            ControlId::CamTrigerInterface => "CamTrigerInterface",
+            ControlId::CamTecoverprotectInterface => "CamTecoverprotectInterface",
+            ControlId::CamSingnalclampInterface => "CamSingnalclampInterface",
+            ControlId::CamFinetoneInterface => "CamFinetoneInterface",
+            ControlId::CamShuttermotorheatingInterface => "CamShuttermotorheatingInterface",
+            ControlId::CamCalibratefpnInterface => "CamCalibratefpnInterface",
+            ControlId::CamChiptemperaturesensorInterface => "CamChiptemperaturesensorInterface",
+            ControlId::CamUsbreadoutslowestInterface => "CamUsbreadoutslowestInterface",
+            ControlId::Cam8bits => "Cam8bits",
+            ControlId::Cam16bits => "Cam16bits",
+            ControlId::CamGps => "CamGps",
+            ControlId::CamIgnoreoverscanInterface => "CamIgnoreoverscanInterface",
+            ControlId::Qhyccd3aAutobalance => "Qhyccd3aAutobalance",
+            ControlId::Qhyccd3aAutoexposure => "Qhyccd3aAutoexposure",
+            ControlId::Qhyccd3aAutofocus => "Qhyccd3aAutofocus",
+            ControlId::ControlAmpv => "ControlAmpv",
+            ControlId::ControlVcam => "ControlVcam",
+            ControlId::CamViewMode => "CamViewMode",
+            ControlId::ControlCfwslotsnum => "ControlCfwslotsnum",
+            ControlId::IsExposingDone => "IsExposingDone",
+            ControlId::ScreenStretchB => "ScreenStretchB",
+            ControlId::ScreenStretchW => "ScreenStretchW",
+            ControlId::ControlDdr => "ControlDdr",
+            ControlId::CamLightPerformanceMode => "CamLightPerformanceMode",
+            ControlId::CamQhy5iiGuideMode => "CamQhy5iiGuideMode",
+            ControlId::DdrBufferCapacity => "DdrBufferCapacity",
+            ControlId::DdrBufferReadThreshold => "DdrBufferReadThreshold",
+            ControlId::DefaultGain => "DefaultGain",
+            ControlId::DefaultOffset => "DefaultOffset",
+            ControlId::OutputDataActualBits => "OutputDataActualBits",
+            ControlId::OutputDataAlignment => "OutputDataAlignment",
         }
     }
 }
 
-#[link(name = "qhyccd")]
+impl fmt::Display for ControlId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.to_str())
+    }
+}
+
+#[link(name = "qhyccd_x64")]
 extern "C" {
     pub fn InitQHYCCDResource() -> u32;
     pub fn ReleaseQHYCCDResource() -> u32;

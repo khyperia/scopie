@@ -1,11 +1,12 @@
-use std::env;
-use std::fs::copy;
-use std::fs::read_dir;
-use std::path::PathBuf;
+use std::{
+    env,
+    fs::{copy, read_dir},
+    path::PathBuf,
+};
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
-    for dir in &["lib", "lib/qhyccd"] {
+    for dir in &["lib", "lib/qhyccd", "lib/qhyccd/lib"] {
         println!("cargo:rustc-link-search=native={}", dir);
         println!("cargo:rerun-if-changed={}", dir);
         for file in read_dir(dir).unwrap() {
