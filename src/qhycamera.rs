@@ -2,7 +2,7 @@ use std::{ffi::c_void, fmt};
 
 pub type QHYCCD = *mut c_void;
 
-#[repr(C)]
+#[repr(u32)]
 #[derive(Clone, Copy)]
 pub enum ControlId {
     ControlBrightness = 0, // image brightness
@@ -204,7 +204,7 @@ impl fmt::Display for ControlId {
 }
 
 #[link(name = "qhyccd_x64")]
-extern "C" {
+extern "system" {
     pub fn InitQHYCCDResource() -> u32;
     pub fn ReleaseQHYCCDResource() -> u32;
     pub fn ScanQHYCCD() -> u32;

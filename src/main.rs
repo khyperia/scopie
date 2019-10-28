@@ -86,7 +86,7 @@ fn display(camera: Option<camera::Camera>, mount: Option<mount::Mount>) -> Resul
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
     let live = false;
     let camera = match camera::autoconnect(live) {
         Ok(ok) => Some(ok),
@@ -102,6 +102,8 @@ fn main() -> Result<()> {
             None
         }
     };
-    display(camera, mount)?;
-    Ok(())
+    match display(camera, mount) {
+        Ok(ok) => ok,
+        Err(err) => println!("Error: {}", err),
+    }
 }
