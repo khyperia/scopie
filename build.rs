@@ -10,6 +10,10 @@ fn main() {
     let files = [
         ("lib/SDL2.lib", "SDL2.lib"),
         ("lib/SDL2.dll", "SDL2.dll"),
+        ("lib/SDL2_ttf.lib", "SDL2_ttf.lib"),
+        ("lib/SDL2_ttf.dll", "SDL2_ttf.dll"),
+        ("lib/libfreetype-6.dll", "libfreetype-6.dll"),
+        ("lib/zlib1.dll", "zlib1.dll"),
         ("lib/qhyccd/ftd2xx64.dll", "ftd2xx64.dll"),
         ("lib/qhyccd/tbb_x64.dll", "tbb_x64.dll"),
         ("lib/qhyccd/qhyccd_x64.dll", "qhyccd.dll"),

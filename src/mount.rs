@@ -1,4 +1,5 @@
-use crate::{dms::Angle, serialport, Result};
+use crate::{dms::Angle, Result};
+use serialport;
 use std::{ffi::OsStr, fmt, fmt::Display, str::FromStr, time::Duration};
 
 pub enum TrackingMode {
@@ -67,7 +68,7 @@ pub struct MountTime {
 }
 
 impl MountTime {
-    pub fn now() -> MountTime {
+    pub fn now() -> Self {
         let tm = time::now();
         MountTime {
             hour: tm.tm_hour as u8,
@@ -81,12 +82,13 @@ impl MountTime {
         }
     }
 }
+
 impl Display for MountTime {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
             "{}-{}-{} {}:{}:{} tz={} dst={}",
-            self.year as u32 + 2000,
+            u32::from(self.year) + 2000,
             self.month,
             self.day,
             self.hour,
@@ -109,7 +111,7 @@ pub fn autoconnect() -> Result<Mount> {
             Err(_) => continue,
         };
     }
-    Err("No mount found".into())
+    Err(failure::err_msg("No mount found"))
 }
 
 pub struct Mount {
@@ -119,7 +121,7 @@ pub struct Mount {
 impl Mount {
     pub fn list() -> Vec<String> {
         serialport::available_ports()
-            .unwrap_or(Vec::new())
+            .unwrap_or_else(|_| Vec::new())
             .into_iter()
             .map(|x| x.port_name)
             .collect()
@@ -136,7 +138,7 @@ impl Mount {
         let mut res = Vec::new();
         loop {
             self.port.read_exact(&mut buf)?;
-            if buf[0] == ('#' as u8) {
+            if buf[0] == b'#' {
                 break;
             }
             res.push(buf[0])
@@ -157,32 +159,32 @@ impl Mount {
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
         if response.len() != 2 {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok((
-            Angle::from_0to1(response[0] as f64 / (u32::max_value() as f64 + 1.0)),
-            Angle::from_0to1(response[1] as f64 / (u32::max_value() as f64 + 1.0)),
+            Angle::from_0to1(f64::from(response[0]) / (f64::from(u32::max_value()) + 1.0)),
+            Angle::from_0to1(f64::from(response[1]) / (f64::from(u32::max_value()) + 1.0)),
         ))
     }
 
     pub fn overwrite_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let ra = (ra.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
-        let dec = (dec.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
+        let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         write!(self.port, "s{:08X},{:08X}", ra, dec)?;
         self.port.flush()?;
         if self.read()? != "" {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok(())
     }
 
     pub fn slew_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let ra = (ra.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
-        let dec = (dec.value_0to1() * (u32::max_value() as f64 + 1.0)) as u32;
+        let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         write!(self.port, "r{:08X},{:08X}", ra, dec)?;
         self.port.flush()?;
         if self.read()? != "" {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok(())
     }
@@ -191,7 +193,7 @@ impl Mount {
         write!(self.port, "M")?;
         self.port.flush()?;
         if self.read()? != "" {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok(())
     }
@@ -204,10 +206,10 @@ impl Mount {
     }
 
     pub fn set_tracking_mode(&mut self, mode: TrackingMode) -> Result<()> {
-        self.port.write(&['T' as u8, u8::from(mode)])?;
+        self.port.write_all(&[b'T', u8::from(mode)])?;
         self.port.flush()?;
         if self.read()? != "" {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok(())
     }
@@ -238,13 +240,13 @@ impl Mount {
     }
 
     fn parse_lat_lon(value: &[u8]) -> (Angle, Angle) {
-        let lat_deg = value[0] as _;
-        let lat_min = value[1] as _;
-        let lat_sec = value[2] as _;
+        let lat_deg = f64::from(value[0]);
+        let lat_min = f64::from(value[1]);
+        let lat_sec = f64::from(value[2]);
         let lat_sign = value[3] == 1;
-        let lon_deg = value[4] as _;
-        let lon_min = value[5] as _;
-        let lon_sec = value[6] as _;
+        let lon_deg = f64::from(value[4]);
+        let lon_min = f64::from(value[5]);
+        let lon_sec = f64::from(value[6]);
         let lon_sign = value[7] == 1;
         let lat = Angle::from_dms(lat_sign, lat_deg, lat_min, lat_sec, 0.0);
         let lon = Angle::from_dms(lon_sign, lon_deg, lon_min, lon_sec, 0.0);
@@ -259,10 +261,10 @@ impl Mount {
 
     pub fn set_location(&mut self, lat: Angle, lon: Angle) -> Result<()> {
         let to_write = Self::format_lat_lon(b'W', lat, lon);
-        self.port.write(&to_write)?;
+        self.port.write_all(&to_write)?;
         self.port.flush()?;
         if self.read()? != "" {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok(())
     }
@@ -309,11 +311,11 @@ impl Mount {
 
     pub fn set_time(&mut self, time: MountTime) -> Result<()> {
         let mut to_write = Self::format_time(time);
-        to_write.insert(0, 'H' as u8);
-        self.port.write(&to_write)?;
+        to_write.insert(0, b'H');
+        self.port.write_all(&to_write)?;
         self.port.flush()?;
         if self.read()? != "" {
-            return Err("Invalid response".to_owned())?;
+            return Err(failure::err_msg("Invalid response"));
         }
         Ok(())
     }
@@ -325,7 +327,7 @@ impl Mount {
     }
 
     pub fn echo(&mut self, byte: u8) -> Result<u8> {
-        self.port.write(&['K' as u8, byte])?;
+        self.port.write_all(&[b'K', byte])?;
         self.port.flush()?;
         Ok(self.read_bytes()?[0])
     }

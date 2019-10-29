@@ -3,15 +3,24 @@ use sdl2::{
     render::{TextureCreator, WindowCanvas},
     video::WindowContext,
 };
-use std::time::Instant;
+use std::{
+    fmt::Write,
+    time::{Duration, Instant},
+};
 
 pub struct MountDisplay {
     mount: mount::Mount,
+    last_update: Instant,
+    status: String,
 }
 
 impl MountDisplay {
     pub fn new(mount: mount::Mount) -> Self {
-        Self { mount }
+        Self {
+            mount,
+            last_update: Instant::now(),
+            status: String::new(),
+        }
     }
 
     pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
@@ -77,7 +86,7 @@ impl MountDisplay {
             }
             ["ping"] => {
                 let now = Instant::now();
-                let ok = self.mount.echo('U' as u8)? == 'U' as u8;
+                let ok = self.mount.echo(b'U')? == b'U';
                 let duration = now.elapsed();
                 let duration_seconds =
                     duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1e-9;
@@ -88,8 +97,28 @@ impl MountDisplay {
         Ok(true)
     }
 
-    pub fn draw(&mut self, canvas: &WindowCanvas) -> Result<()> {
-        // TODO
-        Ok(())
+    pub fn status(&mut self) -> Result<&str> {
+        let now = Instant::now();
+        if (now - self.last_update).as_secs() > 0 {
+            self.last_update += Duration::from_secs(1);
+            self.status.clear();
+            let (ra, dec) = self.mount.get_ra_dec()?;
+            writeln!(
+                self.status,
+                "RA/Dec: {} {}",
+                ra.fmt_hours(),
+                dec.fmt_degrees()
+            )?;
+            println!("Aligned: {}", self.mount.aligned()?);
+            writeln!(
+                self.status,
+                "Tracking mode: {}",
+                self.mount.tracking_mode()?
+            )?;
+            let (lat, lon) = self.mount.location()?;
+            println!("Location: {} {}", lat.fmt_degrees(), lon.fmt_degrees());
+            println!("Time: {}", self.mount.time()?);
+        }
+        Ok(&self.status)
     }
 }

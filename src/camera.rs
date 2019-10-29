@@ -3,6 +3,7 @@ use crate::{
     qhycamera::{ControlId, QHYCCD},
     Image, Result,
 };
+use lazy_static::lazy_static;
 use std::{error::Error, fmt, str};
 
 #[derive(Debug)]
@@ -54,7 +55,7 @@ pub fn autoconnect(live: bool) -> Result<Camera> {
     if let Some(best) = best {
         Ok(best.open(live)?)
     } else {
-        Err("No QHY cameras found".into())
+        Err(failure::err_msg("No QHY cameras found"))
     }
 }
 
@@ -67,7 +68,7 @@ impl CameraInfo {
         init_qhyccd_resource();
         let result = unsafe {
             let mut data = vec![0; 512];
-            check(qhy::GetQHYCCDId(id, data.as_mut_ptr()));
+            check(qhy::GetQHYCCDId(id, data.as_mut_ptr()))?;
             let name = str::from_utf8(&data[..data.iter().position(|&c| c == 0).unwrap()])
                 .unwrap()
                 .to_string();

@@ -7,6 +7,11 @@ edition = "2018"
 [dependencies]
 lazy_static = ""
 regex = ""
-sdl2 = ""
 serialport = ""
 time = ""
+failure = ""
+
+[dependencies.sdl2]
+version = ""
+default-features = false
+features = ["ttf"]
