@@ -1,8 +1,4 @@
 use crate::{dms::Angle, mount, Result};
-use sdl2::{
-    render::{TextureCreator, WindowCanvas},
-    video::WindowContext,
-};
 use std::{
     fmt::Write,
     time::{Duration, Instant},

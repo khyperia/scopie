@@ -1,4 +1,4 @@
-use crate::Image;
+use khygl::texture::CpuTexture;
 
 // TODO: use f64::clamp() once stable
 #[inline]
@@ -29,10 +29,10 @@ fn stdev(data: &[u16], mean: f64) -> f64 {
     (sum / data.len() as f64).sqrt()
 }
 
-pub fn adjust_image(image: &Image<u16>) -> Image<u8> {
+pub fn adjust_image(image: &CpuTexture<u16>) -> CpuTexture<[u8; 4]> {
     let mean = mean(&image.data);
     let stdev = stdev(&image.data, mean);
-    let mut result = Vec::with_capacity(image.data.len() * 4);
+    let mut result = Vec::with_capacity(image.data.len());
     // ((x - mean) / (stdev * size) + 0.5) * 255
     // ((x / (stdev * size) - mean / (stdev * size)) + 0.5) * 255
     // (x / (stdev * size) - mean / (stdev * size) + 0.5) * 255
@@ -45,10 +45,7 @@ pub fn adjust_image(image: &Image<u16>) -> Image<u8> {
     for &item in &image.data {
         let mapped = item as f64 * a + b;
         let one = clamp(mapped, 0.0, 255.0) as u8;
-        result.push(255);
-        result.push(one);
-        result.push(one);
-        result.push(one);
+        result.push([255, one, one, one]);
     }
-    Image::new(result, image.width, image.height)
+    CpuTexture::new(result, image.size)
 }

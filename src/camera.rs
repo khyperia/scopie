@@ -1,8 +1,9 @@
 use crate::{
     qhycamera as qhy,
     qhycamera::{ControlId, QHYCCD},
-    Image, Result,
+    Result,
 };
+use khygl::texture::CpuTexture;
 use lazy_static::lazy_static;
 use std::{error::Error, fmt, str};
 
@@ -162,7 +163,7 @@ impl Camera {
         unsafe { Ok(check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?) }
     }
 
-    fn get_single(&self) -> Result<Option<Image<u16>>> {
+    fn get_single(&self) -> Result<Option<CpuTexture<u16>>> {
         unsafe {
             let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
             // QHY recommends 100 in qhyccd.h, I guess?
@@ -185,7 +186,10 @@ impl Camera {
             ))?;
             assert_eq!(bpp, 16);
             assert_eq!(channels, 1);
-            Ok(Some(Image::new(data, width as usize, height as usize)))
+            Ok(Some(CpuTexture::new(
+                data,
+                (width as usize, height as usize),
+            )))
         }
     }
 
@@ -197,7 +201,7 @@ impl Camera {
         unsafe { Ok(check(qhy::StopQHYCCDLive(self.handle))?) }
     }
 
-    fn get_live(&self) -> Result<Option<Image<u16>>> {
+    fn get_live(&self) -> Result<Option<CpuTexture<u16>>> {
         unsafe {
             let len = qhy::GetQHYCCDMemLength(self.handle) as usize;
             let mut width = 0;
@@ -219,7 +223,10 @@ impl Camera {
             }
             assert_eq!(bpp, 16);
             assert_eq!(channels, 1);
-            Ok(Some(Image::new(data, width as usize, height as usize)))
+            Ok(Some(CpuTexture::new(
+                data,
+                (width as usize, height as usize),
+            )))
         }
     }
 
@@ -239,7 +246,7 @@ impl Camera {
         }
     }
 
-    pub fn try_get(&self) -> Result<Option<Image<u16>>> {
+    pub fn try_get(&self) -> Result<Option<CpuTexture<u16>>> {
         if self.use_live {
             self.get_live()
         } else {

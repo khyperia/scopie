@@ -7,36 +7,16 @@ mod process;
 mod qhycamera;
 
 use camera_display::CameraDisplay;
-use mount_display::MountDisplay;
-use sdl2::{
-    event::Event,
-    init,
-    keyboard::Keycode,
-    pixels::Color,
-    rect::{Point, Rect},
-    render::{TextureCreator, WindowCanvas},
-    ttf,
-    video::WindowContext,
+use khygl::display::Key;
+use khygl::{
+    render_text::TextRenderer,
+    render_texture::{TextureRenderer, TextureRendererKindF32, TextureRendererKindU8},
+    Rect,
 };
-use std::{convert::TryInto, path::Path};
+use mount_display::MountDisplay;
+use std::convert::TryInto;
 
 type Result<T> = std::result::Result<T, failure::Error>;
-
-pub struct Image<T> {
-    data: Vec<T>,
-    width: usize,
-    height: usize,
-}
-
-impl<T> Image<T> {
-    pub fn new(data: Vec<T>, width: usize, height: usize) -> Self {
-        Self {
-            data,
-            width,
-            height,
-        }
-    }
-}
 
 /*
 fn format_duration(duration: Duration) -> String {
@@ -44,74 +24,7 @@ fn format_duration(duration: Duration) -> String {
 }
 */
 
-fn find_font() -> Result<&'static Path> {
-    let locations: [&'static Path; 6] = [
-        "/usr/share/fonts/TTF/FiraMono-Regular.ttf".as_ref(),
-        "/usr/share/fonts/TTF/FiraSans-Regular.ttf".as_ref(),
-        "C:\\Windows\\Fonts\\arial.ttf".as_ref(),
-        "/usr/share/fonts/TTF/DejaVuSans.ttf".as_ref(),
-        "/usr/share/fonts/TTF/LiberationSans-Regular.ttf".as_ref(),
-        "/Library/Fonts/Andale Mono.ttf".as_ref(),
-    ];
-    for &location in &locations {
-        if location.exists() {
-            return Ok(location);
-        }
-    }
-    Err(failure::err_msg("No font found"))
-}
-
-fn render_line(
-    font: &ttf::Font,
-    creator: &TextureCreator<WindowContext>,
-    canvas: &mut WindowCanvas,
-    color: Color,
-    pos: Point,
-    text: &str,
-) -> Result<Rect> {
-    if text.is_empty() {
-        Ok(Rect::new(pos.x(), pos.y(), 0, 0))
-    } else {
-        let rendered = font.render(text).solid(color)?;
-        let width = rendered.width();
-        let height = rendered.height();
-        let tex = creator.create_texture_from_surface(rendered)?;
-        let dest = Rect::new(pos.x(), pos.y(), width, height);
-        canvas.copy(&tex, None, dest).map_err(failure::err_msg)?;
-        Ok(dest)
-    }
-}
-
-fn render_block(
-    font: &ttf::Font,
-    creator: &TextureCreator<WindowContext>,
-    canvas: &mut WindowCanvas,
-    color: Color,
-    pos: Point,
-    text: &str,
-) -> Result<Rect> {
-    let spacing = font.recommended_line_spacing();
-
-    let mut current_y = pos.y();
-    let mut max_coords = (pos.x(), pos.y());
-
-    for line in text.lines() {
-        let line_pos = Point::new(pos.x(), current_y);
-        let line_rect = render_line(font, creator, canvas, color, line_pos, line)?;
-        max_coords = (
-            max_coords.0.max(line_rect.right()),
-            max_coords.1.max(line_rect.bottom()),
-        );
-        current_y += spacing;
-    }
-    Ok(Rect::new(
-        pos.x(),
-        pos.y(),
-        (max_coords.0 - pos.x()) as u32,
-        (max_coords.1 - pos.y()) as u32,
-    ))
-}
-
+/*
 fn display(camera: Option<camera::Camera>, mount: Option<mount::Mount>) -> Result<()> {
     let sdl = init().map_err(failure::err_msg)?;
     let video = sdl.video().map_err(failure::err_msg)?;
@@ -220,24 +133,151 @@ fn display(camera: Option<camera::Camera>, mount: Option<mount::Mount>) -> Resul
     // input.stop();
     Ok(())
 }
+*/
+
+struct Display {
+    camera_display: Option<camera_display::CameraDisplay>,
+    mount_display: Option<mount_display::MountDisplay>,
+    window_size: (usize, usize),
+    status: String,
+    input_text: String,
+    texture_renderer_u8: TextureRenderer<TextureRendererKindU8>,
+    texture_renderer_f32: TextureRenderer<TextureRendererKindF32>,
+    text_renderer: TextRenderer,
+    command_okay: bool,
+}
+
+impl khygl::display::Display for Display {
+    fn setup(window_size: (usize, usize)) -> Result<Self> {
+        let texture_renderer_u8 = TextureRenderer::new()?;
+        let texture_renderer_f32 = TextureRenderer::new()?;
+        let text_renderer = TextRenderer::new((255.0, 128.0, 128.0))?;
+        let live = false;
+        let camera = match camera::autoconnect(live) {
+            Ok(ok) => Some(ok),
+            Err(err) => {
+                println!("Error connecting to camera: {}", err);
+                None
+            }
+        };
+        let mount = match mount::autoconnect() {
+            Ok(ok) => Some(ok),
+            Err(err) => {
+                println!("Error connecting to mount: {}", err);
+                None
+            }
+        };
+        let camera_display = camera.map(CameraDisplay::new);
+        let mount_display = mount.map(MountDisplay::new);
+        Ok(Self {
+            camera_display,
+            mount_display,
+            window_size,
+            status: String::new(),
+            input_text: String::new(),
+            texture_renderer_u8,
+            texture_renderer_f32,
+            text_renderer,
+            command_okay: true,
+        })
+    }
+
+    fn render(&mut self) -> Result<()> {
+        unsafe {
+            gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        }
+        // let (window_width, window_height) = canvas.output_size().map_err(failure::err_msg)?;
+        self.status.clear();
+        //status.push_str("wau");
+        if let Some(ref mut camera_display) = self.camera_display {
+            self.status.push_str(camera_display.status()?);
+        }
+        if let Some(ref mut mount_display) = self.mount_display {
+            self.status.push_str(mount_display.status()?);
+        }
+        let text_size = self.text_renderer.render(
+            &self.texture_renderer_f32,
+            &self.status,
+            (10, 10),
+            self.window_size,
+        )?;
+        if let Some(ref mut camera_display) = self.camera_display {
+            let width = (self.window_size.0 as isize - text_size.right() as isize)
+                .try_into()
+                .unwrap_or(1);
+            let camera_rect = Rect::new(text_size.right(), 0, width, self.window_size.1);
+            camera_display.draw(
+                camera_rect,
+                &self.texture_renderer_u8,
+                (self.window_size.0 as f32, self.window_size.1 as f32),
+            )?;
+        }
+        let input_height = self.window_size.1 as isize - self.text_renderer.spacing as isize;
+        let input_pos = (10, input_height.try_into().unwrap_or(0));
+        self.text_renderer.render(
+            &self.texture_renderer_f32,
+            &self.input_text,
+            input_pos,
+            self.window_size,
+        )?;
+        // if self.command_okay {
+        //     canvas.set_draw_color(Color::RGB(128, 128, 128));
+        // } else {
+        //     canvas.set_draw_color(Color::RGB(255, 255, 255));
+        // }
+        // canvas
+        //     .draw_rect(Rect::new(
+        //         input_pos.x() - 1,
+        //         input_pos.y() - 1,
+        //         (window_width as i32 - input_pos.x() * 2)
+        //             .try_into()
+        //             .unwrap_or(2),
+        //         font.recommended_line_spacing() as u32,
+        //     ))
+        //     .map_err(failure::err_msg)?;
+        Ok(())
+    }
+
+    fn resize(&mut self, size: (usize, usize)) -> Result<()> {
+        self.window_size = size;
+        Ok(())
+    }
+
+    fn key_up(&mut self, _key: Key) -> Result<()> {
+        Ok(())
+    }
+
+    fn key_down(&mut self, key: Key) -> Result<()> {
+        println!("{:?}", key);
+        match key {
+            Key::Back => {
+                self.input_text.pop();
+            }
+            Key::Return => {
+                let cmd = self.input_text.split_whitespace().collect::<Vec<_>>();
+                self.command_okay = cmd.is_empty();
+                if let Some(ref mut camera_display) = self.camera_display {
+                    self.command_okay |= camera_display.cmd(&cmd)?;
+                }
+                if let Some(ref mut mount_display) = self.mount_display {
+                    self.command_okay |= mount_display.cmd(&cmd)?;
+                }
+                self.input_text.clear();
+            }
+            _ => (),
+        }
+        Ok(())
+    }
+
+    fn received_character(&mut self, ch: char) -> Result<()> {
+        self.input_text.push(ch);
+        Ok(())
+    }
+}
 
 fn main() {
-    let live = false;
-    let camera = match camera::autoconnect(live) {
-        Ok(ok) => Some(ok),
-        Err(err) => {
-            println!("Error connecting to camera: {}", err);
-            None
-        }
-    };
-    let mount = match mount::autoconnect() {
-        Ok(ok) => Some(ok),
-        Err(err) => {
-            println!("Error connecting to mount: {}", err);
-            None
-        }
-    };
-    match display(camera, mount) {
+    match khygl::display::run::<Display>((600.0, 600.0)) {
         Ok(ok) => ok,
         Err(err) => println!("Error: {:?}", err),
     }

@@ -1,20 +1,20 @@
-use crate::{camera, process::adjust_image, Image, Result};
-use sdl2::{
-    pixels::{Color, PixelFormatEnum},
-    rect::{Point, Rect},
-    render::{Texture, TextureCreator, WindowCanvas},
-    video::WindowContext,
+use crate::{camera, process::adjust_image, Result};
+use khygl::{
+    render_texture::TextureRenderer,
+    render_texture::TextureRendererKindU8,
+    texture::{CpuTexture, Texture},
+    Rect,
 };
 use std::{
     fmt::Write,
     time::{Duration, Instant},
 };
 
-pub struct CameraDisplay<'a> {
+pub struct CameraDisplay {
     camera: camera::Camera,
-    raw: Option<Image<u16>>,
-    processed: Option<Image<u8>>,
-    texture: Option<Texture<'a>>,
+    raw: Option<CpuTexture<u16>>,
+    processed: Option<CpuTexture<[u8; 4]>>,
+    texture: Option<Texture<[u8; 4]>>,
     running: bool,
     zoom: bool,
     cross: bool,
@@ -26,7 +26,7 @@ pub struct CameraDisplay<'a> {
     process_time: Duration,
 }
 
-impl<'a> CameraDisplay<'a> {
+impl CameraDisplay {
     pub fn new(camera: camera::Camera) -> Self {
         Self {
             camera,
@@ -119,9 +119,9 @@ impl<'a> CameraDisplay<'a> {
 
     pub fn draw(
         &mut self,
-        canvas: &mut WindowCanvas,
-        creator: &'a TextureCreator<WindowContext>,
-        position: Rect,
+        pos: Rect<usize>,
+        displayer_u8: &TextureRenderer<TextureRendererKindU8>,
+        screen_size: (f32, f32),
     ) -> Result<()> {
         if let Some(image) = self.camera.try_get()? {
             let now = Instant::now();
@@ -140,61 +140,56 @@ impl<'a> CameraDisplay<'a> {
         }
         if let Some(ref processed) = self.processed {
             let create = if let Some(ref texture) = self.texture {
-                let query = texture.query();
-                query.width as usize != processed.width || query.height as usize != processed.height
+                texture.size != processed.size
             } else {
                 true
             };
             if create {
-                self.texture = Some(creator.create_texture_streaming(
-                    PixelFormatEnum::RGBX8888,
-                    processed.width as u32,
-                    processed.height as u32,
-                )?);
+                self.texture = Some(Texture::new(processed.size)?);
                 upload = true;
             }
         }
         if upload {
             if let Some(ref processed) = self.processed {
                 if let Some(ref mut texture) = self.texture {
-                    texture.update(None, &processed.data, processed.width as usize * 4)?;
+                    texture.upload(&processed)?;
                 }
             }
         }
         if let Some(ref texture) = self.texture {
-            let query = texture.query();
             //let (output_width, output_height) = canvas.output_size()?;
-            let scale = (f64::from(position.width()) / f64::from(query.width))
-                .min(f64::from(position.height()) / f64::from(query.height));
-            let dst_width = (f64::from(query.width) * scale).round() as u32;
-            let dst_height = (f64::from(query.height) * scale).round() as u32;
-            let dst = Rect::new(position.x(), position.y(), dst_width, dst_height);
+            let scale = ((pos.width as f32) / (texture.size.0 as f32))
+                .min((pos.height as f32) / (texture.size.1 as f32));
+            let dst_width = ((texture.size.0 as f32) * scale).round();
+            let dst_height = ((texture.size.1 as f32) * scale).round();
+            let dst = Rect::new(pos.x as f32, pos.y as f32, dst_width, dst_height);
             let src = if self.zoom {
-                let zoom_size = 100;
-                let src_x = (query.width / 2) as i32 - (zoom_size / 2) as i32;
-                let src_y = (query.height / 2) as i32 - (zoom_size / 2) as i32;
+                let zoom_size = 100.0;
+                let src_x = texture.size.0 as f32 / 2.0 - zoom_size / 2.0;
+                let src_y = texture.size.1 as f32 / 2.0 - zoom_size / 2.0;
                 Some(Rect::new(src_x, src_y, zoom_size, zoom_size))
             } else {
                 None
             };
-            canvas.copy(&texture, src, dst).map_err(failure::err_msg)?;
-            if self.cross {
-                let half_x = dst.x() + (dst.width() / 2) as i32;
-                let half_y = dst.y() + (dst.height() / 2) as i32;
-                canvas.set_draw_color(Color::RGB(255, 0, 0));
-                canvas
-                    .draw_line(
-                        Point::new(dst.left(), half_y),
-                        Point::new(dst.right(), half_y),
-                    )
-                    .map_err(failure::err_msg)?;
-                canvas
-                    .draw_line(
-                        Point::new(half_x, dst.top()),
-                        Point::new(half_x, dst.bottom()),
-                    )
-                    .map_err(failure::err_msg)?;
-            }
+            displayer_u8.render(texture, src, dst, screen_size)?;
+            // TODO: cross
+            // if self.cross {
+            //     let half_x = dst.x() + (dst.width() / 2) as i32;
+            //     let half_y = dst.y() + (dst.height() / 2) as i32;
+            //     canvas.set_draw_color(Color::RGB(255, 0, 0));
+            //     canvas
+            //         .draw_line(
+            //             Point::new(dst.left(), half_y),
+            //             Point::new(dst.right(), half_y),
+            //         )
+            //         .map_err(failure::err_msg)?;
+            //     canvas
+            //         .draw_line(
+            //             Point::new(half_x, dst.top()),
+            //             Point::new(half_x, dst.bottom()),
+            //         )
+            //         .map_err(failure::err_msg)?;
+            // }
         }
         Ok(())
     }

@@ -5,13 +5,10 @@ authors = ["khyperia <khyperia@live.com>"]
 edition = "2018"
 
 [dependencies]
+failure = ""
+gl = ""
+khygl = {path = "../khygl"}
 lazy_static = ""
 regex = ""
 serialport = ""
 time = ""
-failure = ""
-
-[dependencies.sdl2]
-version = ""
-default-features = false
-features = ["ttf"]
