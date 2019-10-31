@@ -1,7 +1,6 @@
 use crate::{camera, process::adjust_image, Result};
 use khygl::{
-    render_texture::TextureRenderer,
-    render_texture::TextureRendererKindU8,
+    render_texture::TextureRendererU8,
     texture::{CpuTexture, Texture},
     Rect,
 };
@@ -120,7 +119,7 @@ impl CameraDisplay {
     pub fn draw(
         &mut self,
         pos: Rect<usize>,
-        displayer_u8: &TextureRenderer<TextureRendererKindU8>,
+        displayer_u8: &TextureRendererU8,
         screen_size: (f32, f32),
     ) -> Result<()> {
         if let Some(image) = self.camera.try_get()? {
@@ -171,7 +170,7 @@ impl CameraDisplay {
             } else {
                 None
             };
-            displayer_u8.render(texture, src, dst, screen_size)?;
+            displayer_u8.render(texture, src, dst, None, screen_size)?;
             // TODO: cross
             // if self.cross {
             //     let half_x = dst.x() + (dst.width() / 2) as i32;

@@ -13,7 +13,7 @@ impl Angle {
         }
     }
 
-    pub fn value_0to1(&self) -> f64 {
+    pub fn value_0to1(self) -> f64 {
         self.value
     }
 
@@ -21,7 +21,7 @@ impl Angle {
         Self::from_0to1(deg / 360.0)
     }
 
-    pub fn degrees(&self) -> f64 {
+    pub fn degrees(self) -> f64 {
         self.value * 360.0
     }
 
@@ -29,7 +29,7 @@ impl Angle {
         Self::from_0to1(hours / 24.0)
     }
 
-    pub fn hours(&self) -> f64 {
+    pub fn hours(self) -> f64 {
         self.value * 24.0
     }
 
@@ -44,15 +44,15 @@ impl Angle {
         sign * (degrees + minutes / 60.0 + (seconds + remainder_seconds) / (60.0 * 60.0))
     }
 
-    fn to_xms(mut value: f64) -> (bool, u32, u32, u32, f64) {
+    fn value_to_xms(mut value: f64) -> (bool, u32, u32, u32, f64) {
         let sign = value.is_sign_negative();
         value = value.abs();
         let degrees = value as u32;
-        value = (value - degrees as f64) * 60.0;
+        value = (value - f64::from(degrees)) * 60.0;
         let minutes = value as u32;
-        value = (value - minutes as f64) * 60.0;
+        value = (value - f64::from(minutes)) * 60.0;
         let seconds = value as u32;
-        let remainder = value - seconds as f64;
+        let remainder = value - f64::from(seconds);
         (sign, degrees, minutes, seconds, remainder)
     }
 
@@ -72,8 +72,8 @@ impl Angle {
         ))
     }
 
-    pub fn to_dms(&self) -> (bool, u32, u32, u32, f64) {
-        Self::to_xms(self.degrees())
+    pub fn to_dms(self) -> (bool, u32, u32, u32, f64) {
+        Self::value_to_xms(self.degrees())
     }
 
     pub fn from_hms(
@@ -92,17 +92,17 @@ impl Angle {
         ))
     }
 
-    pub fn to_hms(&self) -> (bool, u32, u32, u32, f64) {
-        Self::to_xms(self.hours())
+    pub fn to_hms(self) -> (bool, u32, u32, u32, f64) {
+        Self::value_to_xms(self.hours())
     }
 
-    pub fn fmt_degrees(&self) -> String {
+    pub fn fmt_degrees(self) -> String {
         let (sign, degrees, minutes, seconds, _) = self.to_dms();
         let sign = if sign { "-" } else { "" };
         format!("{}{}°{}′{}″", sign, degrees, minutes, seconds)
     }
 
-    pub fn fmt_hours(&self) -> String {
+    pub fn fmt_hours(self) -> String {
         let (sign, degrees, minutes, seconds, _) = self.to_hms();
         let sign = if sign { "-" } else { "" };
         format!("{}{}h{}′{}″", sign, degrees, minutes, seconds)

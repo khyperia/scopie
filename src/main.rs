@@ -7,10 +7,11 @@ mod process;
 mod qhycamera;
 
 use camera_display::CameraDisplay;
-use khygl::display::Key;
 use khygl::{
+    display::Key,
     render_text::TextRenderer,
-    render_texture::{TextureRenderer, TextureRendererKindF32, TextureRendererKindU8},
+    render_texture::{TextureRendererF32, TextureRendererU8},
+    texture::{CpuTexture, Texture},
     Rect,
 };
 use mount_display::MountDisplay;
@@ -141,20 +142,60 @@ struct Display {
     window_size: (usize, usize),
     status: String,
     input_text: String,
-    texture_renderer_u8: TextureRenderer<TextureRendererKindU8>,
-    texture_renderer_f32: TextureRenderer<TextureRendererKindF32>,
+    texture_renderer_u8: TextureRendererU8,
+    texture_renderer_f32: TextureRendererF32,
     text_renderer: TextRenderer,
+    texture1x1: Texture<[u8; 4]>,
     command_okay: bool,
+}
+
+impl Display {
+    fn window_size_f32(&self) -> (f32, f32) {
+        (self.window_size.0 as f32, self.window_size.1 as f32)
+    }
+
+    fn line_x(&self, x_start: usize, x_end: usize, y: usize, color: [f32; 4]) -> Result<()> {
+        self.texture_renderer_u8.render(
+            &self.texture1x1,
+            None,
+            Rect::new(x_start as f32, y as f32, (x_end - x_start) as f32, 1.0),
+            color,
+            self.window_size_f32(),
+        )
+    }
+
+    fn line_y(&self, x: usize, y_start: usize, y_end: usize, color: [f32; 4]) -> Result<()> {
+        self.texture_renderer_u8.render(
+            &self.texture1x1,
+            None,
+            Rect::new(x as f32, y_start as f32, 1.0, (y_end - y_start) as f32),
+            color,
+            self.window_size_f32(),
+        )
+    }
+
+    fn rect(&self, rect: Rect<usize>, color: [f32; 4]) -> Result<()> {
+        self.line_x(rect.x, rect.right(), rect.y, color)?;
+        self.line_x(rect.x, rect.right(), rect.bottom(), color)?;
+        self.line_y(rect.x, rect.y, rect.bottom(), color)?;
+        self.line_y(rect.right(), rect.y, rect.bottom(), color)?;
+        Ok(())
+    }
 }
 
 impl khygl::display::Display for Display {
     fn setup(window_size: (usize, usize)) -> Result<Self> {
-        let texture_renderer_u8 = TextureRenderer::new()?;
-        let texture_renderer_f32 = TextureRenderer::new()?;
-        let text_renderer = TextRenderer::new((255.0, 128.0, 128.0))?;
+        let texture_renderer_u8 = TextureRendererU8::new()?;
+        let texture_renderer_f32 = TextureRendererF32::new()?;
+        let text_renderer = TextRenderer::new()?;
+        let mut texture1x1 = Texture::new((1, 1))?;
+        texture1x1.upload(&CpuTexture::new(vec![[255, 255, 255, 255]], (1, 1)))?;
         let live = false;
         let camera = match camera::autoconnect(live) {
-            Ok(ok) => Some(ok),
+            Ok(ok) => {
+                println!("Using camera: {}", ok.name());
+                Some(ok)
+            },
             Err(err) => {
                 println!("Error connecting to camera: {}", err);
                 None
@@ -178,18 +219,18 @@ impl khygl::display::Display for Display {
             texture_renderer_u8,
             texture_renderer_f32,
             text_renderer,
+            texture1x1,
             command_okay: true,
         })
     }
 
     fn render(&mut self) -> Result<()> {
+        let window_size_f32 = self.window_size_f32();
         unsafe {
             gl::ClearColor(0.0, 0.0, 0.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
-        // let (window_width, window_height) = canvas.output_size().map_err(failure::err_msg)?;
         self.status.clear();
-        //status.push_str("wau");
         if let Some(ref mut camera_display) = self.camera_display {
             self.status.push_str(camera_display.status()?);
         }
@@ -199,6 +240,7 @@ impl khygl::display::Display for Display {
         let text_size = self.text_renderer.render(
             &self.texture_renderer_f32,
             &self.status,
+            [1.0, 1.0, 1.0, 1.0],
             (10, 10),
             self.window_size,
         )?;
@@ -207,35 +249,33 @@ impl khygl::display::Display for Display {
                 .try_into()
                 .unwrap_or(1);
             let camera_rect = Rect::new(text_size.right(), 0, width, self.window_size.1);
-            camera_display.draw(
-                camera_rect,
-                &self.texture_renderer_u8,
-                (self.window_size.0 as f32, self.window_size.1 as f32),
-            )?;
+            camera_display.draw(camera_rect, &self.texture_renderer_u8, window_size_f32)?;
         }
         let input_height = self.window_size.1 as isize - self.text_renderer.spacing as isize;
         let input_pos = (10, input_height.try_into().unwrap_or(0));
         self.text_renderer.render(
             &self.texture_renderer_f32,
             &self.input_text,
+            [1.0, 1.0, 1.0, 1.0],
             input_pos,
             self.window_size,
         )?;
-        // if self.command_okay {
-        //     canvas.set_draw_color(Color::RGB(128, 128, 128));
-        // } else {
-        //     canvas.set_draw_color(Color::RGB(255, 255, 255));
-        // }
-        // canvas
-        //     .draw_rect(Rect::new(
-        //         input_pos.x() - 1,
-        //         input_pos.y() - 1,
-        //         (window_width as i32 - input_pos.x() * 2)
-        //             .try_into()
-        //             .unwrap_or(2),
-        //         font.recommended_line_spacing() as u32,
-        //     ))
-        //     .map_err(failure::err_msg)?;
+        let command_color = if self.command_okay {
+            [0.5, 0.5, 0.5, 1.0]
+        } else {
+            [1.0, 0.5, 0.5, 1.0]
+        };
+        self.rect(
+            Rect::new(
+                input_pos.0,
+                input_pos.1,
+                (self.window_size.0 as isize - input_pos.0 as isize * 2)
+                    .try_into()
+                    .unwrap_or(2),
+                self.text_renderer.spacing,
+            ),
+            command_color,
+        )?;
         Ok(())
     }
 
@@ -249,7 +289,6 @@ impl khygl::display::Display for Display {
     }
 
     fn key_down(&mut self, key: Key) -> Result<()> {
-        println!("{:?}", key);
         match key {
             Key::Back => {
                 self.input_text.pop();

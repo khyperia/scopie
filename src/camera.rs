@@ -139,7 +139,7 @@ impl Camera {
     }
 
     pub fn name(&self) -> &str {
-        &self.info.name
+        &self.info().name()
     }
 
     fn get_controls(handle: QHYCCD) -> Vec<Control> {
@@ -304,6 +304,9 @@ impl Control {
     pub fn min_value(&self) -> f64 {
         self.min
     }
+    pub fn step_value(&self) -> f64 {
+        self.step
+    }
     pub fn readonly(&self) -> bool {
         self.readonly
     }
@@ -320,7 +323,7 @@ impl Control {
 
 impl fmt::Display for Control {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.readonly {
+        if self.readonly() {
             write!(f, "{} = {} (readonly)", self.control, self.get())
         } else {
             write!(
@@ -328,9 +331,9 @@ impl fmt::Display for Control {
                 "{} = {} ({}-{} by {})",
                 self.control,
                 self.get(),
-                self.min,
-                self.max,
-                self.step
+                self.min_value(),
+                self.max_value(),
+                self.step_value(),
             )
         }
     }

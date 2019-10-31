@@ -1,8 +1,4 @@
-use std::{
-    env,
-    fs::{copy, read_dir},
-    path::PathBuf,
-};
+use std::{env, fs::copy, path::PathBuf};
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
