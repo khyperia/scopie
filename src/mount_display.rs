@@ -85,7 +85,7 @@ impl MountDisplay {
                 let ok = self.mount.echo(b'U')? == b'U';
                 let duration = now.elapsed();
                 let duration_seconds =
-                    duration.as_secs() as f32 + duration.subsec_nanos() as f32 * 1e-9;
+                    (duration.subsec_nanos() as f32).mul_add(1e-9, duration.as_secs() as f32);
                 println!("{} seconds (ok={})", duration_seconds, ok);
             }
             _ => return Ok(false),

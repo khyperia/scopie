@@ -134,7 +134,7 @@ impl ControlId {
         VALUES
     }
 
-    pub fn to_str(&self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         match self {
             ControlId::ControlBrightness => "ControlBrightness",
             ControlId::ControlContrast => "ControlContrast",
@@ -206,24 +206,24 @@ impl fmt::Display for ControlId {
 #[link(name = "qhyccd_x64")]
 extern "system" {
     pub fn InitQHYCCDResource() -> u32;
-    pub fn ReleaseQHYCCDResource() -> u32;
+    //pub fn ReleaseQHYCCDResource() -> u32;
     pub fn ScanQHYCCD() -> u32;
     pub fn GetQHYCCDId(index: u32, id: *mut u8) -> u32;
-    pub fn GetQHYCCDModel(id: *const u8, model: *mut u8) -> u32;
+    //pub fn GetQHYCCDModel(id: *const u8, model: *mut u8) -> u32;
     pub fn OpenQHYCCD(id: *const u8) -> QHYCCD;
     pub fn CloseQHYCCD(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDStreamMode(handle: QHYCCD, mode: u8) -> u32;
     pub fn InitQHYCCD(handle: QHYCCD) -> u32;
-    pub fn GetQHYCCDChipInfo(
-        handle: QHYCCD,
-        chipw: &mut f64,
-        chiph: &mut f64,
-        imagew: &mut u32,
-        imageh: &mut u32,
-        pixelw: &mut f64,
-        pixelh: &mut f64,
-        bpp: &mut u32,
-    ) -> u32;
+    //pub fn GetQHYCCDChipInfo(
+    //    handle: QHYCCD,
+    //    chipw: &mut f64,
+    //    chiph: &mut f64,
+    //    imagew: &mut u32,
+    //    imageh: &mut u32,
+    //    pixelw: &mut f64,
+    //    pixelh: &mut f64,
+    //    bpp: &mut u32,
+    //) -> u32;
     pub fn IsQHYCCDControlAvailable(handle: QHYCCD, control_id: ControlId) -> u32;
     pub fn SetQHYCCDParam(handle: QHYCCD, control_id: ControlId, value: f64) -> u32;
     pub fn GetQHYCCDParam(handle: QHYCCD, control_id: ControlId) -> f64;
@@ -234,7 +234,7 @@ extern "system" {
         max: *mut f64,
         step: *mut f64,
     ) -> u32;
-    pub fn SetQHYCCDResolution(handle: QHYCCD, x: u32, y: u32, width: u32, height: u32) -> u32;
+    //pub fn SetQHYCCDResolution(handle: QHYCCD, x: u32, y: u32, width: u32, height: u32) -> u32;
     pub fn GetQHYCCDMemLength(handle: QHYCCD) -> u32;
     pub fn ExpQHYCCDSingleFrame(handle: QHYCCD) -> u32;
     pub fn GetQHYCCDSingleFrame(
@@ -245,7 +245,7 @@ extern "system" {
         channels: *mut u32,
         imgdata: *mut u8,
     ) -> u32;
-    pub fn CancelQHYCCDExposing(handle: QHYCCD) -> u32;
+    //pub fn CancelQHYCCDExposing(handle: QHYCCD) -> u32;
     pub fn CancelQHYCCDExposingAndReadout(handle: QHYCCD) -> u32;
     pub fn BeginQHYCCDLive(handle: QHYCCD) -> u32;
     pub fn GetQHYCCDLiveFrame(
@@ -259,9 +259,9 @@ extern "system" {
     pub fn StopQHYCCDLive(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDBinMode(handle: QHYCCD, wbin: u32, hbin: u32) -> u32;
     pub fn SetQHYCCDBitsMode(handle: QHYCCD, bits: u32) -> u32;
-    pub fn ControlQHYCCDTemp(handle: QHYCCD, target_temp: f64) -> u32;
-    pub fn ControlQHYCCDGuide(handle: QHYCCD, direction: u32, duration: u16) -> u32;
+    //pub fn ControlQHYCCDTemp(handle: QHYCCD, target_temp: f64) -> u32;
+    //pub fn ControlQHYCCDGuide(handle: QHYCCD, direction: u32, duration: u16) -> u32;
     pub fn GetQHYCCDExposureRemaining(handle: QHYCCD) -> u32;
-    pub fn GetQHYCCDReadingProgress(handle: QHYCCD) -> f64;
-    pub fn SetQHYCCDLogLevel(log_level: u8);
+    //pub fn GetQHYCCDReadingProgress(handle: QHYCCD) -> f64;
+    //pub fn SetQHYCCDLogLevel(log_level: u8);
 }

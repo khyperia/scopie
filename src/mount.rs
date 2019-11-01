@@ -150,9 +150,14 @@ impl Mount {
         Ok(String::from_utf8(self.read_bytes()?)?)
     }
 
-    pub fn get_ra_dec(&mut self) -> Result<(Angle, Angle)> {
-        write!(self.port, "e")?;
+    fn write(&mut self, data: impl AsRef<[u8]>) -> Result<()> {
+        self.port.write_all(data.as_ref())?;
         self.port.flush()?;
+        Ok(())
+    }
+
+    pub fn get_ra_dec(&mut self) -> Result<(Angle, Angle)> {
+        self.write([b'e'])?;
         let response = self.read()?;
         let response = response
             .split(',')
@@ -167,11 +172,12 @@ impl Mount {
         ))
     }
 
+    // TODO: rename to sync
     pub fn overwrite_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        write!(self.port, "s{:08X},{:08X}", ra, dec)?;
-        self.port.flush()?;
+        let msg = format!("s{:08X},{:08X}", ra, dec);
+        self.write(msg)?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
         }
@@ -181,8 +187,8 @@ impl Mount {
     pub fn slew_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        write!(self.port, "r{:08X},{:08X}", ra, dec)?;
-        self.port.flush()?;
+        let msg = format!("r{:08X},{:08X}", ra, dec);
+        self.write(msg)?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
         }
@@ -190,8 +196,7 @@ impl Mount {
     }
 
     pub fn cancel_slew(&mut self) -> Result<()> {
-        write!(self.port, "M")?;
-        self.port.flush()?;
+        self.write([b'M'])?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
         }
@@ -199,15 +204,17 @@ impl Mount {
     }
 
     pub fn tracking_mode(&mut self) -> Result<TrackingMode> {
-        write!(self.port, "t")?;
-        self.port.flush()?;
-        // HAHA WHAT, it's literal char value, not ascii integer
-        Ok(self.read_bytes()?[0].into())
+        self.write([b't'])?;
+        if let [result] = self.read_bytes()?[..] {
+            // HAHA WHAT, it's literal char value, not ascii integer
+            Ok(result.into())
+        } else {
+            Err(failure::err_msg("Invalid response"))
+        }
     }
 
     pub fn set_tracking_mode(&mut self, mode: TrackingMode) -> Result<()> {
-        self.port.write_all(&[b'T', u8::from(mode)])?;
-        self.port.flush()?;
+        self.write([b'T', u8::from(mode)])?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
         }
@@ -254,15 +261,13 @@ impl Mount {
     }
 
     pub fn location(&mut self) -> Result<(Angle, Angle)> {
-        write!(self.port, "w")?;
-        self.port.flush()?;
+        self.write([b'w'])?;
         Ok(Self::parse_lat_lon(&self.read_bytes()?))
     }
 
     pub fn set_location(&mut self, lat: Angle, lon: Angle) -> Result<()> {
         let to_write = Self::format_lat_lon(b'W', lat, lon);
-        self.port.write_all(&to_write)?;
-        self.port.flush()?;
+        self.write(to_write)?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
         }
@@ -290,8 +295,9 @@ impl Mount {
         }
     }
 
-    fn format_time(time: MountTime) -> Vec<u8> {
-        vec![
+    fn format_time(cmd: u8, time: MountTime) -> [u8; 9] {
+        [
+            cmd,
             time.hour,
             time.minute,
             time.second,
@@ -304,16 +310,13 @@ impl Mount {
     }
 
     pub fn time(&mut self) -> Result<MountTime> {
-        write!(self.port, "h")?;
-        self.port.flush()?;
+        self.write([b'h'])?;
         Ok(Self::parse_time(&self.read_bytes()?))
     }
 
     pub fn set_time(&mut self, time: MountTime) -> Result<()> {
-        let mut to_write = Self::format_time(time);
-        to_write.insert(0, b'H');
-        self.port.write_all(&to_write)?;
-        self.port.flush()?;
+        let to_write = Self::format_time(b'H', time);
+        self.write(to_write)?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
         }
@@ -321,14 +324,20 @@ impl Mount {
     }
 
     pub fn aligned(&mut self) -> Result<bool> {
-        write!(self.port, "J")?;
-        self.port.flush()?;
-        Ok(self.read_bytes()?[0] != 0)
+        self.write([b'J'])?;
+        if let [result] = self.read_bytes()?[..] {
+            Ok(result != 0)
+        } else {
+            Err(failure::err_msg("Invalid response"))
+        }
     }
 
     pub fn echo(&mut self, byte: u8) -> Result<u8> {
-        self.port.write_all(&[b'K', byte])?;
-        self.port.flush()?;
-        Ok(self.read_bytes()?[0])
+        self.write([b'K', byte])?;
+        if let [result] = self.read_bytes()?[..] {
+            Ok(result)
+        } else {
+            Err(failure::err_msg("Invalid response"))
+        }
     }
 }

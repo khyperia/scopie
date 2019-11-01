@@ -10,13 +10,14 @@ use std::{
 };
 
 pub struct CameraDisplay {
-    camera: camera::Camera,
+    camera: Option<camera::Camera>,
     raw: Option<CpuTexture<u16>>,
     processed: Option<CpuTexture<[u8; 4]>>,
     texture: Option<Texture<[u8; 4]>>,
     running: bool,
     zoom: bool,
     cross: bool,
+    median: bool,
     last_update: Instant,
     cached_status: String,
     status: String,
@@ -26,7 +27,7 @@ pub struct CameraDisplay {
 }
 
 impl CameraDisplay {
-    pub fn new(camera: camera::Camera) -> Self {
+    pub fn new(camera: Option<camera::Camera>) -> Self {
         Self {
             camera,
             raw: None,
@@ -35,6 +36,7 @@ impl CameraDisplay {
             running: false,
             zoom: false,
             cross: false,
+            median: false,
             last_update: Instant::now(),
             cached_status: String::new(),
             status: String::new(),
@@ -48,32 +50,44 @@ impl CameraDisplay {
         match command {
             ["cross"] => self.cross = !self.cross,
             ["zoom"] => self.zoom = !self.zoom,
+            ["median"] => {
+                self.median = !self.median;
+                self.processed = None;
+            }
             ["open"] if !self.running => {
-                self.camera.start()?;
+                if let Some(ref camera) = self.camera {
+                    camera.start()?;
+                }
                 self.running = true;
                 self.exposure_start = Instant::now();
             }
             ["close"] if self.running => {
-                self.camera.stop()?;
+                if let Some(ref camera) = self.camera {
+                    camera.stop()?;
+                }
                 self.running = false;
             }
             &[name] => {
-                for control in self.camera.controls() {
-                    if control.name() == name {
-                        println!("{}", control)
+                if let Some(ref camera) = self.camera {
+                    for control in camera.controls() {
+                        if control.name() == name {
+                            println!("{}", control)
+                        }
                     }
                 }
             }
             &[name, value] => {
-                if let Ok(value) = value.parse() {
-                    for control in self.camera.controls() {
-                        if control.name() == name {
-                            control.set(value)?;
-                            println!("{}", control)
+                if let Some(ref camera) = self.camera {
+                    if let Ok(value) = value.parse() {
+                        for control in camera.controls() {
+                            if control.name() == name {
+                                control.set(value)?;
+                                println!("{}", control)
+                            }
                         }
+                    } else {
+                        return Ok(false);
                     }
-                } else {
-                    return Ok(false);
                 }
             }
             _ => return Ok(false),
@@ -86,8 +100,10 @@ impl CameraDisplay {
         if (now - self.last_update).as_secs() > 0 {
             self.last_update += Duration::from_secs(1);
             self.cached_status.clear();
-            for control in self.camera.controls() {
-                writeln!(self.cached_status, "{}", control)?;
+            if let Some(ref camera) = self.camera {
+                for control in camera.controls() {
+                    writeln!(self.cached_status, "{}", control)?;
+                }
             }
         }
         self.status.clear();
@@ -122,17 +138,21 @@ impl CameraDisplay {
         displayer_u8: &TextureRendererU8,
         screen_size: (f32, f32),
     ) -> Result<()> {
-        if let Some(image) = self.camera.try_get()? {
-            let now = Instant::now();
-            self.exposure_time = now - self.exposure_start;
-            self.exposure_start = now;
-            self.raw = Some(image);
+        if let Some(ref camera) = self.camera {
+            if let Some(image) = camera.try_get()? {
+                let now = Instant::now();
+                self.exposure_time = now - self.exposure_start;
+                self.exposure_start = now;
+                self.raw = Some(image);
+            }
+        } else if self.raw.is_none() {
+            self.raw = Some(crate::read_png("telescope.2019-10-5.21-9-8.png"));
         }
         let mut upload = false;
         if self.processed.is_none() {
             if let Some(ref raw) = self.raw {
                 let now = Instant::now();
-                self.processed = Some(adjust_image(raw));
+                self.processed = Some(adjust_image(raw, self.median));
                 self.process_time = Instant::now() - now;
                 upload = true;
             }
@@ -163,32 +183,32 @@ impl CameraDisplay {
             let dst_height = ((texture.size.1 as f32) * scale).round();
             let dst = Rect::new(pos.x as f32, pos.y as f32, dst_width, dst_height);
             let src = if self.zoom {
-                let zoom_size = 100.0;
+                let zoom_size = 512.0;
                 let src_x = texture.size.0 as f32 / 2.0 - zoom_size / 2.0;
                 let src_y = texture.size.1 as f32 / 2.0 - zoom_size / 2.0;
                 Some(Rect::new(src_x, src_y, zoom_size, zoom_size))
             } else {
                 None
             };
-            displayer_u8.render(texture, src, dst, None, screen_size)?;
-            // TODO: cross
-            // if self.cross {
-            //     let half_x = dst.x() + (dst.width() / 2) as i32;
-            //     let half_y = dst.y() + (dst.height() / 2) as i32;
-            //     canvas.set_draw_color(Color::RGB(255, 0, 0));
-            //     canvas
-            //         .draw_line(
-            //             Point::new(dst.left(), half_y),
-            //             Point::new(dst.right(), half_y),
-            //         )
-            //         .map_err(failure::err_msg)?;
-            //     canvas
-            //         .draw_line(
-            //             Point::new(half_x, dst.top()),
-            //             Point::new(half_x, dst.bottom()),
-            //         )
-            //         .map_err(failure::err_msg)?;
-            // }
+            displayer_u8.render(texture, src, dst.clone(), None, screen_size)?;
+            if self.cross {
+                let half_x = dst.x + (dst.width / 2.0);
+                let half_y = dst.y + (dst.height / 2.0);
+                displayer_u8.line_x(
+                    dst.x as usize,
+                    dst.right() as usize,
+                    half_y as usize,
+                    [255.0, 0.0, 0.0, 255.0],
+                    screen_size,
+                )?;
+                displayer_u8.line_y(
+                    half_x as usize,
+                    dst.y as usize,
+                    dst.bottom() as usize,
+                    [255.0, 0.0, 0.0, 255.0],
+                    screen_size,
+                )?;
+            }
         }
         Ok(())
     }

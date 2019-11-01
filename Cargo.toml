@@ -5,10 +5,11 @@ authors = ["khyperia <khyperia@live.com>"]
 edition = "2018"
 
 [dependencies]
-failure = ""
-gl = ""
-khygl = {path = "../khygl"}
-lazy_static = ""
-regex = ""
-serialport = ""
-time = ""
+failure = { version = "", default-features = false }
+gl = { version = "", default-features = false }
+khygl = { path = "../khygl", default-features = false }
+lazy_static = { version = "", default-features = false }
+png = ""
+regex = { version = "", default-features = false }
+serialport = { version = "", default-features = false }
+time = { version = "", default-features = false }

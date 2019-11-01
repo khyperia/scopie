@@ -1,7 +1,7 @@
 use std::{env, fs::copy, path::PathBuf};
 
 fn main() {
-    let out_dir = env::var("OUT_DIR").unwrap();
+    let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     println!("cargo:rustc-link-search=native={}", out_dir);
     let files = [
         ("lib/qhyccd/ftd2xx64.dll", "ftd2xx64.dll"),

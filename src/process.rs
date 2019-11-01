@@ -29,23 +29,44 @@ fn stdev(data: &[u16], mean: f64) -> f64 {
     (sum / data.len() as f64).sqrt()
 }
 
-pub fn adjust_image(image: &CpuTexture<u16>) -> CpuTexture<[u8; 4]> {
-    let mean = mean(&image.data);
-    let stdev = stdev(&image.data, mean);
-    let mut result = Vec::with_capacity(image.data.len());
-    // ((x - mean) / (stdev * size) + 0.5) * 255
-    // ((x / (stdev * size) - mean / (stdev * size)) + 0.5) * 255
-    // (x / (stdev * size) - mean / (stdev * size) + 0.5) * 255
-    // x / (stdev * size) * 255 - mean / (stdev * size) * 255 + 0.5 * 255
-    // x * (255 / (stdev * size)) + (-mean / (stdev * size) + 0.5) * 255
-    // x * a + b
-    const SIZE: f64 = 3.0;
-    let a = 255.0 / (stdev * SIZE);
-    let b = 255.0 * (-mean / (stdev * SIZE) + 0.5);
-    for &item in &image.data {
-        let mapped = f64::from(item) * a + b;
-        let one = clamp(mapped, 0.0, 255.0) as u8;
-        result.push([255, one, one, one]);
+fn do_median(data: &[u16]) -> Vec<[u8; 4]> {
+    let mut stuff = data.iter().enumerate().collect::<Vec<_>>();
+    stuff.sort_unstable_by_key(|(_, &v)| v);
+    let mut result = vec![[0, 0, 0, 0]; data.len()];
+    for (ind, &(orig, _)) in stuff.iter().enumerate() {
+        let val = (255 * ind / data.len()) as u8;
+        result[orig as usize] = [255, val, val, val];
     }
-    CpuTexture::new(result, image.size)
+    result
+}
+
+pub fn adjust_image(image: &CpuTexture<u16>, median: bool) -> CpuTexture<[u8; 4]> {
+    if median {
+        CpuTexture::new(
+            do_median(&image.data[..(image.size.0 * image.size.1)]),
+            image.size,
+        )
+    } else {
+        let mean = mean(&image.data);
+        let stdev = stdev(&image.data, mean);
+        // ((x - mean) / (stdev * size) + 0.5) * 255
+        // ((x / (stdev * size) - mean / (stdev * size)) + 0.5) * 255
+        // (x / (stdev * size) - mean / (stdev * size) + 0.5) * 255
+        // x / (stdev * size) * 255 - mean / (stdev * size) * 255 + 0.5 * 255
+        // x * (255 / (stdev * size)) + (-mean / (stdev * size) + 0.5) * 255
+        // x * a + b
+        const SIZE: f64 = 3.0;
+        let a = 255.0 / (stdev * SIZE);
+        let b = 255.0 * (-mean / (stdev * SIZE) + 0.5);
+        let result = image
+            .data
+            .iter()
+            .map(|&item| {
+                let mapped = f64::from(item).mul_add(a, b);
+                let one = clamp(mapped, 0.0, 255.0) as u8;
+                [255, one, one, one]
+            })
+            .collect();
+        CpuTexture::new(result, image.size)
+    }
 }

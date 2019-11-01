@@ -1,2 +1,6 @@
 /.vs/
+/.vscode/
 /target/
+/*.dll
+/*.lib
+/*.png
