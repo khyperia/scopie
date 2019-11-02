@@ -107,9 +107,11 @@ pub fn autoconnect() -> Result<Mount> {
             Err(_) => continue,
         };
         match m.get_ra_dec() {
-            Ok(_) => return Ok(m),
+            Ok(_) => (),
             Err(_) => continue,
         };
+        m.set_time(MountTime::now())?;
+        return Ok(m);
     }
     Err(failure::err_msg("No mount found"))
 }
@@ -173,7 +175,7 @@ impl Mount {
     }
 
     // TODO: rename to sync
-    pub fn overwrite_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
+    pub fn sync_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let msg = format!("s{:08X},{:08X}", ra, dec);
@@ -188,6 +190,33 @@ impl Mount {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let msg = format!("r{:08X},{:08X}", ra, dec);
+        self.write(msg)?;
+        if self.read()? != "" {
+            return Err(failure::err_msg("Invalid response"));
+        }
+        Ok(())
+    }
+
+    pub fn get_az_alt(&mut self) -> Result<(Angle, Angle)> {
+        self.write([b'z'])?;
+        let response = self.read()?;
+        let response = response
+            .split(',')
+            .map(|x| u32::from_str_radix(x, 16))
+            .collect::<::std::result::Result<Vec<_>, _>>()?;
+        if response.len() != 2 {
+            return Err(failure::err_msg("Invalid response"));
+        }
+        Ok((
+            Angle::from_0to1(f64::from(response[0]) / (f64::from(u32::max_value()) + 1.0)),
+            Angle::from_0to1(f64::from(response[1]) / (f64::from(u32::max_value()) + 1.0)),
+        ))
+    }
+
+    pub fn slew_az_alt(&mut self, ra: Angle, dec: Angle) -> Result<()> {
+        let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let msg = format!("b{:08X},{:08X}", ra, dec);
         self.write(msg)?;
         if self.read()? != "" {
             return Err(failure::err_msg("Invalid response"));
@@ -332,12 +361,64 @@ impl Mount {
         }
     }
 
-    pub fn echo(&mut self, byte: u8) -> Result<u8> {
-        self.write([b'K', byte])?;
-        if let [result] = self.read_bytes()?[..] {
-            Ok(result)
+    fn split_three_bytes(value_angle: Angle) -> (u8, u8, u8) {
+        let mut value = value_angle.value_0to1();
+        value *= 256.0;
+        let high = value as u8;
+        value = value.fract();
+        value *= 256.0;
+        let med = value as u8;
+        value = value.fract();
+        value *= 256.0;
+        let low = value as u8;
+        (high, med, low)
+    }
+
+    fn p_command_three(&mut self, one: u8, two: u8, three: u8, data: Angle) -> Result<()> {
+        let (high, med, low) = Self::split_three_bytes(data);
+        let cmd = [b'P', one, two, three, high, med, low, 0];
+        self.write(cmd)?;
+        if self.read()? != "" {
+            return Err(failure::err_msg("Invalid response"));
+        }
+        Ok(())
+    }
+
+    pub fn reset_ra(&mut self, data: Angle) -> Result<()> {
+        self.p_command_three(4, 16, 4, data)
+    }
+    pub fn reset_dec(&mut self, data: Angle) -> Result<()> {
+        self.p_command_three(4, 17, 4, data)
+    }
+    pub fn slow_goto_ra(&mut self, data: Angle) -> Result<()> {
+        self.p_command_three(4, 16, 23, data)
+    }
+    pub fn slow_goto_dec(&mut self, data: Angle) -> Result<()> {
+        self.p_command_three(4, 17, 23, data)
+    }
+
+    fn fixed_slew_command(&mut self, one: u8, two: u8, three: u8, rate: u8) -> Result<()> {
+        let cmd = [b'P', one, two, three, rate, 0, 0, 0];
+        self.write(cmd)?;
+        if self.read()? != "" {
+            return Err(failure::err_msg("Invalid response"));
+        }
+        Ok(())
+    }
+
+    pub fn fixed_slew_ra(&mut self, speed: i32) -> Result<()> {
+        if speed > 0 {
+            self.fixed_slew_command(2, 16, 36, speed as u8)
         } else {
-            Err(failure::err_msg("Invalid response"))
+            self.fixed_slew_command(2, 16, 37, (-speed) as u8)
+        }
+    }
+
+    pub fn fixed_slew_dec(&mut self, speed: i32) -> Result<()> {
+        if speed > 0 {
+            self.fixed_slew_command(2, 17, 36, speed as u8)
+        } else {
+            self.fixed_slew_command(2, 17, 37, (-speed) as u8)
         }
     }
 }

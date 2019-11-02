@@ -1,4 +1,5 @@
 use crate::{dms::Angle, mount, Result};
+use khygl::display::Key;
 use std::{
     fmt::Write,
     time::{Duration, Instant},
@@ -7,6 +8,7 @@ use std::{
 pub struct MountDisplay {
     mount: mount::Mount,
     last_update: Instant,
+    slew_speed: u32,
     status: String,
 }
 
@@ -15,22 +17,28 @@ impl MountDisplay {
         Self {
             mount,
             last_update: Instant::now(),
+            slew_speed: 1,
             status: String::new(),
         }
     }
 
     pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
         match command {
-            ["pos"] => {
-                let (ra, dec) = self.mount.get_ra_dec()?;
-                println!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
-            }
             ["setpos", ra, dec] => {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.overwrite_ra_dec(ra, dec)?;
-                    println!("ok");
+                    self.mount.reset_ra(ra)?;
+                    self.mount.reset_dec(dec)?;
+                } else {
+                    return Ok(false);
+                }
+            }
+            ["syncpos", ra, dec] => {
+                let ra = Angle::parse(ra);
+                let dec = Angle::parse(dec);
+                if let (Some(ra), Some(dec)) = (ra, dec) {
+                    self.mount.sync_ra_dec(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -40,53 +48,49 @@ impl MountDisplay {
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
                     self.mount.slew_ra_dec(ra, dec)?;
-                    println!("ok");
+                } else {
+                    return Ok(false);
+                }
+            }
+            ["slowslew", ra, dec] => {
+                let ra = Angle::parse(ra);
+                let dec = Angle::parse(dec);
+                if let (Some(ra), Some(dec)) = (ra, dec) {
+                    self.mount.slow_goto_ra(ra)?;
+                    self.mount.slow_goto_dec(dec)?;
+                } else {
+                    return Ok(false);
+                }
+            }
+            ["azaltslew", az, alt] => {
+                let az = Angle::parse(az);
+                let alt = Angle::parse(alt);
+                if let (Some(az), Some(alt)) = (az, alt) {
+                    self.mount.slew_az_alt(az, alt)?;
                 } else {
                     return Ok(false);
                 }
             }
             ["cancel"] => {
                 self.mount.cancel_slew()?;
-                println!("ok");
             }
-            ["mode"] => println!("{}", self.mount.tracking_mode()?),
             ["mode", mode] => match mode.parse() {
                 Ok(mode) => {
                     self.mount.set_tracking_mode(mode)?;
-                    println!("ok");
                 }
-                Err(err) => println!("{}", err),
+                Err(_) => return Ok(false),
             },
-            ["location"] => {
-                let (lat, lon) = self.mount.location()?;
-                println!("{} {}", lat.fmt_degrees(), lon.fmt_degrees());
-            }
             ["location", lat, lon] => {
                 let lat = Angle::parse(lat);
                 let lon = Angle::parse(lon);
                 if let (Some(lat), Some(lon)) = (lat, lon) {
                     self.mount.set_location(lat, lon)?;
-                    println!("ok");
                 } else {
                     return Ok(false);
                 }
             }
-            ["time"] => println!("{}", self.mount.time()?),
             ["time", "now"] => {
                 self.mount.set_time(mount::MountTime::now())?;
-                println!("ok");
-            }
-            ["aligned"] => {
-                let aligned = self.mount.aligned()?;
-                println!("{}", aligned);
-            }
-            ["ping"] => {
-                let now = Instant::now();
-                let ok = self.mount.echo(b'U')? == b'U';
-                let duration = now.elapsed();
-                let duration_seconds =
-                    (duration.subsec_nanos() as f32).mul_add(1e-9, duration.as_secs() as f32);
-                println!("{} seconds (ok={})", duration_seconds, ok);
             }
             _ => return Ok(false),
         }
@@ -105,16 +109,51 @@ impl MountDisplay {
                 ra.fmt_hours(),
                 dec.fmt_degrees()
             )?;
-            println!("Aligned: {}", self.mount.aligned()?);
+            let (az, alt) = self.mount.get_az_alt()?;
+            writeln!(
+                self.status,
+                "Az/Alt: {} {}",
+                az.fmt_degrees(),
+                alt.fmt_degrees()
+            )?;
+            writeln!(self.status, "Aligned: {}", self.mount.aligned()?)?;
+            writeln!(self.status, "Slew speed: {}", self.slew_speed)?;
             writeln!(
                 self.status,
                 "Tracking mode: {}",
                 self.mount.tracking_mode()?
             )?;
             let (lat, lon) = self.mount.location()?;
-            println!("Location: {} {}", lat.fmt_degrees(), lon.fmt_degrees());
-            println!("Time: {}", self.mount.time()?);
+            writeln!(
+                self.status,
+                "Location: {} {}",
+                lat.fmt_degrees(),
+                lon.fmt_degrees()
+            )?;
+            writeln!(self.status, "Time: {}", self.mount.time()?)?;
         }
         Ok(&self.status)
+    }
+
+    pub fn key_down(&mut self, key: Key) -> Result<()> {
+        match key {
+            Key::D => self.mount.fixed_slew_ra(self.slew_speed as i32)?,
+            Key::A => self.mount.fixed_slew_ra(-(self.slew_speed as i32))?,
+            Key::W => self.mount.fixed_slew_dec(self.slew_speed as i32)?,
+            Key::S => self.mount.fixed_slew_dec(-(self.slew_speed as i32))?,
+            Key::R => self.slew_speed = (self.slew_speed + 1).min(9),
+            Key::F => self.slew_speed = (self.slew_speed - 1).max(1),
+            _ => (),
+        }
+        Ok(())
+    }
+
+    pub fn key_up(&mut self, key: Key) -> Result<()> {
+        match key {
+            Key::D | Key::A => self.mount.fixed_slew_ra(0)?,
+            Key::W | Key::S => self.mount.fixed_slew_dec(0)?,
+            _ => (),
+        }
+        Ok(())
     }
 }

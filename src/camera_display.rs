@@ -5,6 +5,7 @@ use khygl::{
     Rect,
 };
 use std::{
+    convert::TryInto,
     fmt::Write,
     time::{Duration, Instant},
 };
@@ -18,6 +19,7 @@ pub struct CameraDisplay {
     zoom: bool,
     cross: bool,
     median: bool,
+    save: usize,
     last_update: Instant,
     cached_status: String,
     status: String,
@@ -37,6 +39,7 @@ impl CameraDisplay {
             zoom: false,
             cross: false,
             median: false,
+            save: 0,
             last_update: Instant::now(),
             cached_status: String::new(),
             status: String::new(),
@@ -67,13 +70,14 @@ impl CameraDisplay {
                 }
                 self.running = false;
             }
-            &[name] => {
-                if let Some(ref camera) = self.camera {
-                    for control in camera.controls() {
-                        if control.name() == name {
-                            println!("{}", control)
-                        }
-                    }
+            ["save"] => {
+                self.save += 1;
+            }
+            ["save", n] => {
+                if let Ok(n) = n.parse::<isize>() {
+                    self.save = (self.save as isize + n).try_into().unwrap_or(0);
+                } else {
+                    return Ok(false);
                 }
             }
             &[name, value] => {
@@ -82,7 +86,6 @@ impl CameraDisplay {
                         for control in camera.controls() {
                             if control.name() == name {
                                 control.set(value)?;
-                                println!("{}", control)
                             }
                         }
                     } else {
@@ -113,23 +116,40 @@ impl CameraDisplay {
                 self.status,
                 "Time since exposure start: {}.{:03}",
                 exposure.as_secs(),
-                exposure.subsec_millis()
+                exposure.subsec_millis(),
             )?;
         }
         writeln!(
             self.status,
             "Last exposure: {}.{:03}",
             self.exposure_time.as_secs(),
-            self.exposure_time.subsec_millis()
+            self.exposure_time.subsec_millis(),
         )?;
         writeln!(
             self.status,
             "Processing time: {}.{:03}",
             self.process_time.as_secs(),
-            self.process_time.subsec_millis()
+            self.process_time.subsec_millis(),
         )?;
+        if self.save > 0 {
+            writeln!(self.status, "Saving: {}", self.save)?;
+        }
         write!(self.status, "{}", self.cached_status)?;
         Ok(&self.status)
+    }
+
+    fn save_png(data: &CpuTexture<u16>) {
+        let tm = time::now();
+        let filename = format!(
+            "telescope.{}-{:02}-{:02}.{:02}-{:02}-{:02}.png",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec
+        );
+        crate::write_png(filename, data);
     }
 
     pub fn draw(
@@ -143,6 +163,10 @@ impl CameraDisplay {
                 let now = Instant::now();
                 self.exposure_time = now - self.exposure_start;
                 self.exposure_start = now;
+                if self.save > 0 {
+                    self.save -= 1;
+                    Self::save_png(&image);
+                }
                 self.raw = Some(image);
             }
         } else if self.raw.is_none() {
@@ -176,7 +200,6 @@ impl CameraDisplay {
             }
         }
         if let Some(ref texture) = self.texture {
-            //let (output_width, output_height) = canvas.output_size()?;
             let scale = ((pos.width as f32) / (texture.size.0 as f32))
                 .min((pos.height as f32) / (texture.size.1 as f32));
             let dst_width = ((texture.size.0 as f32) * scale).round();

@@ -11,20 +11,13 @@ use khygl::{
     display::Key,
     render_text::TextRenderer,
     render_texture::{TextureRendererF32, TextureRendererU8},
-    texture::{CpuTexture},
+    texture::CpuTexture,
     Rect,
 };
 use mount_display::MountDisplay;
-use std::{convert::TryInto, path::Path};
-use std::fs::File;
+use std::{convert::TryInto, fs::File, path::Path};
 
 type Result<T> = std::result::Result<T, failure::Error>;
-
-/*
-fn format_duration(duration: Duration) -> String {
-    format!("{}.{:03}", duration.as_secs(), duration.subsec_millis())
-}
-*/
 
 fn read_png(path: impl AsRef<Path>) -> CpuTexture<u16> {
     let mut decoder = png::Decoder::new(File::open(path).unwrap());
@@ -54,26 +47,6 @@ fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) {
     for i in 0..(img.size.0 * img.size.1) {
         output[i * 2] = (img.data[i] >> 8) as u8;
         output[i * 2 + 1] = (img.data[i]) as u8;
-    }
-    writer.write_image_data(&output).unwrap();
-}
-
-fn write_png_u8(path: impl AsRef<Path>, img: &CpuTexture<[u8; 4]>) {
-    let mut encoder = png::Encoder::new(
-        File::create(path).unwrap(),
-        img.size.0 as u32,
-        img.size.1 as u32,
-    );
-    encoder.set_color(png::ColorType::RGBA);
-    encoder.set_depth(png::BitDepth::Eight);
-    let mut writer = encoder.write_header().unwrap();
-    let mut output = vec![0; img.size.0 * img.size.1 * 4];
-    for i in 0..(img.size.0 * img.size.1) {
-        let pix = img.data[i];
-        output[i * 4] = pix[0];
-        output[i * 4 + 1] = pix[1];
-        output[i * 4 + 2] = pix[2];
-        output[i * 4 + 3] = pix[3];
     }
     writer.write_image_data(&output).unwrap();
 }
@@ -195,11 +168,17 @@ impl khygl::display::Display for Display {
         Ok(())
     }
 
-    fn key_up(&mut self, _key: Key) -> Result<()> {
+    fn key_up(&mut self, key: Key) -> Result<()> {
+        if let Some(ref mut mount_display) = self.mount_display {
+            mount_display.key_up(key)?;
+        }
         Ok(())
     }
 
     fn key_down(&mut self, key: Key) -> Result<()> {
+        if let Some(ref mut mount_display) = self.mount_display {
+            mount_display.key_down(key)?;
+        }
         match key {
             Key::Back => {
                 self.input_text.pop();
@@ -229,8 +208,6 @@ impl khygl::display::Display for Display {
 }
 
 fn main() {
-    // write_png_u8("out.png", &process::adjust_image(&read_png("telescope.2019-10-5.21-9-8.png")));
-    // return;
     match khygl::display::run::<Display>((600.0, 600.0)) {
         Ok(ok) => ok,
         Err(err) => println!("Error: {:?}", err),
