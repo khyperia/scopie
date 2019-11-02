@@ -22,7 +22,6 @@ pub struct CameraDisplay {
     save: usize,
     last_update: Instant,
     cached_status: String,
-    status: String,
     exposure_start: Instant,
     exposure_time: Duration,
     process_time: Duration,
@@ -42,7 +41,6 @@ impl CameraDisplay {
             save: 0,
             last_update: Instant::now(),
             cached_status: String::new(),
-            status: String::new(),
             exposure_start: Instant::now(),
             exposure_time: Duration::new(0, 0),
             process_time: Duration::new(0, 0),
@@ -98,7 +96,7 @@ impl CameraDisplay {
         Ok(true)
     }
 
-    pub fn status(&mut self) -> Result<&str> {
+    pub fn status(&mut self, status: &mut String) -> Result<()> {
         let now = Instant::now();
         if (now - self.last_update).as_secs() > 0 {
             self.last_update += Duration::from_secs(1);
@@ -109,33 +107,37 @@ impl CameraDisplay {
                 }
             }
         }
-        self.status.clear();
+        writeln!(status, "cross|zoom|median")?;
+        if self.running {
+            writeln!(status, "close (currently running)")?;
+        } else {
+            writeln!(status, "open (currently paused)")?;
+        }
+        writeln!(status, "save|save [n]")?;
         if self.running {
             let exposure = now - self.exposure_start;
             writeln!(
-                self.status,
+                status,
                 "Time since exposure start: {}.{:03}",
                 exposure.as_secs(),
                 exposure.subsec_millis(),
             )?;
         }
         writeln!(
-            self.status,
-            "Last exposure: {}.{:03}",
-            self.exposure_time.as_secs(),
-            self.exposure_time.subsec_millis(),
+            status,
+            "Last exposure: {:?}",
+            self.exposure_time,
         )?;
         writeln!(
-            self.status,
-            "Processing time: {}.{:03}",
-            self.process_time.as_secs(),
-            self.process_time.subsec_millis(),
+            status,
+            "Processing time: {:?}",
+            self.process_time,
         )?;
         if self.save > 0 {
-            writeln!(self.status, "Saving: {}", self.save)?;
+            writeln!(status, "Saving: {}", self.save)?;
         }
-        write!(self.status, "{}", self.cached_status)?;
-        Ok(&self.status)
+        write!(status, "{}", self.cached_status)?;
+        Ok(())
     }
 
     fn save_png(data: &CpuTexture<u16>) {

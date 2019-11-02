@@ -9,7 +9,7 @@ pub struct MountDisplay {
     mount: mount::Mount,
     last_update: Instant,
     slew_speed: u32,
-    status: String,
+    cached_status: String,
 }
 
 impl MountDisplay {
@@ -18,7 +18,7 @@ impl MountDisplay {
             mount,
             last_update: Instant::now(),
             slew_speed: 1,
-            status: String::new(),
+            cached_status: String::new(),
         }
     }
 
@@ -97,42 +97,52 @@ impl MountDisplay {
         Ok(true)
     }
 
-    pub fn status(&mut self) -> Result<&str> {
+    pub fn status(&mut self, status: &mut String) -> Result<()> {
         let now = Instant::now();
         if (now - self.last_update).as_secs() > 0 {
             self.last_update += Duration::from_secs(1);
-            self.status.clear();
+            self.cached_status.clear();
             let (ra, dec) = self.mount.get_ra_dec()?;
             writeln!(
-                self.status,
+                self.cached_status,
                 "RA/Dec: {} {}",
                 ra.fmt_hours(),
                 dec.fmt_degrees()
             )?;
             let (az, alt) = self.mount.get_az_alt()?;
             writeln!(
-                self.status,
+                self.cached_status,
                 "Az/Alt: {} {}",
                 az.fmt_degrees(),
                 alt.fmt_degrees()
             )?;
-            writeln!(self.status, "Aligned: {}", self.mount.aligned()?)?;
-            writeln!(self.status, "Slew speed: {}", self.slew_speed)?;
+            writeln!(self.cached_status, "Aligned: {}", self.mount.aligned()?)?;
+            writeln!(self.cached_status, "Slew speed: {}", self.slew_speed)?;
             writeln!(
-                self.status,
+                self.cached_status,
                 "Tracking mode: {}",
                 self.mount.tracking_mode()?
             )?;
             let (lat, lon) = self.mount.location()?;
             writeln!(
-                self.status,
+                self.cached_status,
                 "Location: {} {}",
                 lat.fmt_degrees(),
                 lon.fmt_degrees()
             )?;
-            writeln!(self.status, "Time: {}", self.mount.time()?)?;
+            writeln!(self.cached_status, "Time: {}", self.mount.time()?)?;
         }
-        Ok(&self.status)
+        write!(status, "{}", self.cached_status)?;
+        writeln!(status, "setpos [ra] [dec]")?;
+        writeln!(status, "syncpos [ra] [dec]")?;
+        writeln!(status, "slew [ra] [dec]")?;
+        writeln!(status, "slowslew [ra] [dec]")?;
+        writeln!(status, "azaltslew [az] [alt]")?;
+        writeln!(status, "cancel")?;
+        writeln!(status, "mode [Off|AltAz|Equatorial|SiderealPec]")?;
+        writeln!(status, "location [lat] [lon]")?;
+        writeln!(status, "time now")?;
+        Ok(())
     }
 
     pub fn key_down(&mut self, key: Key) -> Result<()> {

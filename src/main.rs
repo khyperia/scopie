@@ -29,7 +29,7 @@ fn read_png(path: impl AsRef<Path>) -> CpuTexture<u16> {
     reader.next_frame(&mut buf).unwrap();
     let mut buf16 = vec![0; info.width as usize * info.height as usize];
     for i in 0..buf16.len() {
-        buf16[i] = (buf[i * 2] as u16) << 8 | (buf[i * 2 + 1] as u16);
+        buf16[i] = u16::from(buf[i * 2]) << 8 | u16::from(buf[i * 2 + 1]);
     }
     CpuTexture::new(buf16, (info.width as usize, info.height as usize))
 }
@@ -115,10 +115,10 @@ impl khygl::display::Display for Display {
         }
         self.status.clear();
         if let Some(ref mut camera_display) = self.camera_display {
-            self.status.push_str(camera_display.status()?);
+            camera_display.status(&mut self.status)?;
         }
         if let Some(ref mut mount_display) = self.mount_display {
-            self.status.push_str(mount_display.status()?);
+            mount_display.status(&mut self.status)?;
         }
         let text_size = self.text_renderer.render(
             &self.texture_renderer_f32,
@@ -127,15 +127,16 @@ impl khygl::display::Display for Display {
             (10, 10),
             self.window_size,
         )?;
+        let input_pos_y = self.window_size.1 as isize - self.text_renderer.spacing as isize;
+        let input_pos_y = input_pos_y.try_into().unwrap_or(0);
+        let input_pos = (10, input_pos_y);
         if let Some(ref mut camera_display) = self.camera_display {
             let width = (self.window_size.0 as isize - text_size.right() as isize)
                 .try_into()
                 .unwrap_or(1);
-            let camera_rect = Rect::new(text_size.right(), 0, width, self.window_size.1);
+            let camera_rect = Rect::new(text_size.right(), 0, width, input_pos_y);
             camera_display.draw(camera_rect, &self.texture_renderer_u8, window_size_f32)?;
         }
-        let input_height = self.window_size.1 as isize - self.text_renderer.spacing as isize;
-        let input_pos = (10, input_height.try_into().unwrap_or(0));
         self.text_renderer.render(
             &self.texture_renderer_f32,
             &self.input_text,
