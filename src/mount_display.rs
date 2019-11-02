@@ -6,7 +6,7 @@ use std::{
 };
 
 pub struct MountDisplay {
-    mount: mount::Mount,
+    pub mount: mount::Mount,
     last_update: Instant,
     slew_speed: u32,
     cached_status: String,
@@ -117,7 +117,6 @@ impl MountDisplay {
                 alt.fmt_degrees()
             )?;
             writeln!(self.cached_status, "Aligned: {}", self.mount.aligned()?)?;
-            writeln!(self.cached_status, "Slew speed: {}", self.slew_speed)?;
             writeln!(
                 self.cached_status,
                 "Tracking mode: {}",
@@ -133,6 +132,7 @@ impl MountDisplay {
             writeln!(self.cached_status, "Time: {}", self.mount.time()?)?;
         }
         write!(status, "{}", self.cached_status)?;
+        writeln!(status, "Slew speed: {}", self.slew_speed)?;
         writeln!(status, "setpos [ra] [dec]")?;
         writeln!(status, "syncpos [ra] [dec]")?;
         writeln!(status, "slew [ra] [dec]")?;

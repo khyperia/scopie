@@ -4,8 +4,7 @@ use crate::{
     Result,
 };
 use khygl::texture::CpuTexture;
-use lazy_static::lazy_static;
-use std::{error::Error, fmt, str};
+use std::{error::Error, fmt, str, sync::Once};
 
 #[derive(Debug)]
 struct QhyError {
@@ -32,12 +31,12 @@ fn check(code: u32) -> ::std::result::Result<(), QhyError> {
     }
 }
 
-lazy_static! {
-    static ref INIT_QHYCCD_RESOURCE: () = unsafe { check(qhy::InitQHYCCDResource()).unwrap() };
-}
+static INIT_QHYCCD_RESOURCE: Once = Once::new();
 
 fn init_qhyccd_resource() {
-    *INIT_QHYCCD_RESOURCE
+    INIT_QHYCCD_RESOURCE.call_once(|| unsafe {
+        check(qhy::InitQHYCCDResource()).expect("Failed to init QHY resources")
+    })
 }
 
 pub fn autoconnect(live: bool) -> Result<Camera> {
@@ -259,10 +258,7 @@ impl Camera {
 
 impl Drop for Camera {
     fn drop(&mut self) {
-        match check(unsafe { qhy::CloseQHYCCD(self.handle) }) {
-            Ok(()) => (),
-            Err(err) => eprintln!("Closing camera: {}", err),
-        }
+        check(unsafe { qhy::CloseQHYCCD(self.handle) }).expect("Failed to close QHY camera in Drop")
     }
 }
 

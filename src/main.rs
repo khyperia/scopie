@@ -3,6 +3,7 @@ mod camera_display;
 mod dms;
 mod mount;
 mod mount_display;
+mod platesolve;
 mod process;
 mod qhycamera;
 
@@ -15,7 +16,7 @@ use khygl::{
     Rect,
 };
 use mount_display::MountDisplay;
-use std::{convert::TryInto, fs::File, path::Path};
+use std::{convert::TryInto, fmt::Write, fs::File, path::Path};
 
 type Result<T> = std::result::Result<T, failure::Error>;
 
@@ -36,7 +37,7 @@ fn read_png(path: impl AsRef<Path>) -> CpuTexture<u16> {
 
 fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) {
     let mut encoder = png::Encoder::new(
-        File::create(path).unwrap(),
+        File::create(path).expect("Unable to create png file"),
         img.size.0 as u32,
         img.size.1 as u32,
     );
@@ -57,6 +58,7 @@ struct Display {
     window_size: (usize, usize),
     status: String,
     input_text: String,
+    input_error: String,
     texture_renderer_u8: TextureRendererU8,
     texture_renderer_f32: TextureRendererF32,
     text_renderer: TextRenderer,
@@ -67,6 +69,21 @@ impl Display {
     fn window_size_f32(&self) -> (f32, f32) {
         (self.window_size.0 as f32, self.window_size.1 as f32)
     }
+
+    fn run_cmd(&mut self) -> Result<()> {
+        self.input_error.clear();
+        let cmd = self.input_text.split_whitespace().collect::<Vec<_>>();
+        self.command_okay = cmd.is_empty();
+        if let Some(ref mut camera_display) = self.camera_display {
+            let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
+            self.command_okay |= camera_display.cmd(&cmd, mount)?;
+        }
+        if let Some(ref mut mount_display) = self.mount_display {
+            self.command_okay |= mount_display.cmd(&cmd)?;
+        }
+        self.input_text.clear();
+        Ok(())
+    }
 }
 
 impl khygl::display::Display for Display {
@@ -75,20 +92,21 @@ impl khygl::display::Display for Display {
         let texture_renderer_f32 = TextureRendererF32::new()?;
         let text_renderer = TextRenderer::new()?;
         let live = false;
+        let mut command_okay = true;
+        let mut input_error = String::new();
         let camera = match camera::autoconnect(live) {
-            Ok(ok) => {
-                println!("Using camera: {}", ok.name());
-                Some(ok)
-            }
+            Ok(ok) => Some(ok),
             Err(err) => {
-                println!("Error connecting to camera: {}", err);
+                command_okay = false;
+                writeln!(&mut input_error, "Error connecting to camera: {}", err)?;
                 None
             }
         };
         let mount = match mount::autoconnect() {
             Ok(ok) => Some(ok),
             Err(err) => {
-                println!("Error connecting to mount: {}", err);
+                command_okay = false;
+                writeln!(&mut input_error, "Error connecting to mount: {}", err)?;
                 None
             }
         };
@@ -100,10 +118,11 @@ impl khygl::display::Display for Display {
             window_size,
             status: String::new(),
             input_text: String::new(),
+            input_error,
             texture_renderer_u8,
             texture_renderer_f32,
             text_renderer,
-            command_okay: true,
+            command_okay,
         })
     }
 
@@ -119,6 +138,9 @@ impl khygl::display::Display for Display {
         }
         if let Some(ref mut mount_display) = self.mount_display {
             mount_display.status(&mut self.status)?;
+        }
+        if !self.command_okay {
+            write!(&mut self.status, "{}", self.input_error)?;
         }
         let text_size = self.text_renderer.render(
             &self.texture_renderer_f32,
@@ -184,17 +206,13 @@ impl khygl::display::Display for Display {
             Key::Back => {
                 self.input_text.pop();
             }
-            Key::Return => {
-                let cmd = self.input_text.split_whitespace().collect::<Vec<_>>();
-                self.command_okay = cmd.is_empty();
-                if let Some(ref mut camera_display) = self.camera_display {
-                    self.command_okay |= camera_display.cmd(&cmd)?;
+            Key::Return => match self.run_cmd() {
+                Ok(()) => (),
+                Err(err) => {
+                    self.input_error = format!("Command error: {}\n", err);
+                    self.command_okay = false;
                 }
-                if let Some(ref mut mount_display) = self.mount_display {
-                    self.command_okay |= mount_display.cmd(&cmd)?;
-                }
-                self.input_text.clear();
-            }
+            },
             _ => (),
         }
         Ok(())
@@ -208,9 +226,6 @@ impl khygl::display::Display for Display {
     }
 }
 
-fn main() {
-    match khygl::display::run::<Display>((600.0, 600.0)) {
-        Ok(ok) => ok,
-        Err(err) => println!("Error: {:?}", err),
-    }
+fn main() -> Result<()> {
+    khygl::display::run::<Display>((600.0, 600.0))
 }

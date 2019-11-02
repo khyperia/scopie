@@ -1,4 +1,4 @@
-use crate::{camera, process::adjust_image, Result};
+use crate::{camera, mount::Mount, platesolve::platesolve, process::adjust_image, Result};
 use khygl::{
     render_texture::TextureRendererU8,
     texture::{CpuTexture, Texture},
@@ -21,6 +21,8 @@ pub struct CameraDisplay {
     median: bool,
     save: usize,
     last_update: Instant,
+    process_status: String,
+    solve_status: String,
     cached_status: String,
     exposure_start: Instant,
     exposure_time: Duration,
@@ -40,6 +42,8 @@ impl CameraDisplay {
             median: false,
             save: 0,
             last_update: Instant::now(),
+            process_status: String::new(),
+            solve_status: String::new(),
             cached_status: String::new(),
             exposure_start: Instant::now(),
             exposure_time: Duration::new(0, 0),
@@ -47,7 +51,7 @@ impl CameraDisplay {
         }
     }
 
-    pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
+    pub fn cmd(&mut self, command: &[&str], mount: Option<&mut Mount>) -> Result<bool> {
         match command {
             ["cross"] => self.cross = !self.cross,
             ["zoom"] => self.zoom = !self.zoom,
@@ -74,6 +78,18 @@ impl CameraDisplay {
             ["save", n] => {
                 if let Ok(n) = n.parse::<isize>() {
                     self.save = (self.save as isize + n).try_into().unwrap_or(0);
+                } else {
+                    return Ok(false);
+                }
+            }
+            ["solve"] => {
+                if let Some(ref img) = self.raw {
+                    let (ra, dec) = platesolve(img)?;
+                    self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
+                    if let Some(mount) = mount {
+                        mount.reset_ra(ra)?;
+                        mount.reset_dec(dec)?;
+                    }
                 } else {
                     return Ok(false);
                 }
@@ -107,6 +123,9 @@ impl CameraDisplay {
                 }
             }
         }
+        if let Some(ref camera) = self.camera {
+            writeln!(status, "{}", camera.name())?;
+        }
         writeln!(status, "cross|zoom|median")?;
         if self.running {
             writeln!(status, "close (currently running)")?;
@@ -123,19 +142,15 @@ impl CameraDisplay {
                 exposure.subsec_millis(),
             )?;
         }
-        writeln!(
-            status,
-            "Last exposure: {:?}",
-            self.exposure_time,
-        )?;
-        writeln!(
-            status,
-            "Processing time: {:?}",
-            self.process_time,
-        )?;
+        writeln!(status, "Last exposure: {:?}", self.exposure_time,)?;
+        writeln!(status, "Processing time: {:?}", self.process_time,)?;
+        if !self.solve_status.is_empty() {
+            writeln!(status, "Platesolve: {}", self.solve_status)?;
+        }
         if self.save > 0 {
             writeln!(status, "Saving: {}", self.save)?;
         }
+        write!(status, "{}", self.process_status)?;
         write!(status, "{}", self.cached_status)?;
         Ok(())
     }
@@ -178,7 +193,8 @@ impl CameraDisplay {
         if self.processed.is_none() {
             if let Some(ref raw) = self.raw {
                 let now = Instant::now();
-                self.processed = Some(adjust_image(raw, self.median));
+                self.process_status.clear();
+                self.processed = Some(adjust_image(raw, self.median, &mut self.process_status));
                 self.process_time = Instant::now() - now;
                 upload = true;
             }
@@ -202,19 +218,26 @@ impl CameraDisplay {
             }
         }
         if let Some(ref texture) = self.texture {
-            let scale = ((pos.width as f32) / (texture.size.0 as f32))
-                .min((pos.height as f32) / (texture.size.1 as f32));
-            let dst_width = ((texture.size.0 as f32) * scale).round();
-            let dst_height = ((texture.size.1 as f32) * scale).round();
-            let dst = Rect::new(pos.x as f32, pos.y as f32, dst_width, dst_height);
             let src = if self.zoom {
                 let zoom_size = 512.0;
                 let src_x = texture.size.0 as f32 / 2.0 - zoom_size / 2.0;
                 let src_y = texture.size.1 as f32 / 2.0 - zoom_size / 2.0;
-                Some(Rect::new(src_x, src_y, zoom_size, zoom_size))
+                Rect::new(src_x, src_y, zoom_size, zoom_size)
             } else {
-                None
+                Rect::new(0.0, 0.0, texture.size.0 as f32, texture.size.1 as f32)
             };
+
+            let scale = ((pos.width as f32) / (src.width as f32))
+                .min((pos.height as f32) / (src.height as f32));
+            let dst_width = ((src.width as f32) * scale).round();
+            let dst_height = ((src.height as f32) * scale).round();
+            let dst = Rect::new(
+                (pos.x + pos.width) as f32 - dst_width,
+                pos.y as f32,
+                dst_width,
+                dst_height,
+            );
+
             displayer_u8.render(texture, src, dst.clone(), None, screen_size)?;
             if self.cross {
                 let half_x = dst.x + (dst.width / 2.0);

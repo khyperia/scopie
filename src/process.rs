@@ -1,4 +1,5 @@
 use khygl::texture::CpuTexture;
+use std::fmt::Write;
 
 // TODO: use f64::clamp() once stable
 #[inline]
@@ -40,7 +41,7 @@ fn do_median(data: &[u16]) -> Vec<[u8; 4]> {
     result
 }
 
-pub fn adjust_image(image: &CpuTexture<u16>, median: bool) -> CpuTexture<[u8; 4]> {
+pub fn adjust_image(image: &CpuTexture<u16>, median: bool, status: &mut String) -> CpuTexture<[u8; 4]> {
     if median {
         CpuTexture::new(
             do_median(&image.data[..(image.size.0 * image.size.1)]),
@@ -49,6 +50,7 @@ pub fn adjust_image(image: &CpuTexture<u16>, median: bool) -> CpuTexture<[u8; 4]
     } else {
         let mean = mean(&image.data);
         let stdev = stdev(&image.data, mean);
+        writeln!(status, "{:.3} {:.3} ({:.2}%)", mean, stdev, mean * 100.0 / f64::from(u16::max_value())).expect("Could not format adjust_image status");
         // ((x - mean) / (stdev * size) + 0.5) * 255
         // ((x / (stdev * size) - mean / (stdev * size)) + 0.5) * 255
         // (x / (stdev * size) - mean / (stdev * size) + 0.5) * 255

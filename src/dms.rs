@@ -1,5 +1,5 @@
-use lazy_static::lazy_static;
 use regex::Regex;
+use std::sync::Once;
 
 #[derive(Clone, Copy)]
 pub struct Angle {
@@ -109,10 +109,7 @@ impl Angle {
     }
 
     pub fn parse(val: &str) -> Option<Self> {
-        lazy_static! {
-            static ref RE: Regex = Regex::new(r#"^\s*((?P<sign>[-+])\s*)?(?P<degrees>\d+(\.\d+)?)\s*(?P<unit>[hHdD°])\s*(((?P<minutes>\d+(\.\d+)?)\s*[mM'′]\s*)?((?P<seconds>\d+(\.\d+)?)\s*[sS""″]\s*)?)?$"#).unwrap();
-        }
-        let capture = match RE.captures(val) {
+        let capture = match dms_parse_regex().captures(val) {
             Some(x) => x,
             None => return None,
         };
@@ -140,3 +137,19 @@ impl Angle {
         }
     }
 }
+
+static DMS_PARSE_REGEX_STR: &str = r#"^\s*((?P<sign>[-+])\s*)?(?P<degrees>\d+(\.\d+)?)\s*(?P<unit>[hHdD°])\s*(((?P<minutes>\d+(\.\d+)?)\s*[mM'′]\s*)?((?P<seconds>\d+(\.\d+)?)\s*[sS""″]\s*)?)?$"#;
+fn dms_parse_regex() -> &'static Regex {
+    unsafe {
+        DMS_PARSE_ONCE.call_once(|| {
+            DMS_PARSE_REGEX =
+                Some(Regex::new(DMS_PARSE_REGEX_STR).expect("dms_parse_once regex is malformed"))
+        });
+        DMS_PARSE_REGEX
+            .as_ref()
+            .expect("std::sync::Once didn't execute")
+    }
+}
+
+static DMS_PARSE_ONCE: Once = Once::new();
+static mut DMS_PARSE_REGEX: Option<Regex> = None;
