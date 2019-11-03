@@ -1,4 +1,5 @@
 use crate::{camera, mount::Mount, platesolve::platesolve, process::adjust_image, Result};
+use dirs;
 use khygl::{
     render_texture::TextureRendererU8,
     texture::{CpuTexture, Texture},
@@ -7,6 +8,8 @@ use khygl::{
 use std::{
     convert::TryInto,
     fmt::Write,
+    fs::create_dir_all,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 
@@ -19,8 +22,10 @@ pub struct CameraDisplay {
     zoom: bool,
     cross: bool,
     median: bool,
+    display_sigma: f64,
     save: usize,
     last_update: Instant,
+    folder: String,
     process_status: String,
     solve_status: String,
     cached_status: String,
@@ -40,8 +45,10 @@ impl CameraDisplay {
             zoom: false,
             cross: false,
             median: false,
+            display_sigma: 3.0,
             save: 0,
             last_update: Instant::now(),
+            folder: String::new(),
             process_status: String::new(),
             solve_status: String::new(),
             cached_status: String::new(),
@@ -52,12 +59,20 @@ impl CameraDisplay {
     }
 
     pub fn cmd(&mut self, command: &[&str], mount: Option<&mut Mount>) -> Result<bool> {
-        match command {
+        match *command {
             ["cross"] => self.cross = !self.cross,
             ["zoom"] => self.zoom = !self.zoom,
             ["median"] => {
                 self.median = !self.median;
                 self.processed = None;
+            }
+            ["sigma", sigma] => {
+                if let Ok(sigma) = sigma.parse() {
+                    self.display_sigma = sigma;
+                    self.processed = None;
+                } else {
+                    return Ok(false);
+                }
             }
             ["open"] if !self.running => {
                 if let Some(ref camera) = self.camera {
@@ -72,8 +87,19 @@ impl CameraDisplay {
                 }
                 self.running = false;
             }
+            ["folder"] => {
+                self.folder = String::new();
+            }
+            ["folder", name] => {
+                self.folder = name.to_string();
+            }
             ["save"] => {
                 self.save += 1;
+            }
+            ["save", "now"] if self.raw.is_some() => {
+                if let Some(ref raw) = self.raw {
+                    self.save_png(raw)?;
+                }
             }
             ["save", n] => {
                 if let Ok(n) = n.parse::<isize>() {
@@ -94,7 +120,7 @@ impl CameraDisplay {
                     return Ok(false);
                 }
             }
-            &[name, value] => {
+            [name, value] => {
                 if let Some(ref camera) = self.camera {
                     if let Ok(value) = value.parse() {
                         for control in camera.controls() {
@@ -150,13 +176,24 @@ impl CameraDisplay {
         if self.save > 0 {
             writeln!(status, "Saving: {}", self.save)?;
         }
+        if self.folder.is_empty() {
+            writeln!(status, "Folder: None")?;
+        } else {
+            writeln!(status, "Folder: {}", self.folder)?;
+        }
         write!(status, "{}", self.process_status)?;
         write!(status, "{}", self.cached_status)?;
         Ok(())
     }
 
-    fn save_png(data: &CpuTexture<u16>) {
+    fn save_png(&self, data: &CpuTexture<u16>) -> Result<()> {
         let tm = time::now();
+        let dirname = format!(
+            "{}_{:02}_{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+        );
         let filename = format!(
             "telescope.{}-{:02}-{:02}.{:02}-{:02}-{:02}.png",
             tm.tm_year + 1900,
@@ -166,7 +203,17 @@ impl CameraDisplay {
             tm.tm_min,
             tm.tm_sec
         );
-        crate::write_png(filename, data);
+        let mut filepath = dirs::desktop_dir().unwrap_or_else(PathBuf::new);
+        filepath.push(dirname);
+        if !self.folder.is_empty() {
+            filepath.push(&self.folder);
+        }
+        if !filepath.exists() {
+            create_dir_all(&filepath)?;
+        }
+        filepath.push(filename);
+        crate::write_png(filepath, data)?;
+        Ok(())
     }
 
     pub fn draw(
@@ -182,19 +229,24 @@ impl CameraDisplay {
                 self.exposure_start = now;
                 if self.save > 0 {
                     self.save -= 1;
-                    Self::save_png(&image);
+                    self.save_png(&image)?;
                 }
                 self.raw = Some(image);
             }
         } else if self.raw.is_none() {
-            self.raw = Some(crate::read_png("telescope.2019-10-5.21-9-8.png"));
+            self.raw = Some(crate::read_png("telescope.2019-10-5.21-42-57.png")?);
         }
         let mut upload = false;
         if self.processed.is_none() {
             if let Some(ref raw) = self.raw {
                 let now = Instant::now();
                 self.process_status.clear();
-                self.processed = Some(adjust_image(raw, self.median, &mut self.process_status));
+                self.processed = Some(adjust_image(
+                    raw,
+                    self.display_sigma,
+                    self.median,
+                    &mut self.process_status,
+                ));
                 self.process_time = Instant::now() - now;
                 upload = true;
             }

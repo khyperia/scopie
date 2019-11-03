@@ -20,36 +20,37 @@ use std::{convert::TryInto, fmt::Write, fs::File, path::Path};
 
 type Result<T> = std::result::Result<T, failure::Error>;
 
-fn read_png(path: impl AsRef<Path>) -> CpuTexture<u16> {
-    let mut decoder = png::Decoder::new(File::open(path).unwrap());
+fn read_png(path: impl AsRef<Path>) -> Result<CpuTexture<u16>> {
+    let mut decoder = png::Decoder::new(File::open(path)?);
     decoder.set_transformations(png::Transformations::IDENTITY);
-    let (info, mut reader) = decoder.read_info().unwrap();
+    let (info, mut reader) = decoder.read_info()?;
     assert_eq!(info.bit_depth, png::BitDepth::Sixteen);
     assert_eq!(info.color_type, png::ColorType::Grayscale);
     let mut buf = vec![0; info.buffer_size()];
-    reader.next_frame(&mut buf).unwrap();
+    reader.next_frame(&mut buf)?;
     let mut buf16 = vec![0; info.width as usize * info.height as usize];
     for i in 0..buf16.len() {
         buf16[i] = u16::from(buf[i * 2]) << 8 | u16::from(buf[i * 2 + 1]);
     }
-    CpuTexture::new(buf16, (info.width as usize, info.height as usize))
+    Ok(CpuTexture::new(buf16, (info.width as usize, info.height as usize)))
 }
 
-fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) {
+fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
     let mut encoder = png::Encoder::new(
-        File::create(path).expect("Unable to create png file"),
+        File::create(path)?,
         img.size.0 as u32,
         img.size.1 as u32,
     );
     encoder.set_color(png::ColorType::Grayscale);
     encoder.set_depth(png::BitDepth::Sixteen);
-    let mut writer = encoder.write_header().unwrap();
+    let mut writer = encoder.write_header()?;
     let mut output = vec![0; img.size.0 * img.size.1 * 2];
     for i in 0..(img.size.0 * img.size.1) {
         output[i * 2] = (img.data[i] >> 8) as u8;
         output[i * 2 + 1] = (img.data[i]) as u8;
     }
-    writer.write_image_data(&output).unwrap();
+    writer.write_image_data(&output)?;
+    Ok(())
 }
 
 struct Display {
@@ -63,6 +64,7 @@ struct Display {
     texture_renderer_f32: TextureRendererF32,
     text_renderer: TextRenderer,
     command_okay: bool,
+    wasd_mode: bool,
 }
 
 impl Display {
@@ -74,6 +76,10 @@ impl Display {
         self.input_error.clear();
         let cmd = self.input_text.split_whitespace().collect::<Vec<_>>();
         self.command_okay = cmd.is_empty();
+        if let ["wasd"] = &cmd as &[&str] {
+            self.wasd_mode = true;
+            self.command_okay |= true;
+        }
         if let Some(ref mut camera_display) = self.camera_display {
             let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
             self.command_okay |= camera_display.cmd(&cmd, mount)?;
@@ -123,6 +129,7 @@ impl khygl::display::Display for Display {
             texture_renderer_f32,
             text_renderer,
             command_okay,
+            wasd_mode: false,
         })
     }
 
@@ -139,6 +146,9 @@ impl khygl::display::Display for Display {
         if let Some(ref mut mount_display) = self.mount_display {
             mount_display.status(&mut self.status)?;
         }
+        if self.wasd_mode {
+            write!(&mut self.status, "WASD/RF mount control mode (esc to cancel)")?;
+        }
         if !self.command_okay {
             write!(&mut self.status, "{}", self.input_error)?;
         }
@@ -149,7 +159,7 @@ impl khygl::display::Display for Display {
             (10, 10),
             self.window_size,
         )?;
-        let input_pos_y = self.window_size.1 as isize - self.text_renderer.spacing as isize;
+        let input_pos_y = self.window_size.1 as isize - self.text_renderer.spacing as isize - 1;
         let input_pos_y = input_pos_y.try_into().unwrap_or(0);
         let input_pos = (10, input_pos_y);
         if let Some(ref mut camera_display) = self.camera_display {
@@ -192,21 +202,28 @@ impl khygl::display::Display for Display {
     }
 
     fn key_up(&mut self, key: Key) -> Result<()> {
-        if let Some(ref mut mount_display) = self.mount_display {
-            mount_display.key_up(key)?;
+        if self.wasd_mode {
+            if let Some(ref mut mount_display) = self.mount_display {
+                mount_display.key_up(key)?;
+            }
         }
         Ok(())
     }
 
     fn key_down(&mut self, key: Key) -> Result<()> {
-        if let Some(ref mut mount_display) = self.mount_display {
-            mount_display.key_down(key)?;
+        if self.wasd_mode {
+            if let Some(ref mut mount_display) = self.mount_display {
+                mount_display.key_down(key)?;
+            }
         }
         match key {
-            Key::Back => {
+            Key::Escape if self.wasd_mode => {
+                self.wasd_mode = false;
+            }
+            Key::Back if !self.wasd_mode => {
                 self.input_text.pop();
             }
-            Key::Return => match self.run_cmd() {
+            Key::Return if !self.wasd_mode => match self.run_cmd() {
                 Ok(()) => (),
                 Err(err) => {
                     self.input_error = format!("Command error: {}\n", err);
@@ -219,7 +236,7 @@ impl khygl::display::Display for Display {
     }
 
     fn received_character(&mut self, ch: char) -> Result<()> {
-        if ch >= 32 as char {
+        if !self.wasd_mode && ch >= 32 as char {
             self.input_text.push(ch);
         }
         Ok(())
@@ -227,5 +244,5 @@ impl khygl::display::Display for Display {
 }
 
 fn main() -> Result<()> {
-    khygl::display::run::<Display>((600.0, 600.0))
+    khygl::display::run::<Display>((800.0, 800.0))
 }

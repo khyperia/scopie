@@ -35,7 +35,7 @@ pub fn platesolve(tex: &CpuTexture<u16>) -> Result<(Angle, Angle)> {
         return Err(failure::err_msg("ANSVR not installed"));
     }
 
-    crate::write_png(windows_file_location, tex);
+    crate::write_png(windows_file_location, tex)?;
 
     let downsample = 4;
     let low = 0.9;
