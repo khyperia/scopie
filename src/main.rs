@@ -93,10 +93,11 @@ impl Display {
 }
 
 impl khygl::display::Display for Display {
-    fn setup(window_size: (usize, usize)) -> Result<Self> {
+    fn setup(window_size: (usize, usize), dpi: f64) -> Result<Self> {
         let texture_renderer_u8 = TextureRendererU8::new()?;
         let texture_renderer_f32 = TextureRendererF32::new()?;
-        let text_renderer = TextRenderer::new()?;
+        let height = 20.0 * dpi as f32;
+        let text_renderer = TextRenderer::new(height)?;
         let live = false;
         let mut command_okay = true;
         let mut input_error = String::new();
