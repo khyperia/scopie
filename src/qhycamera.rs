@@ -3,7 +3,7 @@ use std::{ffi::c_void, fmt};
 pub type QHYCCD = *mut c_void;
 
 #[repr(u32)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ControlId {
     ControlBrightness = 0, // image brightness
     ControlContrast,       // image contrast
@@ -129,7 +129,27 @@ static VALUES: &[ControlId] = &[
     ControlId::OutputDataAlignment,
 ];
 
+static INTERESTING_VALUES: &[ControlId] = &[
+    ControlId::ControlBrightness,
+    ControlId::ControlContrast,
+    ControlId::ControlGain,
+    ControlId::ControlOffset,
+    ControlId::ControlExposure,
+    ControlId::ControlSpeed,
+    ControlId::ControlTransferbit,
+    ControlId::ControlUsbtraffic,
+    ControlId::ControlRownoisere,
+    ControlId::ControlCurtemp,
+    ControlId::ControlCurpwm,
+    ControlId::ControlManulpwm,
+    ControlId::ControlCooler,
+];
+
 impl ControlId {
+    pub fn is_interesting(id: ControlId) -> bool {
+        INTERESTING_VALUES.iter().any(|&x| x == id)
+    }
+
     pub fn values() -> &'static [ControlId] {
         VALUES
     }

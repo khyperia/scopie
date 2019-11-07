@@ -98,7 +98,7 @@ impl khygl::display::Display for Display {
         let texture_renderer_f32 = TextureRendererF32::new()?;
         let height = 20.0 * dpi as f32;
         let text_renderer = TextRenderer::new(height)?;
-        let live = false;
+        let live = true;
         let mut command_okay = true;
         let mut input_error = String::new();
         let camera = match camera::autoconnect(live) {

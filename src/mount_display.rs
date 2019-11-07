@@ -130,6 +130,7 @@ impl MountDisplay {
                 lon.fmt_degrees()
             )?;
             writeln!(self.cached_status, "Time: {}", self.mount.time()?)?;
+            writeln!(self.cached_status, "Mount get time: {:?}", Instant::now() - now)?;
         }
         write!(status, "{}", self.cached_status)?;
         writeln!(status, "Slew speed: {}", self.slew_speed)?;

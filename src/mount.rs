@@ -1,6 +1,6 @@
 use crate::{dms::Angle, Result};
 use serialport;
-use std::{ffi::OsStr, fmt, fmt::Display, str::FromStr, time::Duration};
+use std::{ffi::OsStr, fmt, fmt::Display, str, str::FromStr, time::Duration};
 
 pub enum TrackingMode {
     Off,
@@ -135,21 +135,18 @@ impl Mount {
         Ok(Mount { port })
     }
 
-    fn read_bytes(&mut self) -> Result<Vec<u8>> {
-        let mut buf = [0];
-        let mut res = Vec::new();
-        loop {
-            self.port.read_exact(&mut buf)?;
-            if buf[0] == b'#' {
-                break;
-            }
-            res.push(buf[0])
+    fn read(&mut self, mut data: impl AsMut<[u8]>) -> Result<()> {
+        let data = data.as_mut();
+        if !data.is_empty() {
+            self.port.read_exact(data)?;
         }
-        Ok(res)
-    }
-
-    fn read(&mut self) -> Result<String> {
-        Ok(String::from_utf8(self.read_bytes()?)?)
+        let mut hash = [0];
+        self.port.read_exact(&mut hash)?;
+        if hash == [b'#'] {
+            Ok(())
+        } else {
+            Err(failure::err_msg("Mount reply didn't end with '#'"))
+        }
     }
 
     fn write(&mut self, data: impl AsRef<[u8]>) -> Result<()> {
@@ -158,10 +155,17 @@ impl Mount {
         Ok(())
     }
 
+    fn interact0(&mut self, data: impl AsRef<[u8]>) -> Result<()> {
+        self.write(data)?;
+        self.read(&mut [])?;
+        Ok(())
+    }
+
     pub fn get_ra_dec(&mut self) -> Result<(Angle, Angle)> {
         self.write([b'e'])?;
-        let response = self.read()?;
-        let response = response
+        let mut response = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        self.read(&mut response)?;
+        let response = str::from_utf8(&response)?
             .split(',')
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
@@ -174,15 +178,11 @@ impl Mount {
         ))
     }
 
-    // TODO: rename to sync
     pub fn sync_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let msg = format!("s{:08X},{:08X}", ra, dec);
-        self.write(msg)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
+        self.interact0(msg)?;
         Ok(())
     }
 
@@ -190,17 +190,15 @@ impl Mount {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let msg = format!("r{:08X},{:08X}", ra, dec);
-        self.write(msg)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
+        self.interact0(msg)?;
         Ok(())
     }
 
     pub fn get_az_alt(&mut self) -> Result<(Angle, Angle)> {
         self.write([b'z'])?;
-        let response = self.read()?;
-        let response = response
+        let mut response = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        self.read(&mut response)?;
+        let response = str::from_utf8(&response)?
             .split(',')
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
@@ -217,37 +215,24 @@ impl Mount {
         let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
         let msg = format!("b{:08X},{:08X}", ra, dec);
-        self.write(msg)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
+        self.interact0(msg)?;
         Ok(())
     }
 
     pub fn cancel_slew(&mut self) -> Result<()> {
-        self.write([b'M'])?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
-        Ok(())
+        self.interact0([b'M'])
     }
 
     pub fn tracking_mode(&mut self) -> Result<TrackingMode> {
         self.write([b't'])?;
-        if let [result] = self.read_bytes()?[..] {
-            // HAHA WHAT, it's literal char value, not ascii integer
-            Ok(result.into())
-        } else {
-            Err(failure::err_msg("Invalid response"))
-        }
+        let mut response = [0];
+        self.read(&mut response)?;
+        // HAHA WHAT, it's literal char value, not ascii integer
+        Ok(response[0].into())
     }
 
     pub fn set_tracking_mode(&mut self, mode: TrackingMode) -> Result<()> {
-        self.write([b'T', u8::from(mode)])?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
-        Ok(())
+        self.interact0([b'T', u8::from(mode)])
     }
 
     fn format_lat_lon(cmd: u8, lat: Angle, lon: Angle) -> [u8; 9] {
@@ -275,7 +260,7 @@ impl Mount {
         ]
     }
 
-    fn parse_lat_lon(value: &[u8]) -> (Angle, Angle) {
+    fn parse_lat_lon(value: &[u8; 8]) -> (Angle, Angle) {
         let lat_deg = f64::from(value[0]);
         let lat_min = f64::from(value[1]);
         let lat_sec = f64::from(value[2]);
@@ -291,27 +276,18 @@ impl Mount {
 
     pub fn location(&mut self) -> Result<(Angle, Angle)> {
         self.write([b'w'])?;
-        Ok(Self::parse_lat_lon(&self.read_bytes()?))
+        let mut response = [0, 0, 0, 0, 0, 0, 0, 0];
+        self.read(&mut response)?;
+        Ok(Self::parse_lat_lon(&response))
     }
 
     pub fn set_location(&mut self, lat: Angle, lon: Angle) -> Result<()> {
         let to_write = Self::format_lat_lon(b'W', lat, lon);
-        self.write(to_write)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
-        Ok(())
+        self.interact0(to_write)
     }
 
-    fn parse_time(time: &[u8]) -> MountTime {
-        let hour = time[0];
-        let minute = time[1];
-        let second = time[2];
-        let month = time[3];
-        let day = time[4];
-        let year = time[5];
-        let time_zone_offset = time[6] as i8;
-        let dst = time[7] == 1;
+    fn parse_time(time: &[u8; 8]) -> MountTime {
+        let &[hour, minute, second, month, day, year, time_zone_offset, dst] = time;
         MountTime {
             hour,
             minute,
@@ -319,8 +295,8 @@ impl Mount {
             month,
             day,
             year,
-            time_zone_offset,
-            dst,
+            time_zone_offset: time_zone_offset as i8,
+            dst: dst == 1,
         }
     }
 
@@ -340,25 +316,22 @@ impl Mount {
 
     pub fn time(&mut self) -> Result<MountTime> {
         self.write([b'h'])?;
-        Ok(Self::parse_time(&self.read_bytes()?))
+        let mut response = [0, 0, 0, 0, 0, 0, 0, 0];
+        self.read(&mut response)?;
+        Ok(Self::parse_time(&response))
     }
 
     pub fn set_time(&mut self, time: MountTime) -> Result<()> {
         let to_write = Self::format_time(b'H', time);
-        self.write(to_write)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
+        self.interact0(to_write)?;
         Ok(())
     }
 
     pub fn aligned(&mut self) -> Result<bool> {
         self.write([b'J'])?;
-        if let [result] = self.read_bytes()?[..] {
-            Ok(result != 0)
-        } else {
-            Err(failure::err_msg("Invalid response"))
-        }
+        let mut response = [0];
+        self.read(&mut response)?;
+        Ok(response[0] != 0)
     }
 
     fn split_three_bytes(value_angle: Angle) -> (u8, u8, u8) {
@@ -377,10 +350,7 @@ impl Mount {
     fn p_command_three(&mut self, one: u8, two: u8, three: u8, data: Angle) -> Result<()> {
         let (high, med, low) = Self::split_three_bytes(data);
         let cmd = [b'P', one, two, three, high, med, low, 0];
-        self.write(cmd)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
+        self.interact0(cmd)?;
         Ok(())
     }
 
@@ -399,10 +369,7 @@ impl Mount {
 
     fn fixed_slew_command(&mut self, one: u8, two: u8, three: u8, rate: u8) -> Result<()> {
         let cmd = [b'P', one, two, three, rate, 0, 0, 0];
-        self.write(cmd)?;
-        if self.read()? != "" {
-            return Err(failure::err_msg("Invalid response"));
-        }
+        self.interact0(cmd)?;
         Ok(())
     }
 

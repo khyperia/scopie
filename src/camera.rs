@@ -4,7 +4,7 @@ use crate::{
     Result,
 };
 use khygl::texture::CpuTexture;
-use std::{error::Error, fmt, str, sync::Once};
+use std::{error::Error, fmt, ptr::null_mut, str, sync::Once};
 
 #[derive(Debug)]
 struct QhyError {
@@ -95,12 +95,16 @@ pub struct Camera {
 
 impl Camera {
     pub fn num_cameras() -> u32 {
+        init_qhyccd_resource();
         unsafe { qhy::ScanQHYCCD() }
     }
 
     fn open(info: CameraInfo, use_live: bool) -> Result<Camera> {
         unsafe {
             let handle = qhy::OpenQHYCCD(info.name.as_ptr());
+            if handle == null_mut() {
+                return Err(failure::err_msg("OpenQHYCCD returned null"));
+            }
 
             check(qhy::SetQHYCCDStreamMode(
                 handle,
@@ -155,7 +159,12 @@ impl Camera {
     }
 
     fn start_single(&self) -> Result<()> {
-        unsafe { Ok(check(qhy::ExpQHYCCDSingleFrame(self.handle))?) }
+        let single = unsafe { qhy::ExpQHYCCDSingleFrame(self.handle) };
+        // QHYCCD_READ_DIRECTLY
+        if single != 0x2001 {
+            check(single)?;
+        }
+        Ok(())
     }
 
     fn stop_single(&self) -> Result<()> {
@@ -269,6 +278,7 @@ pub struct Control {
     max: f64,
     step: f64,
     readonly: bool,
+    interesting: bool,
 }
 
 impl Control {
@@ -279,6 +289,7 @@ impl Control {
             let mut step = 0.0;
             let res = qhy::GetQHYCCDParamMinMaxStep(handle, control, &mut min, &mut max, &mut step);
             let readonly = res != 0;
+            let interesting = ControlId::is_interesting(control);
             Self {
                 handle,
                 control,
@@ -286,6 +297,7 @@ impl Control {
                 max,
                 step,
                 readonly,
+                interesting,
             }
         }
     }
@@ -305,6 +317,9 @@ impl Control {
     }
     pub fn readonly(&self) -> bool {
         self.readonly
+    }
+    pub fn interesting(&self) -> bool {
+        self.interesting
     }
 
     pub fn get(&self) -> f64 {

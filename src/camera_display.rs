@@ -145,9 +145,18 @@ impl CameraDisplay {
             self.cached_status.clear();
             if let Some(ref camera) = self.camera {
                 for control in camera.controls() {
-                    writeln!(self.cached_status, "{}", control)?;
+                    if control.interesting() {
+                        let asdf = Instant::now();
+                        write!(self.cached_status, "{} ", control)?;
+                        writeln!(self.cached_status, "{:?}", Instant::now() - asdf)?;
+                    }
                 }
             }
+            writeln!(
+                self.cached_status,
+                "Control get time: {:?}",
+                Instant::now() - now
+            )?;
         }
         if let Some(ref camera) = self.camera {
             writeln!(status, "{}", camera.name())?;
@@ -223,15 +232,17 @@ impl CameraDisplay {
         screen_size: (f32, f32),
     ) -> Result<()> {
         if let Some(ref camera) = self.camera {
-            if let Some(image) = camera.try_get()? {
-                let now = Instant::now();
-                self.exposure_time = now - self.exposure_start;
-                self.exposure_start = now;
-                if self.save > 0 {
-                    self.save -= 1;
-                    self.save_png(&image)?;
+            if self.running {
+                if let Some(image) = camera.try_get()? {
+                    let now = Instant::now();
+                    self.exposure_time = now - self.exposure_start;
+                    self.exposure_start = now;
+                    if self.save > 0 {
+                        self.save -= 1;
+                        self.save_png(&image)?;
+                    }
+                    self.raw = Some(image);
                 }
-                self.raw = Some(image);
             }
         } else if self.raw.is_none() {
             self.raw = Some(crate::read_png("telescope.2019-10-5.21-42-57.png")?);
