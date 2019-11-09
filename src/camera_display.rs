@@ -1,4 +1,4 @@
-use crate::{camera, mount::Mount, platesolve::platesolve, process::adjust_image, Result};
+use crate::{camera, mount_async::MountAsync, platesolve::platesolve, process, Result};
 use dirs;
 use khygl::{
     render_texture::TextureRendererU8,
@@ -10,14 +10,17 @@ use std::{
     fmt::Write,
     fs::create_dir_all,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 pub struct CameraDisplay {
     camera: Option<camera::Camera>,
-    raw: Option<CpuTexture<u16>>,
+    raw: Option<Arc<CpuTexture<u16>>>,
     processed: Option<CpuTexture<[u8; 4]>>,
     texture: Option<Texture<[u8; 4]>>,
+    processor: process::Processor,
+    do_process: bool,
     running: bool,
     zoom: bool,
     cross: bool,
@@ -31,7 +34,6 @@ pub struct CameraDisplay {
     cached_status: String,
     exposure_start: Instant,
     exposure_time: Duration,
-    process_time: Duration,
 }
 
 impl CameraDisplay {
@@ -41,6 +43,8 @@ impl CameraDisplay {
             raw: None,
             processed: None,
             texture: None,
+            processor: process::Processor::new(),
+            do_process: false,
             running: false,
             zoom: false,
             cross: false,
@@ -54,22 +58,21 @@ impl CameraDisplay {
             cached_status: String::new(),
             exposure_start: Instant::now(),
             exposure_time: Duration::new(0, 0),
-            process_time: Duration::new(0, 0),
         }
     }
 
-    pub fn cmd(&mut self, command: &[&str], mount: Option<&mut Mount>) -> Result<bool> {
+    pub fn cmd(&mut self, command: &[&str], mount: Option<&mut MountAsync>) -> Result<bool> {
         match *command {
             ["cross"] => self.cross = !self.cross,
             ["zoom"] => self.zoom = !self.zoom,
             ["median"] => {
                 self.median = !self.median;
-                self.processed = None;
+                self.do_process = true;
             }
             ["sigma", sigma] => {
                 if let Ok(sigma) = sigma.parse() {
                     self.display_sigma = sigma;
-                    self.processed = None;
+                    self.do_process = true;
                 } else {
                     return Ok(false);
                 }
@@ -113,8 +116,7 @@ impl CameraDisplay {
                     let (ra, dec) = platesolve(img)?;
                     self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
                     if let Some(mount) = mount {
-                        mount.reset_ra(ra)?;
-                        mount.reset_dec(dec)?;
+                        mount.reset(ra, dec)?;
                     }
                 } else {
                     return Ok(false);
@@ -178,7 +180,6 @@ impl CameraDisplay {
             )?;
         }
         writeln!(status, "Last exposure: {:?}", self.exposure_time,)?;
-        writeln!(status, "Processing time: {:?}", self.process_time,)?;
         if !self.solve_status.is_empty() {
             writeln!(status, "Platesolve: {}", self.solve_status)?;
         }
@@ -241,26 +242,34 @@ impl CameraDisplay {
                         self.save -= 1;
                         self.save_png(&image)?;
                     }
-                    self.raw = Some(image);
+                    self.raw = Some(Arc::new(image));
+                    self.do_process = true;
                 }
             }
         } else if self.raw.is_none() {
-            self.raw = Some(crate::read_png("telescope.2019-10-5.21-42-57.png")?);
+            self.raw = Some(Arc::new(crate::read_png(
+                "telescope.2019-10-5.21-42-57.png",
+            )?));
+            self.do_process = true;
+        }
+        if self.do_process {
+            if let Some(ref raw) = self.raw {
+                let ok = self
+                    .processor
+                    .process(raw.clone(), self.display_sigma, self.median)?;
+                if ok {
+                    self.do_process = false;
+                } else {
+                    self.do_process = false;
+                    println!("Dropped frame");
+                }
+            }
         }
         let mut upload = false;
-        if self.processed.is_none() {
-            if let Some(ref raw) = self.raw {
-                let now = Instant::now();
-                self.process_status.clear();
-                self.processed = Some(adjust_image(
-                    raw,
-                    self.display_sigma,
-                    self.median,
-                    &mut self.process_status,
-                ));
-                self.process_time = Instant::now() - now;
-                upload = true;
-            }
+        while let Some((processed, process_status)) = self.processor.get()? {
+            self.processed = Some(processed);
+            self.process_status = process_status;
+            upload = true;
         }
         if let Some(ref processed) = self.processed {
             let create = if let Some(ref texture) = self.texture {

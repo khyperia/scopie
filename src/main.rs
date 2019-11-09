@@ -2,6 +2,7 @@ mod camera;
 mod camera_display;
 mod dms;
 mod mount;
+mod mount_async;
 mod mount_display;
 mod platesolve;
 mod process;
@@ -15,6 +16,7 @@ use khygl::{
     texture::CpuTexture,
     Rect,
 };
+use mount_async::MountAsync;
 use mount_display::MountDisplay;
 use std::{convert::TryInto, fmt::Write, fs::File, path::Path};
 
@@ -32,15 +34,14 @@ fn read_png(path: impl AsRef<Path>) -> Result<CpuTexture<u16>> {
     for i in 0..buf16.len() {
         buf16[i] = u16::from(buf[i * 2]) << 8 | u16::from(buf[i * 2 + 1]);
     }
-    Ok(CpuTexture::new(buf16, (info.width as usize, info.height as usize)))
+    Ok(CpuTexture::new(
+        buf16,
+        (info.width as usize, info.height as usize),
+    ))
 }
 
 fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
-    let mut encoder = png::Encoder::new(
-        File::create(path)?,
-        img.size.0 as u32,
-        img.size.1 as u32,
-    );
+    let mut encoder = png::Encoder::new(File::create(path)?, img.size.0 as u32, img.size.1 as u32);
     encoder.set_color(png::ColorType::Grayscale);
     encoder.set_depth(png::BitDepth::Sixteen);
     let mut writer = encoder.write_header()?;
@@ -118,7 +119,7 @@ impl khygl::display::Display for Display {
             }
         };
         let camera_display = Some(CameraDisplay::new(camera));
-        let mount_display = mount.map(MountDisplay::new);
+        let mount_display = mount.map(MountAsync::new).map(MountDisplay::new);
         Ok(Self {
             camera_display,
             mount_display,
@@ -148,7 +149,10 @@ impl khygl::display::Display for Display {
             mount_display.status(&mut self.status)?;
         }
         if self.wasd_mode {
-            write!(&mut self.status, "WASD/RF mount control mode (esc to cancel)")?;
+            write!(
+                &mut self.status,
+                "WASD/RF mount control mode (esc to cancel)"
+            )?;
         }
         if !self.command_okay {
             write!(&mut self.status, "{}", self.input_error)?;

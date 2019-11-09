@@ -1,4 +1,4 @@
-use crate::{dms::Angle, mount, Result};
+use crate::{dms::Angle, mount_async, Result};
 use khygl::display::Key;
 use std::{
     fmt::Write,
@@ -6,19 +6,17 @@ use std::{
 };
 
 pub struct MountDisplay {
-    pub mount: mount::Mount,
+    pub mount: mount_async::MountAsync,
     last_update: Instant,
     slew_speed: u32,
-    cached_status: String,
 }
 
 impl MountDisplay {
-    pub fn new(mount: mount::Mount) -> Self {
+    pub fn new(mount: mount_async::MountAsync) -> Self {
         Self {
             mount,
             last_update: Instant::now(),
             slew_speed: 1,
-            cached_status: String::new(),
         }
     }
 
@@ -28,8 +26,7 @@ impl MountDisplay {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.reset_ra(ra)?;
-                    self.mount.reset_dec(dec)?;
+                    self.mount.reset(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -38,7 +35,7 @@ impl MountDisplay {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.sync_ra_dec(ra, dec)?;
+                    self.mount.sync(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -47,7 +44,7 @@ impl MountDisplay {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.slew_ra_dec(ra, dec)?;
+                    self.mount.slew(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -56,8 +53,7 @@ impl MountDisplay {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.slow_goto_ra(ra)?;
-                    self.mount.slow_goto_dec(dec)?;
+                    self.mount.slow_slew(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -66,13 +62,13 @@ impl MountDisplay {
                 let az = Angle::parse(az);
                 let alt = Angle::parse(alt);
                 if let (Some(az), Some(alt)) = (az, alt) {
-                    self.mount.slew_az_alt(az, alt)?;
+                    self.mount.slew_azalt(az, alt)?;
                 } else {
                     return Ok(false);
                 }
             }
             ["cancel"] => {
-                self.mount.cancel_slew()?;
+                self.mount.cancel()?;
             }
             ["mode", mode] => match mode.parse() {
                 Ok(mode) => {
@@ -90,7 +86,7 @@ impl MountDisplay {
                 }
             }
             ["time", "now"] => {
-                self.mount.set_time(mount::MountTime::now())?;
+                self.mount.set_time_now()?;
             }
             _ => return Ok(false),
         }
@@ -101,38 +97,23 @@ impl MountDisplay {
         let now = Instant::now();
         if (now - self.last_update).as_secs() > 0 {
             self.last_update += Duration::from_secs(1);
-            self.cached_status.clear();
-            let (ra, dec) = self.mount.get_ra_dec()?;
-            writeln!(
-                self.cached_status,
-                "RA/Dec: {} {}",
-                ra.fmt_hours(),
-                dec.fmt_degrees()
-            )?;
-            let (az, alt) = self.mount.get_az_alt()?;
-            writeln!(
-                self.cached_status,
-                "Az/Alt: {} {}",
-                az.fmt_degrees(),
-                alt.fmt_degrees()
-            )?;
-            writeln!(self.cached_status, "Aligned: {}", self.mount.aligned()?)?;
-            writeln!(
-                self.cached_status,
-                "Tracking mode: {}",
-                self.mount.tracking_mode()?
-            )?;
-            let (lat, lon) = self.mount.location()?;
-            writeln!(
-                self.cached_status,
-                "Location: {} {}",
-                lat.fmt_degrees(),
-                lon.fmt_degrees()
-            )?;
-            writeln!(self.cached_status, "Time: {}", self.mount.time()?)?;
-            writeln!(self.cached_status, "Mount get time: {:?}", Instant::now() - now)?;
+            self.mount.request_update()?;
         }
-        write!(status, "{}", self.cached_status)?;
+        let data = self.mount.data()?;
+        let (ra, dec) = data.ra_dec;
+        writeln!(status, "RA/Dec: {} {}", ra.fmt_hours(), dec.fmt_degrees())?;
+        let (az, alt) = data.az_alt;
+        writeln!(status, "Az/Alt: {} {}", az.fmt_degrees(), alt.fmt_degrees())?;
+        writeln!(status, "Aligned: {}", data.aligned)?;
+        writeln!(status, "Tracking mode: {}", data.tracking_mode,)?;
+        let (lat, lon) = data.location;
+        writeln!(
+            status,
+            "Location: {} {}",
+            lat.fmt_degrees(),
+            lon.fmt_degrees()
+        )?;
+        writeln!(status, "Time: {}", data.time)?;
         writeln!(status, "Slew speed: {}", self.slew_speed)?;
         writeln!(status, "setpos [ra] [dec]")?;
         writeln!(status, "syncpos [ra] [dec]")?;

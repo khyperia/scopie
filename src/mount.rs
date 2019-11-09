@@ -9,6 +9,10 @@ pub enum TrackingMode {
     SiderealPec,
 }
 
+impl Default for TrackingMode {
+    fn default() -> Self { TrackingMode::Off }
+}
+
 impl Display for TrackingMode {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -56,6 +60,7 @@ impl From<TrackingMode> for u8 {
     }
 }
 
+#[derive(Default)]
 pub struct MountTime {
     hour: u8,
     minute: u8,
@@ -211,10 +216,10 @@ impl Mount {
         ))
     }
 
-    pub fn slew_az_alt(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        let msg = format!("b{:08X},{:08X}", ra, dec);
+    pub fn slew_az_alt(&mut self, az: Angle, alt: Angle) -> Result<()> {
+        let az = (az.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let alt = (alt.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let msg = format!("b{:08X},{:08X}", az, alt);
         self.interact0(msg)?;
         Ok(())
     }

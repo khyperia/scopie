@@ -1,4 +1,4 @@
-use std::{ffi::c_void, fmt};
+use std::{ffi::c_void, fmt, os::raw::c_char};
 
 pub type QHYCCD = *mut c_void;
 
@@ -230,7 +230,7 @@ extern "system" {
     pub fn ScanQHYCCD() -> u32;
     pub fn GetQHYCCDId(index: u32, id: *mut u8) -> u32;
     //pub fn GetQHYCCDModel(id: *const u8, model: *mut u8) -> u32;
-    pub fn OpenQHYCCD(id: *const u8) -> QHYCCD;
+    pub fn OpenQHYCCD(id: *const c_char) -> QHYCCD;
     pub fn CloseQHYCCD(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDStreamMode(handle: QHYCCD, mode: u8) -> u32;
     pub fn InitQHYCCD(handle: QHYCCD) -> u32;
@@ -281,7 +281,7 @@ extern "system" {
     pub fn SetQHYCCDBitsMode(handle: QHYCCD, bits: u32) -> u32;
     //pub fn ControlQHYCCDTemp(handle: QHYCCD, target_temp: f64) -> u32;
     //pub fn ControlQHYCCDGuide(handle: QHYCCD, direction: u32, duration: u16) -> u32;
-    pub fn GetQHYCCDExposureRemaining(handle: QHYCCD) -> u32;
     //pub fn GetQHYCCDReadingProgress(handle: QHYCCD) -> f64;
     //pub fn SetQHYCCDLogLevel(log_level: u8);
+    pub fn GetQHYCCDExposureRemaining(handle: QHYCCD) -> u32;
 }

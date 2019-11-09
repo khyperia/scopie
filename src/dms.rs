@@ -1,7 +1,7 @@
 use regex::Regex;
 use std::sync::Once;
 
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 pub struct Angle {
     value: f64,
 }

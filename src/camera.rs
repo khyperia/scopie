@@ -4,7 +4,7 @@ use crate::{
     Result,
 };
 use khygl::texture::CpuTexture;
-use std::{error::Error, fmt, ptr::null_mut, str, sync::Once};
+use std::{error::Error, ffi::CString, fmt, ptr::null_mut, str, sync::Once};
 
 #[derive(Debug)]
 struct QhyError {
@@ -101,7 +101,8 @@ impl Camera {
 
     fn open(info: CameraInfo, use_live: bool) -> Result<Camera> {
         unsafe {
-            let handle = qhy::OpenQHYCCD(info.name.as_ptr());
+            let cstring = CString::new(&info.name as &str)?;
+            let handle = qhy::OpenQHYCCD(cstring.as_ptr());
             if handle == null_mut() {
                 return Err(failure::err_msg("OpenQHYCCD returned null"));
             }
@@ -158,7 +159,7 @@ impl Camera {
         &self.controls
     }
 
-    fn start_single(&self) -> Result<()> {
+    pub fn start_single(&self) -> Result<()> {
         let single = unsafe { qhy::ExpQHYCCDSingleFrame(self.handle) };
         // QHYCCD_READ_DIRECTLY
         if single != 0x2001 {
@@ -171,19 +172,22 @@ impl Camera {
         unsafe { Ok(check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?) }
     }
 
-    fn get_single(&self) -> Result<Option<CpuTexture<u16>>> {
+    pub fn get_single(&self, wait: bool) -> Result<Option<CpuTexture<u16>>> {
         unsafe {
-            let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
-            // QHY recommends 100 in qhyccd.h, I guess?
-            if remaining_ms > 100 {
-                return Ok(None);
+            if !wait {
+                let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
+                // QHY recommends 100 in qhyccd.h, I guess?
+                if remaining_ms > 100 {
+                    return Ok(None);
+                }
             }
-            let len = qhy::GetQHYCCDMemLength(self.handle) as usize;
+            let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
+            let len_u16 = len_u8 / 2;
             let mut width = 0;
             let mut height = 0;
             let mut bpp = 0;
             let mut channels = 0;
-            let mut data = vec![0; len];
+            let mut data = vec![0; len_u16];
             check(qhy::GetQHYCCDSingleFrame(
                 self.handle,
                 &mut width,
@@ -211,12 +215,13 @@ impl Camera {
 
     fn get_live(&self) -> Result<Option<CpuTexture<u16>>> {
         unsafe {
-            let len = qhy::GetQHYCCDMemLength(self.handle) as usize;
+            let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
+            let len_u16 = len_u8 / 2;
             let mut width = 0;
             let mut height = 0;
             let mut bpp = 0;
             let mut channels = 0;
-            let mut data = vec![0; len];
+            let mut data = vec![0; len_u16];
             let res = qhy::GetQHYCCDLiveFrame(
                 self.handle,
                 &mut width,
@@ -258,7 +263,7 @@ impl Camera {
         if self.use_live {
             self.get_live()
         } else {
-            let res = self.get_single()?;
+            let res = self.get_single(false)?;
             self.start_single()?;
             Ok(res)
         }
