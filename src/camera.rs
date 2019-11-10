@@ -307,6 +307,10 @@ impl Control {
         }
     }
 
+    pub fn id(&self) -> ControlId {
+        self.control
+    }
+
     pub fn name(&self) -> &'static str {
         self.control.to_str()
     }

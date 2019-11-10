@@ -223,6 +223,8 @@ impl fmt::Display for ControlId {
     }
 }
 
+pub const EXPOSURE_FACTOR: f64 = 1000000.0;
+
 #[link(name = "qhyccd_x64")]
 extern "system" {
     pub fn InitQHYCCDResource() -> u32;

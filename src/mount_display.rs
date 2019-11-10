@@ -1,13 +1,10 @@
 use crate::{dms::Angle, mount_async, Result};
 use khygl::display::Key;
-use std::{
-    fmt::Write,
-    time::{Duration, Instant},
-};
+use std::{collections::HashSet, fmt::Write};
 
 pub struct MountDisplay {
     pub mount: mount_async::MountAsync,
-    last_update: Instant,
+    pressed_keys: HashSet<Key>,
     slew_speed: u32,
 }
 
@@ -15,7 +12,7 @@ impl MountDisplay {
     pub fn new(mount: mount_async::MountAsync) -> Self {
         Self {
             mount,
-            last_update: Instant::now(),
+            pressed_keys: HashSet::new(),
             slew_speed: 1,
         }
     }
@@ -93,10 +90,8 @@ impl MountDisplay {
         Ok(true)
     }
 
-    pub fn status(&mut self, status: &mut String) -> Result<()> {
-        let now = Instant::now();
-        if (now - self.last_update).as_secs() > 0 {
-            self.last_update += Duration::from_secs(1);
+    pub fn status(&mut self, status: &mut String, infrequent_update: bool) -> Result<()> {
+        if infrequent_update {
             self.mount.request_update()?;
         }
         let data = self.mount.data()?;
@@ -128,6 +123,9 @@ impl MountDisplay {
     }
 
     pub fn key_down(&mut self, key: Key) -> Result<()> {
+        if !self.pressed_keys.insert(key) {
+            return Ok(());
+        }
         match key {
             Key::D => self.mount.fixed_slew_ra(self.slew_speed as i32)?,
             Key::A => self.mount.fixed_slew_ra(-(self.slew_speed as i32))?,
@@ -141,6 +139,9 @@ impl MountDisplay {
     }
 
     pub fn key_up(&mut self, key: Key) -> Result<()> {
+        if !self.pressed_keys.remove(&key) {
+            return Ok(());
+        }
         match key {
             Key::D | Key::A => self.mount.fixed_slew_ra(0)?,
             Key::W | Key::S => self.mount.fixed_slew_dec(0)?,

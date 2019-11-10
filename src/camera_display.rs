@@ -1,4 +1,11 @@
-use crate::{camera, mount_async::MountAsync, platesolve::platesolve, process, Result};
+use crate::{
+    camera,
+    mount_async::MountAsync,
+    platesolve::platesolve,
+    process,
+    qhycamera::{ControlId, EXPOSURE_FACTOR},
+    Result,
+};
 use dirs;
 use khygl::{
     render_texture::TextureRendererU8,
@@ -21,13 +28,13 @@ pub struct CameraDisplay {
     texture: Option<Texture<[u8; 4]>>,
     processor: process::Processor,
     do_process: bool,
+    redraw: bool,
     running: bool,
     zoom: bool,
     cross: bool,
     median: bool,
     display_sigma: f64,
     save: usize,
-    last_update: Instant,
     folder: String,
     process_status: String,
     solve_status: String,
@@ -45,13 +52,13 @@ impl CameraDisplay {
             texture: None,
             processor: process::Processor::new(),
             do_process: false,
+            redraw: false,
             running: false,
             zoom: false,
             cross: false,
             median: false,
             display_sigma: 3.0,
             save: 0,
-            last_update: Instant::now(),
             folder: String::new(),
             process_status: String::new(),
             solve_status: String::new(),
@@ -63,8 +70,14 @@ impl CameraDisplay {
 
     pub fn cmd(&mut self, command: &[&str], mount: Option<&mut MountAsync>) -> Result<bool> {
         match *command {
-            ["cross"] => self.cross = !self.cross,
-            ["zoom"] => self.zoom = !self.zoom,
+            ["cross"] => {
+                self.cross = !self.cross;
+                self.redraw = true;
+            }
+            ["zoom"] => {
+                self.zoom = !self.zoom;
+                self.redraw = true;
+            }
             ["median"] => {
                 self.median = !self.median;
                 self.do_process = true;
@@ -122,6 +135,28 @@ impl CameraDisplay {
                     return Ok(false);
                 }
             }
+            ["exposure", value] => {
+                if let Some(ref camera) = self.camera {
+                    if let Ok(value) = value.parse::<f64>() {
+                        for control in camera.controls() {
+                            if control.id() == ControlId::ControlExposure {
+                                control.set(value * EXPOSURE_FACTOR)?;
+                            }
+                        }
+                    }
+                }
+            }
+            ["gain", value] => {
+                if let Some(ref camera) = self.camera {
+                    if let Ok(value) = value.parse::<f64>() {
+                        for control in camera.controls() {
+                            if control.id() == ControlId::ControlGain {
+                                control.set(value)?;
+                            }
+                        }
+                    }
+                }
+            }
             [name, value] => {
                 if let Some(ref camera) = self.camera {
                     if let Ok(value) = value.parse() {
@@ -140,25 +175,33 @@ impl CameraDisplay {
         Ok(true)
     }
 
-    pub fn status(&mut self, status: &mut String) -> Result<()> {
-        let now = Instant::now();
-        if (now - self.last_update).as_secs() > 0 {
-            self.last_update += Duration::from_secs(1);
+    pub fn status(&mut self, status: &mut String, infrequent_update: bool) -> Result<()> {
+        if infrequent_update {
             self.cached_status.clear();
+            if self.running {
+                let exposure = Instant::now() - self.exposure_start;
+                writeln!(
+                    &mut self.cached_status,
+                    "Time since exposure start: {:.1}s",
+                    exposure.as_secs_f64()
+                )?;
+            }
             if let Some(ref camera) = self.camera {
                 for control in camera.controls() {
-                    if control.interesting() {
-                        let asdf = Instant::now();
-                        write!(self.cached_status, "{} ", control)?;
-                        writeln!(self.cached_status, "{:?}", Instant::now() - asdf)?;
+                    if control.id() == ControlId::ControlExposure {
+                        writeln!(
+                            self.cached_status,
+                            "exposure = {} ({}-{} by {})",
+                            control.get() / EXPOSURE_FACTOR,
+                            control.min_value() / EXPOSURE_FACTOR,
+                            control.max_value() / EXPOSURE_FACTOR,
+                            control.step_value() / EXPOSURE_FACTOR,
+                        )?;
+                    } else if control.interesting() {
+                        writeln!(self.cached_status, "{}", control)?;
                     }
                 }
             }
-            writeln!(
-                self.cached_status,
-                "Control get time: {:?}",
-                Instant::now() - now
-            )?;
         }
         if let Some(ref camera) = self.camera {
             writeln!(status, "{}", camera.name())?;
@@ -170,16 +213,7 @@ impl CameraDisplay {
             writeln!(status, "open (currently paused)")?;
         }
         writeln!(status, "save|save [n]")?;
-        if self.running {
-            let exposure = now - self.exposure_start;
-            writeln!(
-                status,
-                "Time since exposure start: {}.{:03}",
-                exposure.as_secs(),
-                exposure.subsec_millis(),
-            )?;
-        }
-        writeln!(status, "Last exposure: {:?}", self.exposure_time,)?;
+        writeln!(status, "Last exposure: {:?}", self.exposure_time)?;
         if !self.solve_status.is_empty() {
             writeln!(status, "Platesolve: {}", self.solve_status)?;
         }
@@ -226,12 +260,8 @@ impl CameraDisplay {
         Ok(())
     }
 
-    pub fn draw(
-        &mut self,
-        pos: Rect<usize>,
-        displayer_u8: &TextureRendererU8,
-        screen_size: (f32, f32),
-    ) -> Result<()> {
+    pub fn update(&mut self) -> Result<bool> {
+        let mut redraw = false;
         if let Some(ref camera) = self.camera {
             if self.running {
                 if let Some(image) = camera.try_get()? {
@@ -257,11 +287,10 @@ impl CameraDisplay {
                 let ok = self
                     .processor
                     .process(raw.clone(), self.display_sigma, self.median)?;
-                if ok {
-                    self.do_process = false;
-                } else {
-                    self.do_process = false;
-                    println!("Dropped frame");
+                self.do_process = false;
+                if !ok {
+                    // TODO
+                    // println!("Dropped frame");
                 }
             }
         }
@@ -286,9 +315,21 @@ impl CameraDisplay {
             if let Some(ref processed) = self.processed {
                 if let Some(ref mut texture) = self.texture {
                     texture.upload(&processed)?;
+                    redraw = true;
                 }
             }
         }
+        redraw |= self.redraw;
+        self.redraw = false;
+        Ok(redraw)
+    }
+
+    pub fn draw(
+        &mut self,
+        pos: Rect<usize>,
+        displayer_u8: &TextureRendererU8,
+        screen_size: (f32, f32),
+    ) -> Result<()> {
         if let Some(ref texture) = self.texture {
             let src = if self.zoom {
                 let zoom_size = 512.0;

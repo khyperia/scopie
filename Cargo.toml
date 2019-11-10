@@ -8,6 +8,7 @@ edition = "2018"
 dirs = { version = "", default-features = false }
 failure = { version = "", default-features = false }
 gl = { version = "", default-features = false }
+glutin = { version = "0.22.0-alpha3", default-features = false }
 khygl = { path = "../khygl", default-features = false }
 png = ""
 regex = { version = "", default-features = false }

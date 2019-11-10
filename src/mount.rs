@@ -10,7 +10,9 @@ pub enum TrackingMode {
 }
 
 impl Default for TrackingMode {
-    fn default() -> Self { TrackingMode::Off }
+    fn default() -> Self {
+        TrackingMode::Off
+    }
 }
 
 impl Display for TrackingMode {
@@ -136,7 +138,7 @@ impl Mount {
 
     pub fn new<T: AsRef<OsStr> + ?Sized>(path: &T) -> Result<Mount> {
         let mut port = serialport::open(path)?;
-        port.set_timeout(Duration::from_secs(1))?;
+        port.set_timeout(Duration::from_secs(3))?;
         Ok(Mount { port })
     }
 

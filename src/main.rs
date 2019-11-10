@@ -9,8 +9,15 @@ mod process;
 mod qhycamera;
 
 use camera_display::CameraDisplay;
+use glutin::{
+    self,
+    event::{ElementState, Event, VirtualKeyCode as Key, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
+    window::WindowBuilder,
+    ContextBuilder,
+};
 use khygl::{
-    display::Key,
+    check_gl, gl_register_debug,
     render_text::TextRenderer,
     render_texture::{TextureRendererF32, TextureRendererU8},
     texture::CpuTexture,
@@ -18,7 +25,13 @@ use khygl::{
 };
 use mount_async::MountAsync;
 use mount_display::MountDisplay;
-use std::{convert::TryInto, fmt::Write, fs::File, path::Path};
+use std::{
+    convert::TryInto,
+    fmt::Write,
+    fs::File,
+    path::Path,
+    time::{Duration, Instant},
+};
 
 type Result<T> = std::result::Result<T, failure::Error>;
 
@@ -57,8 +70,11 @@ fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
 struct Display {
     camera_display: Option<camera_display::CameraDisplay>,
     mount_display: Option<mount_display::MountDisplay>,
+    next_frequent_update: Instant,
+    next_infrequent_update: Instant,
     window_size: (usize, usize),
     status: String,
+    old_status: String,
     input_text: String,
     input_error: String,
     texture_renderer_u8: TextureRendererU8,
@@ -93,38 +109,29 @@ impl Display {
     }
 }
 
-impl khygl::display::Display for Display {
-    fn setup(window_size: (usize, usize), dpi: f64) -> Result<Self> {
+impl Display {
+    fn setup(
+        camera: Option<camera::Camera>,
+        mount: Option<mount::Mount>,
+        input_error: String,
+        command_okay: bool,
+        window_size: (usize, usize),
+        dpi: f64,
+    ) -> Result<Self> {
         let texture_renderer_u8 = TextureRendererU8::new()?;
         let texture_renderer_f32 = TextureRendererF32::new()?;
         let height = 20.0 * dpi as f32;
         let text_renderer = TextRenderer::new(height)?;
-        let live = true;
-        let mut command_okay = true;
-        let mut input_error = String::new();
-        let camera = match camera::autoconnect(live) {
-            Ok(ok) => Some(ok),
-            Err(err) => {
-                command_okay = false;
-                writeln!(&mut input_error, "Error connecting to camera: {}", err)?;
-                None
-            }
-        };
-        let mount = match mount::autoconnect() {
-            Ok(ok) => Some(ok),
-            Err(err) => {
-                command_okay = false;
-                writeln!(&mut input_error, "Error connecting to mount: {}", err)?;
-                None
-            }
-        };
         let camera_display = Some(CameraDisplay::new(camera));
         let mount_display = mount.map(MountAsync::new).map(MountDisplay::new);
         Ok(Self {
             camera_display,
             mount_display,
+            next_frequent_update: Instant::now(),
+            next_infrequent_update: Instant::now(),
             window_size,
             status: String::new(),
+            old_status: String::new(),
             input_text: String::new(),
             input_error,
             texture_renderer_u8,
@@ -135,18 +142,33 @@ impl khygl::display::Display for Display {
         })
     }
 
-    fn render(&mut self) -> Result<()> {
-        let window_size_f32 = self.window_size_f32();
-        unsafe {
-            gl::ClearColor(0.0, 0.0, 0.0, 1.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+    // (wait until, redraw now)
+    fn update(&mut self) -> Result<(Instant, bool)> {
+        let now = Instant::now();
+        let frequent_update_rate = Duration::from_millis(50);
+        let is_next_frequent_update = now >= self.next_frequent_update;
+        if is_next_frequent_update {
+            self.next_frequent_update += frequent_update_rate;
+            let too_fast = now >= self.next_frequent_update + frequent_update_rate * 3;
+            if too_fast {
+                self.next_frequent_update = now + frequent_update_rate;
+                // TODO
+                // println!("Warning: target FPS too fast");
+            }
+        } else {
+            return Ok((self.next_frequent_update, false));
+        }
+
+        let infrequent_update = now >= self.next_infrequent_update;
+        if infrequent_update {
+            self.next_infrequent_update += Duration::from_secs(1);
         }
         self.status.clear();
         if let Some(ref mut camera_display) = self.camera_display {
-            camera_display.status(&mut self.status)?;
+            camera_display.status(&mut self.status, infrequent_update)?;
         }
         if let Some(ref mut mount_display) = self.mount_display {
-            mount_display.status(&mut self.status)?;
+            mount_display.status(&mut self.status, infrequent_update)?;
         }
         if self.wasd_mode {
             write!(
@@ -156,6 +178,23 @@ impl khygl::display::Display for Display {
         }
         if !self.command_okay {
             write!(&mut self.status, "{}", self.input_error)?;
+        }
+        let mut redraw = false;
+        if self.old_status != self.status {
+            self.old_status = self.status.clone();
+            redraw = true;
+        }
+        if let Some(ref mut camera_display) = self.camera_display {
+            redraw |= camera_display.update()?;
+        }
+        Ok((self.next_frequent_update, redraw))
+    }
+
+    fn render(&mut self) -> Result<()> {
+        let window_size_f32 = self.window_size_f32();
+        unsafe {
+            gl::ClearColor(0.0, 0.0, 0.0, 1.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
         let text_size = self.text_renderer.render(
             &self.texture_renderer_f32,
@@ -235,7 +274,7 @@ impl khygl::display::Display for Display {
                     self.command_okay = false;
                 }
             },
-            _ => (),
+            _ => return Ok(()),
         }
         Ok(())
     }
@@ -248,6 +287,122 @@ impl khygl::display::Display for Display {
     }
 }
 
+fn handle<T>(res: Result<T>) -> T {
+    match res {
+        Ok(ok) => ok,
+        Err(err) => panic!("{:?}", err),
+    }
+}
+
 fn main() -> Result<()> {
-    khygl::display::run::<Display>((800.0, 800.0))
+    let live = true;
+    let mut command_okay = true;
+    let mut input_error = String::new();
+    let camera = match camera::autoconnect(live) {
+        Ok(ok) => Some(ok),
+        Err(err) => {
+            command_okay = false;
+            writeln!(&mut input_error, "Error connecting to camera: {}", err)?;
+            None
+        }
+    };
+    let mount = match mount::autoconnect() {
+        Ok(ok) => Some(ok),
+        Err(err) => {
+            command_okay = false;
+            writeln!(&mut input_error, "Error connecting to mount: {}", err)?;
+            None
+        }
+    };
+
+    let el = EventLoop::new();
+    let wb = WindowBuilder::new()
+        .with_title("clam5")
+        .with_inner_size(glutin::dpi::LogicalSize::new(800.0, 800.0));
+    let windowed_context = ContextBuilder::new()
+        .with_vsync(true)
+        .build_windowed(wb, &el)?;
+
+    let windowed_context = unsafe { windowed_context.make_current().map_err(|(_, e)| e)? };
+
+    let dpi = windowed_context.window().hidpi_factor();
+    let initial_size = windowed_context.window().inner_size().to_physical(dpi);
+
+    gl::load_with(|symbol| windowed_context.get_proc_address(symbol) as *const _);
+
+    if !gl::GetError::is_loaded() {
+        return Err(failure::err_msg("glGetError not loaded"));
+    }
+
+    if cfg!(debug_assertions) {
+        unsafe { gl::Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS) };
+        check_gl()?;
+        gl_register_debug()?;
+    }
+
+    let mut display = Some(Display::setup(
+        camera,
+        mount,
+        input_error,
+        command_okay,
+        (initial_size.width as usize, initial_size.height as usize),
+        dpi,
+    )?);
+
+    el.run(move |event, _, control_flow| match event {
+        Event::WindowEvent { event, .. } => match event {
+            WindowEvent::Resized(logical_size)
+                if logical_size.width > 0.0 && logical_size.height > 0.0 =>
+            {
+                if let Some(ref mut display) = display {
+                    let dpi_factor = windowed_context.window().hidpi_factor();
+                    let physical = logical_size.to_physical(dpi_factor);
+                    handle(display.resize((physical.width as usize, physical.height as usize)));
+                    unsafe { gl::Viewport(0, 0, physical.width as i32, physical.height as i32) };
+                }
+            }
+            WindowEvent::KeyboardInput { input, .. } => {
+                if let Some(ref mut display) = display {
+                    if let Some(code) = input.virtual_keycode {
+                        match input.state {
+                            ElementState::Pressed => handle(display.key_down(code)),
+                            ElementState::Released => handle(display.key_up(code)),
+                        }
+                        windowed_context.window().request_redraw();
+                    }
+                }
+            }
+            WindowEvent::ReceivedCharacter(ch) => {
+                if let Some(ref mut display) = display {
+                    handle(display.received_character(ch));
+                    windowed_context.window().request_redraw();
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                if let Some(ref mut display) = display {
+                    handle(display.render());
+                    handle(windowed_context.swap_buffers().map_err(|e| e.into()));
+                }
+            }
+            WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+            _ => (),
+        },
+        Event::EventsCleared => {
+            if *control_flow == ControlFlow::Exit {
+                display = None;
+            } else {
+                let wait_until = if let Some(ref mut display) = display {
+                    let (wait_until, redraw) = handle(display.update());
+                    if redraw {
+                        windowed_context.window().request_redraw();
+                    }
+                    wait_until
+                } else {
+                    Instant::now() + Duration::from_millis(10)
+                };
+                *control_flow = ControlFlow::WaitUntil(wait_until);
+            }
+        }
+        _ => (),
+    })
 }
