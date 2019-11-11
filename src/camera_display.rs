@@ -24,19 +24,15 @@ use std::{
 pub struct CameraDisplay {
     camera: Option<camera::Camera>,
     raw: Option<Arc<CpuTexture<u16>>>,
-    processed: Option<CpuTexture<[u8; 4]>>,
-    texture: Option<Texture<[u8; 4]>>,
+    texture: Option<Texture<u16>>,
     processor: process::Processor,
-    do_process: bool,
-    redraw: bool,
+    process_result: Option<process::ProcessResult>,
     running: bool,
     zoom: bool,
     cross: bool,
-    median: bool,
     display_sigma: f64,
     save: usize,
     folder: String,
-    process_status: String,
     solve_status: String,
     cached_status: String,
     exposure_start: Instant,
@@ -48,19 +44,15 @@ impl CameraDisplay {
         Self {
             camera,
             raw: None,
-            processed: None,
             texture: None,
             processor: process::Processor::new(),
-            do_process: false,
-            redraw: false,
+            process_result: None,
             running: false,
             zoom: false,
             cross: false,
-            median: false,
             display_sigma: 3.0,
             save: 0,
             folder: String::new(),
-            process_status: String::new(),
             solve_status: String::new(),
             cached_status: String::new(),
             exposure_start: Instant::now(),
@@ -72,20 +64,13 @@ impl CameraDisplay {
         match *command {
             ["cross"] => {
                 self.cross = !self.cross;
-                self.redraw = true;
             }
             ["zoom"] => {
                 self.zoom = !self.zoom;
-                self.redraw = true;
-            }
-            ["median"] => {
-                self.median = !self.median;
-                self.do_process = true;
             }
             ["sigma", sigma] => {
                 if let Ok(sigma) = sigma.parse() {
                     self.display_sigma = sigma;
-                    self.do_process = true;
                 } else {
                     return Ok(false);
                 }
@@ -225,7 +210,9 @@ impl CameraDisplay {
         } else {
             writeln!(status, "Folder: {}", self.folder)?;
         }
-        write!(status, "{}", self.process_status)?;
+        if let Some(ref process_result) = self.process_result {
+            write!(status, "{}", process_result)?;
+        }
         write!(status, "{}", self.cached_status)?;
         Ok(())
     }
@@ -262,6 +249,7 @@ impl CameraDisplay {
 
     pub fn update(&mut self) -> Result<bool> {
         let mut redraw = false;
+        let mut new_raw = false;
         if let Some(ref camera) = self.camera {
             if self.running {
                 if let Some(image) = camera.try_get()? {
@@ -273,54 +261,44 @@ impl CameraDisplay {
                         self.save_png(&image)?;
                     }
                     self.raw = Some(Arc::new(image));
-                    self.do_process = true;
+                    new_raw = true;
                 }
             }
         } else if self.raw.is_none() {
             self.raw = Some(Arc::new(crate::read_png(
                 "telescope.2019-10-5.21-42-57.png",
             )?));
-            self.do_process = true;
+            new_raw = true;
         }
-        if self.do_process {
+        if new_raw {
             if let Some(ref raw) = self.raw {
-                let ok = self
-                    .processor
-                    .process(raw.clone(), self.display_sigma, self.median)?;
-                self.do_process = false;
+                let ok = self.processor.process(raw.clone())?;
                 if !ok {
                     // TODO
                     // println!("Dropped frame");
                 }
-            }
-        }
-        let mut upload = false;
-        while let Some((processed, process_status)) = self.processor.get()? {
-            self.processed = Some(processed);
-            self.process_status = process_status;
-            upload = true;
-        }
-        if let Some(ref processed) = self.processed {
-            let create = if let Some(ref texture) = self.texture {
-                texture.size != processed.size
-            } else {
-                true
-            };
-            if create {
-                self.texture = Some(Texture::new(processed.size)?);
-                upload = true;
-            }
-        }
-        if upload {
-            if let Some(ref processed) = self.processed {
-                if let Some(ref mut texture) = self.texture {
-                    texture.upload(&processed)?;
-                    redraw = true;
+                let mut upload = false;
+                let create = if let Some(ref texture) = self.texture {
+                    texture.size != raw.size
+                } else {
+                    true
+                };
+                if create {
+                    self.texture = Some(Texture::new(raw.size)?);
+                    upload = true;
+                }
+                if upload {
+                    if let Some(ref mut texture) = self.texture {
+                        texture.upload(&raw)?;
+                        redraw = true;
+                    }
                 }
             }
         }
-        redraw |= self.redraw;
-        self.redraw = false;
+        while let Some(process_result) = self.processor.get()? {
+            self.process_result = Some(process_result);
+            redraw = true;
+        }
         Ok(redraw)
     }
 
@@ -350,8 +328,13 @@ impl CameraDisplay {
                 dst_width,
                 dst_height,
             );
-
-            displayer.render(texture, src, dst.clone(), None, screen_size)?;
+            let scale_offset = if let Some(ref process_result) = self.process_result {
+                let (scale, offset) = process_result.get_scale_offset(self.display_sigma);
+                Some((scale as f32, offset as f32))
+            } else {
+                None
+            };
+            displayer.render(texture, src, dst.clone(), None, scale_offset, screen_size)?;
             if self.cross {
                 let half_x = dst.x + (dst.width / 2.0);
                 let half_y = dst.y + (dst.height / 2.0);
