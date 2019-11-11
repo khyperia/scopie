@@ -17,11 +17,8 @@ use glutin::{
     ContextBuilder,
 };
 use khygl::{
-    check_gl, gl_register_debug,
-    render_text::TextRenderer,
-    render_texture::{TextureRendererF32, TextureRendererU8},
-    texture::CpuTexture,
-    Rect,
+    check_gl, gl_register_debug, render_text::TextRenderer, render_texture::TextureRenderer,
+    texture::CpuTexture, Rect,
 };
 use mount_async::MountAsync;
 use mount_display::MountDisplay;
@@ -77,8 +74,7 @@ struct Display {
     old_status: String,
     input_text: String,
     input_error: String,
-    texture_renderer_u8: TextureRendererU8,
-    texture_renderer_f32: TextureRendererF32,
+    texture_renderer: TextureRenderer,
     text_renderer: TextRenderer,
     command_okay: bool,
     wasd_mode: bool,
@@ -118,8 +114,7 @@ impl Display {
         window_size: (usize, usize),
         dpi: f64,
     ) -> Result<Self> {
-        let texture_renderer_u8 = TextureRendererU8::new()?;
-        let texture_renderer_f32 = TextureRendererF32::new()?;
+        let texture_renderer = TextureRenderer::new()?;
         let height = 20.0 * dpi as f32;
         let text_renderer = TextRenderer::new(height)?;
         let camera_display = Some(CameraDisplay::new(camera));
@@ -134,8 +129,7 @@ impl Display {
             old_status: String::new(),
             input_text: String::new(),
             input_error,
-            texture_renderer_u8,
-            texture_renderer_f32,
+            texture_renderer,
             text_renderer,
             command_okay,
             wasd_mode: false,
@@ -197,7 +191,7 @@ impl Display {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
         let text_size = self.text_renderer.render(
-            &self.texture_renderer_f32,
+            &self.texture_renderer,
             &self.status,
             [1.0, 1.0, 1.0, 1.0],
             (10, 10),
@@ -211,10 +205,10 @@ impl Display {
                 .try_into()
                 .unwrap_or(1);
             let camera_rect = Rect::new(text_size.right(), 0, width, input_pos_y);
-            camera_display.draw(camera_rect, &self.texture_renderer_u8, window_size_f32)?;
+            camera_display.draw(camera_rect, &self.texture_renderer, window_size_f32)?;
         }
         self.text_renderer.render(
-            &self.texture_renderer_f32,
+            &self.texture_renderer,
             &self.input_text,
             [1.0, 1.0, 1.0, 1.0],
             input_pos,
@@ -225,7 +219,7 @@ impl Display {
         } else {
             [1.0, 0.5, 0.5, 1.0]
         };
-        self.texture_renderer_u8.rect(
+        self.texture_renderer.rect(
             Rect::new(
                 input_pos.0,
                 input_pos.1,

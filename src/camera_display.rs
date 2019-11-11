@@ -8,7 +8,7 @@ use crate::{
 };
 use dirs;
 use khygl::{
-    render_texture::TextureRendererU8,
+    render_texture::TextureRenderer,
     texture::{CpuTexture, Texture},
     Rect,
 };
@@ -161,7 +161,7 @@ impl CameraDisplay {
                 if let Some(ref camera) = self.camera {
                     if let Ok(value) = value.parse() {
                         for control in camera.controls() {
-                            if control.name() == name {
+                            if control.name().eq_ignore_ascii_case(name) {
                                 control.set(value)?;
                             }
                         }
@@ -327,7 +327,7 @@ impl CameraDisplay {
     pub fn draw(
         &mut self,
         pos: Rect<usize>,
-        displayer_u8: &TextureRendererU8,
+        displayer: &TextureRenderer,
         screen_size: (f32, f32),
     ) -> Result<()> {
         if let Some(ref texture) = self.texture {
@@ -351,18 +351,18 @@ impl CameraDisplay {
                 dst_height,
             );
 
-            displayer_u8.render(texture, src, dst.clone(), None, screen_size)?;
+            displayer.render(texture, src, dst.clone(), None, screen_size)?;
             if self.cross {
                 let half_x = dst.x + (dst.width / 2.0);
                 let half_y = dst.y + (dst.height / 2.0);
-                displayer_u8.line_x(
+                displayer.line_x(
                     dst.x as usize,
                     dst.right() as usize,
                     half_y as usize,
                     [255.0, 0.0, 0.0, 255.0],
                     screen_size,
                 )?;
-                displayer_u8.line_y(
+                displayer.line_y(
                     half_x as usize,
                     dst.y as usize,
                     dst.bottom() as usize,

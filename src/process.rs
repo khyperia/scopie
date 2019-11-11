@@ -8,15 +8,16 @@ use std::{
 };
 
 // TODO: use f64::clamp() once stable
+// Alternatively, saturating casts: https://github.com/rust-lang/rust/issues/10184
 #[inline]
-pub fn clamp(mut x: f64, min: f64, max: f64) -> f64 {
-    if x < min {
-        x = min;
+pub fn saturating_cast_f64_u8(x: f64) -> u8 {
+    if x > 255.0 {
+        255
+    } else if x > 0.0 {
+        x as u8
+    } else {
+        0
     }
-    if x > max {
-        x = max;
-    }
-    x
 }
 
 pub fn mean(data: &[u16]) -> f64 {
@@ -97,8 +98,8 @@ fn adjust_image(
             .iter()
             .map(|&item| {
                 let mapped = f64::from(item).mul_add(a, b);
-                let one = clamp(mapped, 0.0, 255.0) as u8;
-                [255, one, one, one]
+                let one = saturating_cast_f64_u8(mapped);
+                [one, one, one, 255]
             })
             .collect();
         CpuTexture::new(result, image.size)

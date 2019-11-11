@@ -119,7 +119,6 @@ impl Camera {
             check(qhy::SetQHYCCDBitsMode(handle, 16))?;
             check(qhy::SetQHYCCDBinMode(handle, 1, 1))?;
             if use_live {
-                // TODO: Assert this?
                 check(qhy::SetQHYCCDParam(
                     handle,
                     ControlId::ControlUsbtraffic,

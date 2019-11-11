@@ -54,13 +54,17 @@ impl MountAsync {
             match self.recv.try_recv() {
                 Ok(data) => self.data = data,
                 Err(mpsc::TryRecvError::Empty) => break,
-                // TODO
-                Err(mpsc::TryRecvError::Disconnected) => self
-                    .thread
-                    .take()
-                    .expect("data() already failed, do not call again")
-                    .join()
-                    .expect("Unable to join mount thread")?,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    let join_handle = match self.thread.take() {
+                        Some(handle) => handle,
+                        None => {
+                            return Err(failure::err_msg(
+                                "Thread already joined, do not call data() again",
+                            ))
+                        }
+                    };
+                    join_handle.join().expect("Unable to join mount thread")?
+                }
             }
         }
         Ok(&self.data)
