@@ -284,7 +284,11 @@ impl CameraDisplay {
                     true
                 };
                 if create {
-                    self.texture = Some(Texture::new(raw.size)?);
+                    self.texture = Some({
+                        let tex = Texture::new(raw.size)?;
+                        tex.set_swizzle([gl::RED, gl::RED, gl::RED, gl::ONE])?;
+                        tex
+                    });
                     upload = true;
                 }
                 if upload {
@@ -328,13 +332,17 @@ impl CameraDisplay {
                 dst_width,
                 dst_height,
             );
-            let scale_offset = if let Some(ref process_result) = self.process_result {
+            let render = displayer
+                .render(texture, screen_size)
+                .src(src)
+                .dst(dst.clone());
+            if let Some(ref process_result) = self.process_result {
                 let (scale, offset) = process_result.get_scale_offset(self.display_sigma);
-                Some((scale as f32, offset as f32))
+                render.scale_offset((scale as f32, offset as f32))
             } else {
-                None
-            };
-            displayer.render(texture, src, dst.clone(), None, scale_offset, screen_size)?;
+                render
+            }
+            .go()?;
             if self.cross {
                 let half_x = dst.x + (dst.width / 2.0);
                 let half_y = dst.y + (dst.height / 2.0);

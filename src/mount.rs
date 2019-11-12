@@ -179,10 +179,7 @@ impl Mount {
         if response.len() != 2 {
             return Err(failure::err_msg("Invalid response"));
         }
-        Ok((
-            Angle::from_0to1(f64::from(response[0]) / (f64::from(u32::max_value()) + 1.0)),
-            Angle::from_0to1(f64::from(response[1]) / (f64::from(u32::max_value()) + 1.0)),
-        ))
+        Ok((Angle::from_u32(response[0]), Angle::from_u32(response[1])))
     }
 
     pub fn sync_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
@@ -212,10 +209,7 @@ impl Mount {
         if response.len() != 2 {
             return Err(failure::err_msg("Invalid response"));
         }
-        Ok((
-            Angle::from_0to1(f64::from(response[0]) / (f64::from(u32::max_value()) + 1.0)),
-            Angle::from_0to1(f64::from(response[1]) / (f64::from(u32::max_value()) + 1.0)),
-        ))
+        Ok((Angle::from_u32(response[0]), Angle::from_u32(response[1])))
     }
 
     pub fn slew_az_alt(&mut self, az: Angle, alt: Angle) -> Result<()> {

@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub fn mean(data: &[u16]) -> f64 {
+fn mean(data: &[u16]) -> f64 {
     let mut sum = 0;
     for &datum in data {
         sum += u64::from(datum);
@@ -14,7 +14,7 @@ pub fn mean(data: &[u16]) -> f64 {
     sum as f64 / data.len() as f64
 }
 
-pub fn stdev(data: &[u16], mean: f64) -> f64 {
+fn stdev(data: &[u16], mean: f64) -> f64 {
     let mut sum = 0.0;
     for &datum in data {
         let diff = mean - f64::from(datum);

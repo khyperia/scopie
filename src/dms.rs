@@ -17,6 +17,10 @@ impl Angle {
         self.value
     }
 
+    pub fn from_u32(value: u32) -> Self {
+        Self::from_0to1(f64::from(value) / (f64::from(u32::max_value()) + 1.0))
+    }
+
     pub fn from_degrees(deg: f64) -> Self {
         Self::from_0to1(deg / 360.0)
     }
