@@ -223,7 +223,7 @@ impl fmt::Display for ControlId {
     }
 }
 
-pub const EXPOSURE_FACTOR: f64 = 1000000.0;
+pub const EXPOSURE_FACTOR: f64 = 1_000_000.0;
 
 #[link(name = "qhyccd_x64")]
 extern "system" {

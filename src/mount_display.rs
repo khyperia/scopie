@@ -1,4 +1,4 @@
-use crate::{dms::Angle, mount_async, Result};
+use crate::{dms::Angle, mount_async, Result, UserUpdate};
 use khygl::display::Key;
 use std::{collections::HashSet, fmt::Write};
 
@@ -91,22 +91,22 @@ impl MountDisplay {
     }
 
     pub fn status(&mut self, status: &mut String) -> Result<()> {
-        let data = self.mount.data()?;
+        let data = &self.mount.data;
         let (ra, dec) = data.ra_dec;
         writeln!(status, "RA/Dec: {} {}", ra.fmt_hours(), dec.fmt_degrees())?;
         let (az, alt) = data.az_alt;
         writeln!(status, "Az/Alt: {} {}", az.fmt_degrees(), alt.fmt_degrees())?;
-        writeln!(status, "Aligned: {}", data.aligned)?;
-        writeln!(status, "Tracking mode: {}", data.tracking_mode,)?;
+        writeln!(status, "aligned: {}", data.aligned)?;
+        writeln!(status, "tracking mode: {}", data.tracking_mode,)?;
         let (lat, lon) = data.location;
         writeln!(
             status,
-            "Location: {} {}",
+            "location: {} {}",
             lat.fmt_degrees(),
             lon.fmt_degrees()
         )?;
-        writeln!(status, "Time: {}", data.time)?;
-        writeln!(status, "Slew speed: {}", self.slew_speed)?;
+        writeln!(status, "time: {}", data.time)?;
+        writeln!(status, "slew speed: {}", self.slew_speed)?;
         writeln!(status, "setpos [ra] [dec]")?;
         writeln!(status, "syncpos [ra] [dec]")?;
         writeln!(status, "slew [ra] [dec]")?;
@@ -145,5 +145,9 @@ impl MountDisplay {
             _ => (),
         }
         Ok(())
+    }
+
+    pub fn user_update(&mut self, user_update: &UserUpdate) {
+        self.mount.user_update(user_update)
     }
 }

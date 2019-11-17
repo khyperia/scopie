@@ -134,13 +134,7 @@ impl std::fmt::Display for AppliedProcessResult<'_> {
             "median: {} -> subtract: {} scale: {:.3} offset {:.3}",
             median, clip, scale, offset
         )?;
-        writeln!(
-            f,
-            "mapped median: {} mapped clip: {}",
-            u16_to_f64(median) * scale + offset,
-            u16_to_f64(clip) * scale + offset,
-        )?;
-        writeln!(f, "Processing time: {:?}", self.result.duration)?;
+        writeln!(f, "image processing time: {:?}", self.result.duration)?;
         Ok(())
     }
 }

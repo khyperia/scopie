@@ -1,5 +1,6 @@
 use crate::{
     camera,
+    image_display::ImageDisplay,
     mount_async::MountAsync,
     platesolve::platesolve,
     process,
@@ -7,11 +8,7 @@ use crate::{
     Result,
 };
 use dirs;
-use khygl::{
-    render_texture::TextureRenderer,
-    texture::{CpuTexture, Texture},
-    Rect,
-};
+use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
 use std::{
     convert::TryInto,
     fmt::Write,
@@ -23,13 +20,10 @@ use std::{
 
 pub struct CameraDisplay {
     camera: Option<camera::Camera>,
-    raw: Option<Arc<CpuTexture<u16>>>,
-    texture: Option<Texture<u16>>,
+    image_display: ImageDisplay,
     processor: process::Processor,
     process_result: Option<process::ProcessResult>,
     running: bool,
-    zoom: bool,
-    cross: bool,
     display_clip: f64,
     display_median_location: f64,
     save: usize,
@@ -44,13 +38,10 @@ impl CameraDisplay {
     pub fn new(camera: Option<camera::Camera>) -> Self {
         Self {
             camera,
-            raw: None,
-            texture: None,
+            image_display: ImageDisplay::new(),
             processor: process::Processor::new(),
             process_result: None,
             running: false,
-            zoom: false,
-            cross: false,
             display_clip: 0.01,
             display_median_location: 0.2,
             save: 0,
@@ -65,10 +56,10 @@ impl CameraDisplay {
     pub fn cmd(&mut self, command: &[&str], mount: Option<&mut MountAsync>) -> Result<bool> {
         match *command {
             ["cross"] => {
-                self.cross = !self.cross;
+                self.image_display.cross = !self.image_display.cross;
             }
             ["zoom"] => {
-                self.zoom = !self.zoom;
+                self.image_display.zoom = !self.image_display.zoom;
             }
             ["clip", clip] => {
                 if let Ok(clip) = clip.parse::<f64>() {
@@ -125,8 +116,8 @@ impl CameraDisplay {
             ["save"] => {
                 self.save += 1;
             }
-            ["save", "now"] if self.raw.is_some() => {
-                if let Some(ref raw) = self.raw {
+            ["save", "now"] if self.image_display.raw().is_some() => {
+                if let Some(ref raw) = self.image_display.raw() {
                     self.save_png(raw)?;
                 }
             }
@@ -138,8 +129,8 @@ impl CameraDisplay {
                 }
             }
             ["solve"] => {
-                if let Some(ref img) = self.raw {
-                    let (ra, dec) = platesolve(img)?;
+                if let Some(ref raw) = self.image_display.raw() {
+                    let (ra, dec) = platesolve(raw)?;
                     self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
                     if let Some(mount) = mount {
                         mount.reset(ra, dec)?;
@@ -171,17 +162,18 @@ impl CameraDisplay {
                 }
             }
             [name, value] => {
+                let mut ok = false;
                 if let Some(ref camera) = self.camera {
                     if let Ok(value) = value.parse() {
                         for control in camera.controls() {
                             if control.name().eq_ignore_ascii_case(name) {
                                 control.set(value)?;
+                                ok = true;
                             }
                         }
-                    } else {
-                        return Ok(false);
                     }
                 }
+                return Ok(ok);
             }
             _ => return Ok(false),
         }
@@ -243,9 +235,9 @@ impl CameraDisplay {
             writeln!(status, "Saving: {}", self.save)?;
         }
         if self.folder.is_empty() {
-            writeln!(status, "Folder: None")?;
+            writeln!(status, "folder: None")?;
         } else {
-            writeln!(status, "Folder: {}", self.folder)?;
+            writeln!(status, "folder: {}", self.folder)?;
         }
         if let Some(ref process_result) = self.process_result {
             let process_result =
@@ -298,59 +290,37 @@ impl CameraDisplay {
                         self.save -= 1;
                         self.save_png(&image)?;
                     }
-                    self.raw = Some(Arc::new(image));
+                    self.image_display.set_raw(Arc::new(image))?;
                     new_raw = true;
                 }
             }
-        } else if self.raw.is_none() {
-            self.raw = Some(Arc::new(crate::read_png(
+        } else if self.image_display.raw().is_none() {
+            self.image_display.set_raw(Arc::new(crate::read_png(
                 "telescope.2019-10-5.21-42-57.png",
-            )?));
+            )?))?;
             new_raw = true;
         }
         Ok(new_raw)
-    }
-
-    fn upload_raw(&mut self) -> Result<()> {
-        let raw = self.raw.as_ref().expect("upload_raw had no raw");
-        let create = if let Some(ref texture) = self.texture {
-            texture.size != raw.size
-        } else {
-            true
-        };
-        if create {
-            self.texture = Some({
-                let tex = Texture::new(raw.size)?;
-                tex.set_swizzle([gl::RED, gl::RED, gl::RED, gl::ONE])?;
-                tex
-            });
-        }
-        if let Some(ref mut texture) = self.texture {
-            texture.upload(&raw)?;
-        }
-        Ok(())
     }
 
     pub fn update(&mut self) -> Result<bool> {
         let mut redraw = false;
         let new_raw = self.obtain_image()?;
         if new_raw {
-            let ok = self
-                .processor
-                .process(self.raw.as_ref().expect("new_raw and no raw").clone())?;
+            let ok = self.processor.process(
+                self.image_display
+                    .raw()
+                    .as_ref()
+                    .expect("new_raw and no raw")
+                    .clone(),
+            )?;
             if !ok {
                 // TODO
                 // println!("Dropped frame");
             }
         }
-        let mut upload_raw = false;
         while let Some(process_result) = self.processor.get()? {
             self.process_result = Some(process_result);
-            upload_raw = true;
-            redraw = true;
-        }
-        if upload_raw && self.raw.is_some() {
-            self.upload_raw()?;
             redraw = true;
         }
         Ok(redraw)
@@ -362,58 +332,13 @@ impl CameraDisplay {
         displayer: &TextureRenderer,
         screen_size: (f32, f32),
     ) -> Result<()> {
-        if let Some(ref texture) = self.texture {
-            let src = if self.zoom {
-                let zoom_size = 512.0;
-                let src_x = texture.size.0 as f32 / 2.0 - zoom_size / 2.0;
-                let src_y = texture.size.1 as f32 / 2.0 - zoom_size / 2.0;
-                Rect::new(src_x, src_y, zoom_size, zoom_size)
-            } else {
-                Rect::new(0.0, 0.0, texture.size.0 as f32, texture.size.1 as f32)
-            };
-
-            let scale = ((pos.width as f32) / (src.width as f32))
-                .min((pos.height as f32) / (src.height as f32));
-            let dst_width = ((src.width as f32) * scale).round();
-            let dst_height = ((src.height as f32) * scale).round();
-            let dst = Rect::new(
-                (pos.x + pos.width) as f32 - dst_width,
-                pos.y as f32,
-                dst_width,
-                dst_height,
-            );
-            let render = displayer
-                .render(texture, screen_size)
-                .src(src)
-                .dst(dst.clone());
-            if let Some(ref process_result) = self.process_result {
-                let (scale, offset) = process_result
-                    .apply(self.display_clip, self.display_median_location)
-                    .get_scale_offset();
-                render.scale_offset((scale as f32, offset as f32))
-            } else {
-                render
-            }
-            .go()?;
-            if self.cross {
-                let half_x = dst.x + (dst.width / 2.0);
-                let half_y = dst.y + (dst.height / 2.0);
-                displayer.line_x(
-                    dst.x as usize,
-                    dst.right() as usize,
-                    half_y as usize,
-                    [255.0, 0.0, 0.0, 255.0],
-                    screen_size,
-                )?;
-                displayer.line_y(
-                    half_x as usize,
-                    dst.y as usize,
-                    dst.bottom() as usize,
-                    [255.0, 0.0, 0.0, 255.0],
-                    screen_size,
-                )?;
-            }
-        }
+        if let Some(ref process_result) = self.process_result {
+            let scale_offset = process_result
+                .apply(self.display_clip, self.display_median_location)
+                .get_scale_offset();
+            self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
+        };
+        self.image_display.draw(pos, displayer, screen_size)?;
         Ok(())
     }
 }

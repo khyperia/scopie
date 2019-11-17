@@ -4,7 +4,7 @@ use crate::{
     Result,
 };
 use khygl::texture::CpuTexture;
-use std::{error::Error, ffi::CString, fmt, ptr::null_mut, str, sync::Once};
+use std::{error::Error, ffi::CString, fmt, str, sync::Once};
 
 #[derive(Debug)]
 struct QhyError {
@@ -104,7 +104,7 @@ impl Camera {
         unsafe {
             let cstring = CString::new(&info.name as &str)?;
             let handle = qhy::OpenQHYCCD(cstring.as_ptr());
-            if handle == null_mut() {
+            if handle.is_null() {
                 return Err(failure::err_msg("OpenQHYCCD returned null"));
             }
 

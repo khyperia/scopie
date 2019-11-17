@@ -2,6 +2,7 @@ use crate::{dms::Angle, Result};
 use serialport;
 use std::{ffi::OsStr, fmt, fmt::Display, str, str::FromStr, time::Duration};
 
+#[derive(Clone)]
 pub enum TrackingMode {
     Off,
     AltAz,
@@ -62,7 +63,7 @@ impl From<TrackingMode> for u8 {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MountTime {
     hour: u8,
     minute: u8,
@@ -261,7 +262,7 @@ impl Mount {
         ]
     }
 
-    fn parse_lat_lon(value: &[u8; 8]) -> (Angle, Angle) {
+    fn parse_lat_lon(value: [u8; 8]) -> (Angle, Angle) {
         let lat_deg = f64::from(value[0]);
         let lat_min = f64::from(value[1]);
         let lat_sec = f64::from(value[2]);
@@ -279,7 +280,7 @@ impl Mount {
         self.write([b'w'])?;
         let mut response = [0, 0, 0, 0, 0, 0, 0, 0];
         self.read(&mut response)?;
-        Ok(Self::parse_lat_lon(&response))
+        Ok(Self::parse_lat_lon(response))
     }
 
     pub fn set_location(&mut self, lat: Angle, lon: Angle) -> Result<()> {
@@ -287,8 +288,8 @@ impl Mount {
         self.interact0(to_write)
     }
 
-    fn parse_time(time: &[u8; 8]) -> MountTime {
-        let &[hour, minute, second, month, day, year, time_zone_offset, dst] = time;
+    fn parse_time(time: [u8; 8]) -> MountTime {
+        let [hour, minute, second, month, day, year, time_zone_offset, dst] = time;
         MountTime {
             hour,
             minute,
@@ -319,7 +320,7 @@ impl Mount {
         self.write([b'h'])?;
         let mut response = [0, 0, 0, 0, 0, 0, 0, 0];
         self.read(&mut response)?;
-        Ok(Self::parse_time(&response))
+        Ok(Self::parse_time(response))
     }
 
     pub fn set_time(&mut self, time: MountTime) -> Result<()> {

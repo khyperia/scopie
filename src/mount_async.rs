@@ -1,7 +1,7 @@
-use crate::{dms::Angle, mount::*, Result};
+use crate::{dms::Angle, mount::*, Result, SendUserUpdate, UserUpdate};
 use std::{
     sync::mpsc,
-    thread::{spawn, JoinHandle},
+    thread::spawn,
     time::{Duration, Instant},
 };
 
@@ -19,7 +19,7 @@ enum MountCommand {
     FixedSlewDec(i32),
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MountData {
     pub ra_dec: (Angle, Angle),
     pub az_alt: (Angle, Angle),
@@ -30,44 +30,29 @@ pub struct MountData {
 }
 
 pub struct MountAsync {
-    thread: Option<JoinHandle<Result<()>>>,
     send: mpsc::Sender<MountCommand>,
-    recv: mpsc::Receiver<MountData>,
-    data: MountData,
+    pub data: MountData,
 }
 
 impl MountAsync {
-    pub fn new(mount: Mount) -> Self {
+    pub fn new(mount: Mount, send_user_update: Box<SendUserUpdate>) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
-        let (send_data, recv_data) = mpsc::channel();
-        let thread = spawn(move || run(mount, recv_cmd, send_data));
+        spawn(move || match run(mount, recv_cmd, &send_user_update) {
+            Ok(()) => (),
+            Err(err) => panic!("Mount thread error: {}", err),
+        });
         Self {
-            thread: Some(thread),
             send: send_cmd,
-            recv: recv_data,
             data: MountData::default(),
         }
     }
 
-    pub fn data(&mut self) -> Result<&MountData> {
-        loop {
-            match self.recv.try_recv() {
-                Ok(data) => self.data = data,
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    let join_handle = match self.thread.take() {
-                        Some(handle) => handle,
-                        None => {
-                            return Err(failure::err_msg(
-                                "Thread already joined, do not call data() again",
-                            ))
-                        }
-                    };
-                    join_handle.join().expect("Unable to join mount thread")?
-                }
-            }
-        }
-        Ok(&self.data)
+    pub fn user_update(&mut self, user_update: &UserUpdate) {
+        // if let UserUpdate::MountUpdate(mount_update) = user_update {
+        //     self.data = mount_update.clone();
+        // }
+        let UserUpdate::MountUpdate(mount_update) = user_update;
+        self.data = mount_update.clone();
     }
 
     fn send(&self, cmd: MountCommand) -> Result<()> {
@@ -109,11 +94,7 @@ impl MountAsync {
     }
 }
 
-fn run(
-    mut mount: Mount,
-    recv: mpsc::Receiver<MountCommand>,
-    send: mpsc::Sender<MountData>,
-) -> Result<()> {
+fn run(mut mount: Mount, recv: mpsc::Receiver<MountCommand>, send: &SendUserUpdate) -> Result<()> {
     let update_rate = Duration::from_secs(1);
     let mut next_update = Instant::now() + update_rate;
     loop {
@@ -124,39 +105,37 @@ fn run(
                 // dropped frames
                 next_update = now + update_rate;
             }
-            if !run_update(&mut mount, &send)? {
+            if !run_update(&mut mount, send)? {
                 break Ok(());
             }
         }
         let duration = next_update - now;
         match recv.recv_timeout(duration) {
-            Ok(cmd) => {
-                run_one(&mut mount, cmd)?;
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Ok(cmd) => run_one(&mut mount, cmd)?,
+            Err(mpsc::RecvTimeoutError::Timeout) => (),
             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
         }
     }
 }
 
-fn run_update(mount: &mut Mount, send: &mpsc::Sender<MountData>) -> Result<bool> {
+fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
     let ra_dec = mount.get_ra_dec()?;
     let az_alt = mount.get_az_alt()?;
     let aligned = mount.aligned()?;
     let tracking_mode = mount.tracking_mode()?;
     let location = mount.location()?;
     let time = mount.time()?;
-    let send_result = send.send(MountData {
+    let send_result = send(UserUpdate::MountUpdate(MountData {
         ra_dec,
         az_alt,
         aligned,
         tracking_mode,
         location,
         time,
-    });
+    }));
     match send_result {
         Ok(()) => Ok(true),
-        Err(mpsc::SendError(_)) => return Ok(false),
+        Err(glutin::event_loop::EventLoopClosed) => Ok(false),
     }
 }
 

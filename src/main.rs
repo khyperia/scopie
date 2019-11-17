@@ -1,18 +1,20 @@
 mod camera;
 mod camera_display;
 mod dms;
+mod image_display;
 mod mount;
 mod mount_async;
 mod mount_display;
 mod platesolve;
 mod process;
 mod qhycamera;
+mod text_input;
 
 use camera_display::CameraDisplay;
 use glutin::{
     self,
     event::{ElementState, Event, VirtualKeyCode as Key, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoop, EventLoopClosed},
     window::WindowBuilder,
     ContextBuilder,
 };
@@ -31,6 +33,12 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, failure::Error>;
+
+pub enum UserUpdate {
+    MountUpdate(mount_async::MountData),
+}
+type SendUserUpdate =
+    dyn Fn(UserUpdate) -> std::result::Result<(), EventLoopClosed> + Send + 'static;
 
 fn read_png(path: impl AsRef<Path>) -> Result<CpuTexture<u16>> {
     let mut decoder = png::Decoder::new(File::open(path)?);
@@ -72,11 +80,9 @@ struct Display {
     window_size: (usize, usize),
     status: String,
     old_status: String,
-    input_text: String,
-    input_error: String,
+    text_input: text_input::TextInput,
     texture_renderer: TextureRenderer,
     text_renderer: TextRenderer,
-    command_okay: bool,
     wasd_mode: bool,
 }
 
@@ -85,23 +91,38 @@ impl Display {
         (self.window_size.0 as f32, self.window_size.1 as f32)
     }
 
-    fn run_cmd(&mut self) -> Result<()> {
-        self.input_error.clear();
-        let cmd = self.input_text.split_whitespace().collect::<Vec<_>>();
-        self.command_okay = cmd.is_empty();
+    fn run_cmd_impl(&mut self, text: &str) -> Result<()> {
+        let cmd = text.split_whitespace().collect::<Vec<_>>();
+        let mut command_okay = cmd.is_empty();
         if let ["wasd"] = &cmd as &[&str] {
             self.wasd_mode = true;
-            self.command_okay |= true;
+            command_okay |= true;
         }
         if let Some(ref mut camera_display) = self.camera_display {
             let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
-            self.command_okay |= camera_display.cmd(&cmd, mount)?;
+            command_okay |= camera_display.cmd(&cmd, mount)?;
         }
         if let Some(ref mut mount_display) = self.mount_display {
-            self.command_okay |= mount_display.cmd(&cmd)?;
+            command_okay |= mount_display.cmd(&cmd)?;
         }
-        self.input_text.clear();
-        Ok(())
+        if command_okay {
+            Ok(())
+        } else {
+            Err(failure::err_msg("Unknown command"))
+        }
+    }
+
+    fn try_run_cmd(&mut self, text: &str) {
+        match self.run_cmd_impl(text) {
+            Ok(()) => self.text_input.set_exec_result(String::new(), true),
+            Err(err) => self.text_input.set_exec_result(format!("{}", err), false),
+        }
+    }
+
+    fn run_cmd(&mut self) {
+        if let Some(cmd) = self.text_input.try_get_exec_cmd() {
+            self.try_run_cmd(&cmd);
+        }
     }
 }
 
@@ -113,12 +134,17 @@ impl Display {
         command_okay: bool,
         window_size: (usize, usize),
         dpi: f64,
+        send_user_update: Box<SendUserUpdate>,
     ) -> Result<Self> {
         let texture_renderer = TextureRenderer::new()?;
         let height = 20.0 * dpi as f32;
         let text_renderer = TextRenderer::new(height)?;
         let camera_display = Some(CameraDisplay::new(camera));
-        let mount_display = mount.map(MountAsync::new).map(MountDisplay::new);
+        let mount_display = mount
+            .map(|m| MountAsync::new(m, send_user_update))
+            .map(MountDisplay::new);
+        let mut text_input = text_input::TextInput::new();
+        text_input.set_exec_result(input_error, command_okay);
         Ok(Self {
             camera_display,
             mount_display,
@@ -127,17 +153,16 @@ impl Display {
             window_size,
             status: String::new(),
             old_status: String::new(),
-            input_text: String::new(),
-            input_error,
+            text_input,
             texture_renderer,
             text_renderer,
-            command_okay,
             wasd_mode: false,
         })
     }
 
     // (wait until, redraw now)
     fn update(&mut self) -> Result<(Instant, bool)> {
+        let mut redraw = false;
         let now = Instant::now();
         let frequent_update_rate = Duration::from_millis(50);
         let is_next_frequent_update = now >= self.next_frequent_update;
@@ -146,8 +171,8 @@ impl Display {
             let too_fast = now >= self.next_frequent_update + frequent_update_rate * 3;
             if too_fast {
                 self.next_frequent_update = now + frequent_update_rate;
-                // TODO
-                // println!("Warning: target FPS too fast");
+                self.text_input
+                    .set_exec_result("Warning: target FPS too fast".to_string(), true);
             }
         } else {
             return Ok((self.next_frequent_update, false));
@@ -170,10 +195,6 @@ impl Display {
                 "WASD/RF mount control mode (esc to cancel)"
             )?;
         }
-        if !self.command_okay {
-            write!(&mut self.status, "{}", self.input_error)?;
-        }
-        let mut redraw = false;
         if self.old_status != self.status {
             self.old_status = self.status.clone();
             redraw = true;
@@ -197,9 +218,11 @@ impl Display {
             (10, 10),
             self.window_size,
         )?;
-        let input_pos_y = self.window_size.1 as isize - self.text_renderer.spacing as isize - 1;
-        let input_pos_y = input_pos_y.try_into().unwrap_or(0);
-        let input_pos = (10, input_pos_y);
+        let input_pos_y = self.text_input.render(
+            &self.texture_renderer,
+            &mut self.text_renderer,
+            self.window_size,
+        )?;
         if let Some(ref mut camera_display) = self.camera_display {
             let width = (self.window_size.0 as isize - text_size.right() as isize)
                 .try_into()
@@ -207,30 +230,6 @@ impl Display {
             let camera_rect = Rect::new(text_size.right(), 0, width, input_pos_y);
             camera_display.draw(camera_rect, &self.texture_renderer, window_size_f32)?;
         }
-        self.text_renderer.render(
-            &self.texture_renderer,
-            &self.input_text,
-            [1.0, 1.0, 1.0, 1.0],
-            input_pos,
-            self.window_size,
-        )?;
-        let command_color = if self.command_okay {
-            [0.5, 0.5, 0.5, 1.0]
-        } else {
-            [1.0, 0.5, 0.5, 1.0]
-        };
-        self.texture_renderer.rect(
-            Rect::new(
-                input_pos.0,
-                input_pos.1,
-                (self.window_size.0 as isize - input_pos.0 as isize * 2)
-                    .try_into()
-                    .unwrap_or(2),
-                self.text_renderer.spacing,
-            ),
-            command_color,
-            self.window_size_f32(),
-        )?;
         Ok(())
     }
 
@@ -250,32 +249,28 @@ impl Display {
 
     fn key_down(&mut self, key: Key) -> Result<()> {
         if self.wasd_mode {
-            if let Some(ref mut mount_display) = self.mount_display {
+            if key == Key::Escape {
+                self.wasd_mode = false;
+            } else if let Some(ref mut mount_display) = self.mount_display {
                 mount_display.key_down(key)?;
             }
-        }
-        match key {
-            Key::Escape if self.wasd_mode => {
-                self.wasd_mode = false;
-            }
-            Key::Back if !self.wasd_mode => {
-                self.input_text.pop();
-            }
-            Key::Return if !self.wasd_mode => match self.run_cmd() {
-                Ok(()) => (),
-                Err(err) => {
-                    self.input_error = format!("Command error: {}\n", err);
-                    self.command_okay = false;
-                }
-            },
-            _ => return Ok(()),
+        } else {
+            self.text_input.key_down(key);
+            self.run_cmd();
         }
         Ok(())
     }
 
     fn received_character(&mut self, ch: char) -> Result<()> {
-        if !self.wasd_mode && ch >= 32 as char {
-            self.input_text.push(ch);
+        if !self.wasd_mode {
+            self.text_input.received_character(ch);
+        }
+        Ok(())
+    }
+
+    fn user_update(&mut self, user_update: UserUpdate) -> Result<()> {
+        if let Some(ref mut mount_display) = self.mount_display {
+            mount_display.user_update(&user_update);
         }
         Ok(())
     }
@@ -309,7 +304,7 @@ fn main() -> Result<()> {
         }
     };
 
-    let el = EventLoop::new();
+    let el = EventLoop::with_user_event();
     let wb = WindowBuilder::new()
         .with_title("clam5")
         .with_inner_size(glutin::dpi::LogicalSize::new(800.0, 800.0));
@@ -334,6 +329,9 @@ fn main() -> Result<()> {
         gl_register_debug()?;
     }
 
+    let proxy = el.create_proxy();
+    let send_user_update = Box::new(move |u| proxy.send_event(u));
+
     let mut display = Some(Display::setup(
         camera,
         mount,
@@ -341,6 +339,7 @@ fn main() -> Result<()> {
         command_okay,
         (initial_size.width as usize, initial_size.height as usize),
         dpi,
+        send_user_update,
     )?);
 
     el.run(move |event, _, control_flow| match event {
@@ -381,6 +380,12 @@ fn main() -> Result<()> {
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             _ => (),
         },
+        Event::UserEvent(user_update) => {
+            if let Some(ref mut display) = display {
+                handle(display.user_update(user_update));
+                windowed_context.window().request_redraw();
+            }
+        }
         Event::EventsCleared => {
             if *control_flow == ControlFlow::Exit {
                 display = None;
