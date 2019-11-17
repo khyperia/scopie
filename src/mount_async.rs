@@ -2,10 +2,10 @@ use crate::{dms::Angle, mount::*, Result};
 use std::{
     sync::mpsc,
     thread::{spawn, JoinHandle},
+    time::{Duration, Instant},
 };
 
 enum MountCommand {
-    RequestUpdate,
     Slew(Angle, Angle),
     SlowSlew(Angle, Angle),
     Sync(Angle, Angle),
@@ -74,9 +74,6 @@ impl MountAsync {
         Ok(self.send.send(cmd)?)
     }
 
-    pub fn request_update(&self) -> Result<()> {
-        self.send(MountCommand::RequestUpdate)
-    }
     pub fn slew(&self, ra: Angle, dec: Angle) -> Result<()> {
         self.send(MountCommand::Slew(ra, dec))
     }
@@ -117,40 +114,54 @@ fn run(
     recv: mpsc::Receiver<MountCommand>,
     send: mpsc::Sender<MountData>,
 ) -> Result<()> {
+    let update_rate = Duration::from_secs(1);
+    let mut next_update = Instant::now() + update_rate;
     loop {
-        match recv.recv() {
-            Ok(cmd) => {
-                if !run_one(&mut mount, cmd, &send)? {
-                    break Ok(());
-                }
+        let now = Instant::now();
+        if now > next_update {
+            next_update += update_rate;
+            if now > next_update {
+                // dropped frames
+                next_update = now + update_rate;
             }
-            Err(mpsc::RecvError) => break Ok(()),
+            if !run_update(&mut mount, &send)? {
+                break Ok(());
+            }
+        }
+        let duration = next_update - now;
+        match recv.recv_timeout(duration) {
+            Ok(cmd) => {
+                run_one(&mut mount, cmd)?;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
         }
     }
 }
 
-fn run_one(mount: &mut Mount, cmd: MountCommand, send: &mpsc::Sender<MountData>) -> Result<bool> {
+fn run_update(mount: &mut Mount, send: &mpsc::Sender<MountData>) -> Result<bool> {
+    let ra_dec = mount.get_ra_dec()?;
+    let az_alt = mount.get_az_alt()?;
+    let aligned = mount.aligned()?;
+    let tracking_mode = mount.tracking_mode()?;
+    let location = mount.location()?;
+    let time = mount.time()?;
+    let send_result = send.send(MountData {
+        ra_dec,
+        az_alt,
+        aligned,
+        tracking_mode,
+        location,
+        time,
+    });
+    match send_result {
+        Ok(()) => Ok(true),
+        Err(mpsc::SendError(_)) => return Ok(false),
+    }
+}
+
+fn run_one(mount: &mut Mount, cmd: MountCommand) -> Result<()> {
     match cmd {
-        MountCommand::RequestUpdate => {
-            let ra_dec = mount.get_ra_dec()?;
-            let az_alt = mount.get_az_alt()?;
-            let aligned = mount.aligned()?;
-            let tracking_mode = mount.tracking_mode()?;
-            let location = mount.location()?;
-            let time = mount.time()?;
-            let send_result = send.send(MountData {
-                ra_dec,
-                az_alt,
-                aligned,
-                tracking_mode,
-                location,
-                time,
-            });
-            match send_result {
-                Ok(()) => (),
-                Err(mpsc::SendError(_)) => return Ok(false),
-            }
-        }
         MountCommand::Slew(ra, dec) => mount.slew_ra_dec(ra, dec)?,
         MountCommand::SlowSlew(ra, dec) => {
             mount.slow_goto_ra(ra)?;
@@ -169,5 +180,5 @@ fn run_one(mount: &mut Mount, cmd: MountCommand, send: &mpsc::Sender<MountData>)
         MountCommand::FixedSlewRA(speed) => mount.fixed_slew_ra(speed)?,
         MountCommand::FixedSlewDec(speed) => mount.fixed_slew_dec(speed)?,
     }
-    Ok(true)
+    Ok(())
 }

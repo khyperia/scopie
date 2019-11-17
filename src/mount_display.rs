@@ -90,10 +90,7 @@ impl MountDisplay {
         Ok(true)
     }
 
-    pub fn status(&mut self, status: &mut String, infrequent_update: bool) -> Result<()> {
-        if infrequent_update {
-            self.mount.request_update()?;
-        }
+    pub fn status(&mut self, status: &mut String) -> Result<()> {
         let data = self.mount.data()?;
         let (ra, dec) = data.ra_dec;
         writeln!(status, "RA/Dec: {} {}", ra.fmt_hours(), dec.fmt_degrees())?;

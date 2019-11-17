@@ -30,7 +30,8 @@ pub struct CameraDisplay {
     running: bool,
     zoom: bool,
     cross: bool,
-    display_sigma: f64,
+    display_clip: f64,
+    display_median_location: f64,
     save: usize,
     folder: String,
     solve_status: String,
@@ -50,7 +51,8 @@ impl CameraDisplay {
             running: false,
             zoom: false,
             cross: false,
-            display_sigma: 3.0,
+            display_clip: 0.01,
+            display_median_location: 0.2,
             save: 0,
             folder: String::new(),
             solve_status: String::new(),
@@ -68,11 +70,37 @@ impl CameraDisplay {
             ["zoom"] => {
                 self.zoom = !self.zoom;
             }
-            ["sigma", sigma] => {
-                if let Ok(sigma) = sigma.parse() {
-                    self.display_sigma = sigma;
+            ["clip", clip] => {
+                if let Ok(clip) = clip.parse::<f64>() {
+                    self.display_clip = clip / 100.0;
                 } else {
                     return Ok(false);
+                }
+            }
+            ["median_location", median_location] => {
+                if let Ok(median_location) = median_location.parse::<f64>() {
+                    self.display_median_location = median_location / 100.0;
+                } else {
+                    return Ok(false);
+                }
+            }
+            ["live"] => {
+                if let Some(ref camera) = self.camera {
+                    if self.running {
+                        camera.stop()?;
+                    }
+                }
+                let info = self
+                    .camera
+                    .take()
+                    .map(|camera| (camera.info().clone(), camera.use_live()));
+                if let Some((info, old_use_live)) = info {
+                    self.camera = Some(info.open(!old_use_live)?);
+                }
+                if let Some(ref camera) = self.camera {
+                    if self.running {
+                        camera.stop()?;
+                    }
                 }
             }
             ["open"] if !self.running => {
@@ -197,6 +225,15 @@ impl CameraDisplay {
         } else {
             writeln!(status, "open (currently paused)")?;
         }
+        let is_live = self
+            .camera
+            .as_ref()
+            .map_or(false, |camera| camera.use_live());
+        if is_live {
+            writeln!(status, "live (enabled)")?;
+        } else {
+            writeln!(status, "live (not live)")?;
+        }
         writeln!(status, "save|save [n]")?;
         writeln!(status, "Last exposure: {:?}", self.exposure_time)?;
         if !self.solve_status.is_empty() {
@@ -211,6 +248,8 @@ impl CameraDisplay {
             writeln!(status, "Folder: {}", self.folder)?;
         }
         if let Some(ref process_result) = self.process_result {
+            let process_result =
+                process_result.apply(self.display_clip, self.display_median_location);
             write!(status, "{}", process_result)?;
         }
         write!(status, "{}", self.cached_status)?;
@@ -247,8 +286,7 @@ impl CameraDisplay {
         Ok(())
     }
 
-    pub fn update(&mut self) -> Result<bool> {
-        let mut redraw = false;
+    fn obtain_image(&mut self) -> Result<bool> {
         let mut new_raw = false;
         if let Some(ref camera) = self.camera {
             if self.running {
@@ -270,37 +308,49 @@ impl CameraDisplay {
             )?));
             new_raw = true;
         }
+        Ok(new_raw)
+    }
+
+    fn upload_raw(&mut self) -> Result<()> {
+        let raw = self.raw.as_ref().expect("upload_raw had no raw");
+        let create = if let Some(ref texture) = self.texture {
+            texture.size != raw.size
+        } else {
+            true
+        };
+        if create {
+            self.texture = Some({
+                let tex = Texture::new(raw.size)?;
+                tex.set_swizzle([gl::RED, gl::RED, gl::RED, gl::ONE])?;
+                tex
+            });
+        }
+        if let Some(ref mut texture) = self.texture {
+            texture.upload(&raw)?;
+        }
+        Ok(())
+    }
+
+    pub fn update(&mut self) -> Result<bool> {
+        let mut redraw = false;
+        let new_raw = self.obtain_image()?;
         if new_raw {
-            if let Some(ref raw) = self.raw {
-                let ok = self.processor.process(raw.clone())?;
-                if !ok {
-                    // TODO
-                    // println!("Dropped frame");
-                }
-                let mut upload = false;
-                let create = if let Some(ref texture) = self.texture {
-                    texture.size != raw.size
-                } else {
-                    true
-                };
-                if create {
-                    self.texture = Some({
-                        let tex = Texture::new(raw.size)?;
-                        tex.set_swizzle([gl::RED, gl::RED, gl::RED, gl::ONE])?;
-                        tex
-                    });
-                    upload = true;
-                }
-                if upload {
-                    if let Some(ref mut texture) = self.texture {
-                        texture.upload(&raw)?;
-                        redraw = true;
-                    }
-                }
+            let ok = self
+                .processor
+                .process(self.raw.as_ref().expect("new_raw and no raw").clone())?;
+            if !ok {
+                // TODO
+                // println!("Dropped frame");
             }
         }
+        let mut upload_raw = false;
         while let Some(process_result) = self.processor.get()? {
             self.process_result = Some(process_result);
+            upload_raw = true;
+            redraw = true;
+        }
+        if upload_raw && self.raw.is_some() {
+            self.upload_raw()?;
             redraw = true;
         }
         Ok(redraw)
@@ -337,7 +387,9 @@ impl CameraDisplay {
                 .src(src)
                 .dst(dst.clone());
             if let Some(ref process_result) = self.process_result {
-                let (scale, offset) = process_result.get_scale_offset(self.display_sigma);
+                let (scale, offset) = process_result
+                    .apply(self.display_clip, self.display_median_location)
+                    .get_scale_offset();
                 render.scale_offset((scale as f32, offset as f32))
             } else {
                 render

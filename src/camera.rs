@@ -59,6 +59,7 @@ pub fn autoconnect(live: bool) -> Result<Camera> {
     }
 }
 
+#[derive(Clone)]
 pub struct CameraInfo {
     name: String,
 }
@@ -139,6 +140,10 @@ impl Camera {
 
     pub fn info(&self) -> &CameraInfo {
         &self.info
+    }
+
+    pub fn use_live(&self) -> bool {
+        self.use_live
     }
 
     pub fn name(&self) -> &str {

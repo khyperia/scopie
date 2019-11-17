@@ -162,7 +162,7 @@ impl Display {
             camera_display.status(&mut self.status, infrequent_update)?;
         }
         if let Some(ref mut mount_display) = self.mount_display {
-            mount_display.status(&mut self.status, infrequent_update)?;
+            mount_display.status(&mut self.status)?;
         }
         if self.wasd_mode {
             write!(
