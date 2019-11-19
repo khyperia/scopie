@@ -1,5 +1,4 @@
-use crate::{dms::Angle, mount_async, Result, UserUpdate};
-use khygl::display::Key;
+use crate::{dms::Angle, mount_async, Key, Result, UserUpdate};
 use std::{collections::HashSet, fmt::Write};
 
 pub struct MountDisplay {
