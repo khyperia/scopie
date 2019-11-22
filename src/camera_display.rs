@@ -61,6 +61,9 @@ impl CameraDisplay {
             ["zoom"] => {
                 self.image_display.zoom = !self.image_display.zoom;
             }
+            ["bin"] => {
+                self.image_display.bin = !self.image_display.bin;
+            }
             ["clip", clip] => {
                 if let Ok(clip) = clip.parse::<f64>() {
                     self.display_clip = clip / 100.0;
@@ -211,7 +214,11 @@ impl CameraDisplay {
         if let Some(ref camera) = self.camera {
             writeln!(status, "{}", camera.name())?;
         }
-        writeln!(status, "cross|zoom|median")?;
+        writeln!(
+            status,
+            "cross:{}|zoom:{}|bin:{}",
+            self.image_display.cross, self.image_display.zoom, self.image_display.bin,
+        )?;
         if self.running {
             writeln!(status, "close (currently running)")?;
         } else {

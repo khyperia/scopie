@@ -67,6 +67,13 @@ pub enum ControlId {
     DefaultOffset,
     OutputDataActualBits,
     OutputDataAlignment,
+
+    CamSingleframemode,
+    CamLivevideomode,
+    CamIsColor,
+    HasHardwareFrameCounter,
+    ControlMaxId,
+    CamHumidity, // check if camera has humidity sensor 20191021 lyl unified humidity function
 }
 
 static VALUES: &[ControlId] = &[
@@ -127,6 +134,12 @@ static VALUES: &[ControlId] = &[
     ControlId::DefaultOffset,
     ControlId::OutputDataActualBits,
     ControlId::OutputDataAlignment,
+    ControlId::CamSingleframemode,
+    ControlId::CamLivevideomode,
+    ControlId::CamIsColor,
+    ControlId::HasHardwareFrameCounter,
+    ControlId::ControlMaxId,
+    ControlId::CamHumidity,
 ];
 
 static INTERESTING_VALUES: &[ControlId] = &[
@@ -213,6 +226,12 @@ impl ControlId {
             ControlId::DefaultOffset => "DefaultOffset",
             ControlId::OutputDataActualBits => "OutputDataActualBits",
             ControlId::OutputDataAlignment => "OutputDataAlignment",
+            ControlId::CamSingleframemode => "CamSingleframemode",
+            ControlId::CamLivevideomode => "CamLivevideomode",
+            ControlId::CamIsColor => "CamIsColor",
+            ControlId::HasHardwareFrameCounter => "HasHardwareFrameCounter",
+            ControlId::ControlMaxId => "ControlMaxId",
+            ControlId::CamHumidity => "CamHumidity ",
         }
     }
 }

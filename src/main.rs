@@ -16,7 +16,7 @@ use glutin::{
     event::{ElementState, Event, VirtualKeyCode as Key, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopClosed},
     window::WindowBuilder,
-    ContextBuilder,
+    ContextBuilder, GlProfile,
 };
 use khygl::{
     check_gl, gl_register_debug, render_text::TextRenderer, render_texture::TextureRenderer,
@@ -64,9 +64,10 @@ fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
     encoder.set_depth(png::BitDepth::Sixteen);
     let mut writer = encoder.write_header()?;
     let mut output = vec![0; img.size.0 * img.size.1 * 2];
+    let data = img.data();
     for i in 0..(img.size.0 * img.size.1) {
-        output[i * 2] = (img.data[i] >> 8) as u8;
-        output[i * 2 + 1] = (img.data[i]) as u8;
+        output[i * 2] = (data[i] >> 8) as u8;
+        output[i * 2 + 1] = (data[i]) as u8;
     }
     writer.write_image_data(&output)?;
     Ok(())
@@ -309,6 +310,7 @@ fn main() -> Result<()> {
         .with_title("clam5")
         .with_inner_size(glutin::dpi::LogicalSize::new(800.0, 800.0));
     let windowed_context = ContextBuilder::new()
+        .with_gl_profile(GlProfile::Core)
         .with_vsync(true)
         .build_windowed(wb, &el)?;
 

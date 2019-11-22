@@ -9,19 +9,25 @@ use std::sync::Arc;
 pub struct ImageDisplay {
     raw: Option<Arc<CpuTexture<u16>>>,
     texture: Option<Texture<u16>>,
+    displayer: TextureRenderer,
     pub scale_offset: (f32, f32),
     pub zoom: bool,
     pub cross: bool,
+    pub bin: bool,
 }
 
 impl ImageDisplay {
     pub fn new() -> Self {
+        // TODO: Cache new_binning()
         Self {
             raw: None,
             texture: None,
+            displayer: TextureRenderer::new_binning()
+                .expect("failed to build binning texture renderer"),
             scale_offset: (1.0, 0.0),
             zoom: false,
             cross: false,
+            bin: true,
         }
     }
 
@@ -72,8 +78,8 @@ impl ImageDisplay {
                 dst_width,
                 dst_height,
             );
-            displayer
-                .render(texture, screen_size)
+            let disp = if self.bin { &self.displayer } else { displayer };
+            disp.render(texture, screen_size)
                 .src(src)
                 .dst(dst.clone())
                 .scale_offset(self.scale_offset)

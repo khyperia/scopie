@@ -476,7 +476,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "khygl"
 version = "0.1.0"
-source = "git+https://github.com/khyperia/khygl.git#46d81333f8ea4cfca95702397ab0c59769308947"
+source = "git+https://github.com/khyperia/khygl.git#53ccf3c7033782f3b40006ab7ecfb7768f379b9d"
 dependencies = [
  "failure 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "gl 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",

@@ -180,6 +180,7 @@ impl Camera {
         unsafe {
             if !wait {
                 let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
+                println!("remaining_ms: {}", remaining_ms);
                 // QHY recommends 100 in qhyccd.h, I guess?
                 if remaining_ms > 100 {
                     return Ok(None);
@@ -192,6 +193,7 @@ impl Camera {
             let mut bpp = 0;
             let mut channels = 0;
             let mut data = vec![0; len_u16];
+            println!("Get frame");
             check(qhy::GetQHYCCDSingleFrame(
                 self.handle,
                 &mut width,
@@ -200,6 +202,7 @@ impl Camera {
                 &mut channels,
                 data.as_mut_ptr() as _,
             ))?;
+            println!("Done get frame");
             assert_eq!(bpp, 16);
             assert_eq!(channels, 1);
             Ok(Some(CpuTexture::new(
