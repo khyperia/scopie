@@ -4,6 +4,9 @@ use khygl::{render_text::TextRenderer, render_texture::TextureRenderer, Rect};
 use std::{convert::TryInto, mem::replace};
 
 pub struct TextInput {
+    old_inputs: Vec<String>,
+    // old_input_index is allowed to be old_inputs.len()
+    old_input_index: usize,
     input_text: String,
     message: String,
     exec: bool,
@@ -13,6 +16,8 @@ pub struct TextInput {
 impl TextInput {
     pub fn new() -> Self {
         Self {
+            old_inputs: Vec::new(),
+            old_input_index: 0,
             input_text: String::new(),
             message: String::new(),
             okay: true,
@@ -24,6 +29,13 @@ impl TextInput {
         if self.exec {
             self.exec = false;
             let result = replace(&mut self.input_text, String::new());
+            if self.old_inputs.last() != Some(&result) {
+                self.old_inputs.push(result.clone());
+                if self.old_inputs.len() > 100 {
+                    self.old_inputs.remove(0);
+                }
+            }
+            self.old_input_index = self.old_inputs.len();
             Some(result)
         } else {
             None
@@ -38,15 +50,38 @@ impl TextInput {
     pub fn key_down(&mut self, key: Key) {
         match key {
             Key::Back => {
+                self.old_input_index = self.old_inputs.len();
                 self.input_text.pop();
             }
             Key::Return => self.exec = true,
+            Key::Up => {
+                if self.old_input_index > 0 {
+                    self.old_input_index -= 1;
+                }
+                self.set_input_text();
+            }
+            Key::Down => {
+                self.old_input_index += 1;
+                if self.old_input_index > self.old_inputs.len() {
+                    self.old_input_index = self.old_inputs.len();
+                }
+                self.set_input_text();
+            }
             _ => (),
         }
     }
 
+    fn set_input_text(&mut self) {
+        self.input_text = self
+            .old_inputs
+            .get(self.old_input_index)
+            .cloned()
+            .unwrap_or_default();
+    }
+
     pub fn received_character(&mut self, ch: char) {
         if ch >= ' ' {
+            self.old_input_index = self.old_inputs.len();
             self.input_text.push(ch);
         }
     }
