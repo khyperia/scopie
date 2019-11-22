@@ -133,10 +133,19 @@ impl CameraDisplay {
             }
             ["solve"] => {
                 if let Some(ref raw) = self.image_display.raw() {
+                    let old_mount_radec = mount.as_ref().map(|m| m.data.ra_dec);
                     let (ra, dec) = platesolve(raw)?;
                     self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
-                    if let Some(mount) = mount {
-                        mount.reset(ra, dec)?;
+                    if let (Some(mount), Some(old_mount_radec)) = (mount, old_mount_radec) {
+                        let delta_ra = old_mount_radec.0 - ra;
+                        let delta_dec = old_mount_radec.1 - dec;
+                        mount.add_real_to_mount_delta(delta_ra, delta_dec)?;
+                        self.solve_status = format!(
+                            "{} -> Δ {} {}",
+                            self.solve_status,
+                            delta_ra.fmt_hours(),
+                            delta_dec.fmt_degrees()
+                        );
                     }
                 } else {
                     return Ok(false);

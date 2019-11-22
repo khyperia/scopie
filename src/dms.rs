@@ -21,6 +21,10 @@ impl Angle {
         Self::from_0to1(f64::from(value) / (f64::from(u32::max_value()) + 1.0))
     }
 
+    pub fn u32(self) -> u32 {
+        (self.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32
+    }
+
     pub fn from_degrees(deg: f64) -> Self {
         Self::from_0to1(deg / 360.0)
     }
@@ -157,3 +161,29 @@ fn dms_parse_regex() -> &'static Regex {
 
 static DMS_PARSE_ONCE: Once = Once::new();
 static mut DMS_PARSE_REGEX: Option<Regex> = None;
+
+impl std::ops::Add for Angle {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self::from_0to1(self.value_0to1() + rhs.value_0to1())
+    }
+}
+
+impl std::ops::Sub for Angle {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self::from_0to1(self.value_0to1() - rhs.value_0to1())
+    }
+}
+
+impl std::ops::AddAssign for Angle {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
+    }
+}
+
+impl std::ops::SubAssign for Angle {
+    fn sub_assign(&mut self, rhs: Self) {
+        *self = *self - rhs;
+    }
+}

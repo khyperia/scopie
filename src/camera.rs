@@ -176,15 +176,13 @@ impl Camera {
         unsafe { Ok(check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?) }
     }
 
-    pub fn get_single(&self, wait: bool) -> Result<Option<CpuTexture<u16>>> {
+    fn get_single(&self) -> Result<Option<CpuTexture<u16>>> {
         unsafe {
-            if !wait {
-                let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
-                println!("remaining_ms: {}", remaining_ms);
-                // QHY recommends 100 in qhyccd.h, I guess?
-                if remaining_ms > 100 {
-                    return Ok(None);
-                }
+            let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
+            println!("remaining_ms: {}", remaining_ms);
+            // QHY recommends 100 in qhyccd.h, I guess?
+            if remaining_ms > 100 {
+                return Ok(None);
             }
             let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
             let len_u16 = len_u8 / 2;
@@ -270,7 +268,7 @@ impl Camera {
         if self.use_live {
             self.get_live()
         } else {
-            let res = self.get_single(false)?;
+            let res = self.get_single()?;
             self.start_single()?;
             Ok(res)
         }

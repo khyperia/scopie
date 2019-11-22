@@ -126,6 +126,7 @@ pub fn autoconnect() -> Result<Mount> {
 
 pub struct Mount {
     port: Box<dyn serialport::SerialPort>,
+    radec_offset: (Angle, Angle),
 }
 
 impl Mount {
@@ -140,7 +141,10 @@ impl Mount {
     pub fn new<T: AsRef<OsStr> + ?Sized>(path: &T) -> Result<Mount> {
         let mut port = serialport::open(path)?;
         port.set_timeout(Duration::from_secs(3))?;
-        Ok(Mount { port })
+        Ok(Mount {
+            port,
+            radec_offset: (Angle::from_0to1(0.0), Angle::from_0to1(0.0)),
+        })
     }
 
     fn read(&mut self, mut data: impl AsMut<[u8]>) -> Result<()> {
@@ -169,6 +173,25 @@ impl Mount {
         Ok(())
     }
 
+    fn real_to_mount(&self, ra_dec: (Angle, Angle)) -> (Angle, Angle) {
+        (
+            ra_dec.0 + self.radec_offset.0,
+            ra_dec.1 + self.radec_offset.1,
+        )
+    }
+
+    fn mount_to_real(&self, ra_dec: (Angle, Angle)) -> (Angle, Angle) {
+        (
+            ra_dec.0 - self.radec_offset.0,
+            ra_dec.1 - self.radec_offset.1,
+        )
+    }
+
+    pub fn add_real_to_mount_delta(&mut self, ra: Angle, dec: Angle) {
+        self.radec_offset.0 += ra;
+        self.radec_offset.1 += dec;
+    }
+
     pub fn get_ra_dec(&mut self) -> Result<(Angle, Angle)> {
         self.write([b'e'])?;
         let mut response = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -180,20 +203,23 @@ impl Mount {
         if response.len() != 2 {
             return Err(failure::err_msg("Invalid response"));
         }
-        Ok((Angle::from_u32(response[0]), Angle::from_u32(response[1])))
+        let result = (Angle::from_u32(response[0]), Angle::from_u32(response[1]));
+        Ok(self.mount_to_real(result))
     }
 
     pub fn sync_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let (ra, dec) = self.real_to_mount((ra, dec));
+        let ra = ra.u32();
+        let dec = dec.u32();
         let msg = format!("s{:08X},{:08X}", ra, dec);
         self.interact0(msg)?;
         Ok(())
     }
 
     pub fn slew_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let ra = (ra.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        let dec = (dec.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let (ra, dec) = self.real_to_mount((ra, dec));
+        let ra = ra.u32();
+        let dec = dec.u32();
         let msg = format!("r{:08X},{:08X}", ra, dec);
         self.interact0(msg)?;
         Ok(())
@@ -213,9 +239,11 @@ impl Mount {
         Ok((Angle::from_u32(response[0]), Angle::from_u32(response[1])))
     }
 
+    // note: This assumes the telescope's az axis is straight up.
+    // This is NOT what is reported in get_az_alt
     pub fn slew_az_alt(&mut self, az: Angle, alt: Angle) -> Result<()> {
-        let az = (az.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
-        let alt = (alt.value_0to1() * (f64::from(u32::max_value()) + 1.0)) as u32;
+        let az = az.u32();
+        let alt = alt.u32();
         let msg = format!("b{:08X},{:08X}", az, alt);
         self.interact0(msg)?;
         Ok(())
@@ -336,38 +364,40 @@ impl Mount {
         Ok(response[0] != 0)
     }
 
-    fn split_three_bytes(value_angle: Angle) -> (u8, u8, u8) {
-        let mut value = value_angle.value_0to1();
-        value *= 256.0;
-        let high = value as u8;
-        value = value.fract();
-        value *= 256.0;
-        let med = value as u8;
-        value = value.fract();
-        value *= 256.0;
-        let low = value as u8;
-        (high, med, low)
-    }
+    //fn split_three_bytes(value_angle: Angle) -> (u8, u8, u8) {
+    //    let mut value = value_angle.value_0to1();
+    //    value *= 256.0;
+    //    let high = value as u8;
+    //    value = value.fract();
+    //    value *= 256.0;
+    //    let med = value as u8;
+    //    value = value.fract();
+    //    value *= 256.0;
+    //    let low = value as u8;
+    //    (high, med, low)
+    //}
 
-    fn p_command_three(&mut self, one: u8, two: u8, three: u8, data: Angle) -> Result<()> {
-        let (high, med, low) = Self::split_three_bytes(data);
-        let cmd = [b'P', one, two, three, high, med, low, 0];
-        self.interact0(cmd)?;
-        Ok(())
-    }
+    //fn p_command_three(&mut self, one: u8, two: u8, three: u8, data: Angle) -> Result<()> {
+    //    let (high, med, low) = Self::split_three_bytes(data);
+    //    let cmd = [b'P', one, two, three, high, med, low, 0];
+    //    self.interact0(cmd)?;
+    //    Ok(())
+    //}
 
-    pub fn reset_ra(&mut self, data: Angle) -> Result<()> {
-        self.p_command_three(4, 16, 4, data)
-    }
-    pub fn reset_dec(&mut self, data: Angle) -> Result<()> {
-        self.p_command_three(4, 17, 4, data)
-    }
-    pub fn slow_goto_ra(&mut self, data: Angle) -> Result<()> {
-        self.p_command_three(4, 16, 23, data)
-    }
-    pub fn slow_goto_dec(&mut self, data: Angle) -> Result<()> {
-        self.p_command_three(4, 17, 23, data)
-    }
+    // I think these reset like az/alt if the az axis was straight up, which like, wat
+    //pub fn reset_ra(&mut self, data: Angle) -> Result<()> {
+    //    self.p_command_three(4, 16, 4, data)
+    //}
+    //pub fn reset_dec(&mut self, data: Angle) -> Result<()> {
+    //    self.p_command_three(4, 17, 4, data)
+    //}
+    // note: this is similar to slew_az_alt in that the axis is weird
+    //pub fn slow_goto_az(&mut self, data: Angle) -> Result<()> {
+    //    self.p_command_three(4, 16, 23, data)
+    //}
+    //pub fn slow_goto_alt(&mut self, data: Angle) -> Result<()> {
+    //    self.p_command_three(4, 17, 23, data)
+    //}
 
     fn fixed_slew_command(&mut self, one: u8, two: u8, three: u8, rate: u8) -> Result<()> {
         let cmd = [b'P', one, two, three, rate, 0, 0, 0];

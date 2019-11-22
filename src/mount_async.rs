@@ -7,9 +7,8 @@ use std::{
 
 enum MountCommand {
     Slew(Angle, Angle),
-    SlowSlew(Angle, Angle),
     Sync(Angle, Angle),
-    Reset(Angle, Angle),
+    AddRealToMountDelta(Angle, Angle),
     SlewAzAlt(Angle, Angle),
     Cancel,
     TrackingMode(TrackingMode),
@@ -62,14 +61,11 @@ impl MountAsync {
     pub fn slew(&self, ra: Angle, dec: Angle) -> Result<()> {
         self.send(MountCommand::Slew(ra, dec))
     }
-    pub fn slow_slew(&self, ra: Angle, dec: Angle) -> Result<()> {
-        self.send(MountCommand::SlowSlew(ra, dec))
-    }
     pub fn sync(&self, ra: Angle, dec: Angle) -> Result<()> {
         self.send(MountCommand::Sync(ra, dec))
     }
-    pub fn reset(&self, ra: Angle, dec: Angle) -> Result<()> {
-        self.send(MountCommand::Reset(ra, dec))
+    pub fn add_real_to_mount_delta(&self, ra: Angle, dec: Angle) -> Result<()> {
+        self.send(MountCommand::AddRealToMountDelta(ra, dec))
     }
     pub fn slew_azalt(&self, az: Angle, alt: Angle) -> Result<()> {
         self.send(MountCommand::SlewAzAlt(az, alt))
@@ -142,15 +138,8 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
 fn run_one(mount: &mut Mount, cmd: MountCommand) -> Result<()> {
     match cmd {
         MountCommand::Slew(ra, dec) => mount.slew_ra_dec(ra, dec)?,
-        MountCommand::SlowSlew(ra, dec) => {
-            mount.slow_goto_ra(ra)?;
-            mount.slow_goto_dec(dec)?
-        }
         MountCommand::Sync(ra, dec) => mount.sync_ra_dec(ra, dec)?,
-        MountCommand::Reset(ra, dec) => {
-            mount.reset_ra(ra)?;
-            mount.reset_dec(dec)?
-        }
+        MountCommand::AddRealToMountDelta(ra, dec) => mount.add_real_to_mount_delta(ra, dec),
         MountCommand::SlewAzAlt(az, alt) => mount.slew_az_alt(az, alt)?,
         MountCommand::Cancel => mount.cancel_slew()?,
         MountCommand::TrackingMode(mode) => mount.set_tracking_mode(mode)?,

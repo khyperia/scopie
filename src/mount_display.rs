@@ -18,15 +18,6 @@ impl MountDisplay {
 
     pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
         match command {
-            ["setpos", ra, dec] => {
-                let ra = Angle::parse(ra);
-                let dec = Angle::parse(dec);
-                if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.reset(ra, dec)?;
-                } else {
-                    return Ok(false);
-                }
-            }
             ["syncpos", ra, dec] => {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
@@ -41,15 +32,6 @@ impl MountDisplay {
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
                     self.mount.slew(ra, dec)?;
-                } else {
-                    return Ok(false);
-                }
-            }
-            ["slowslew", ra, dec] => {
-                let ra = Angle::parse(ra);
-                let dec = Angle::parse(dec);
-                if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.slow_slew(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -106,10 +88,8 @@ impl MountDisplay {
         )?;
         writeln!(status, "time: {}", data.time)?;
         writeln!(status, "slew speed: {}", self.slew_speed)?;
-        writeln!(status, "setpos [ra] [dec]")?;
         writeln!(status, "syncpos [ra] [dec]")?;
         writeln!(status, "slew [ra] [dec]")?;
-        writeln!(status, "slowslew [ra] [dec]")?;
         writeln!(status, "azaltslew [az] [alt]")?;
         writeln!(status, "cancel")?;
         writeln!(status, "mode [Off|AltAz|Equatorial|SiderealPec]")?;
