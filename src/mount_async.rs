@@ -34,9 +34,9 @@ pub struct MountAsync {
 }
 
 impl MountAsync {
-    pub fn new(mount: Mount, send_user_update: Box<SendUserUpdate>) -> Self {
+    pub fn new(mount: Mount, send_user_update: SendUserUpdate) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
-        spawn(move || match run(mount, recv_cmd, &send_user_update) {
+        spawn(move || match run(mount, recv_cmd, send_user_update) {
             Ok(()) => (),
             Err(err) => panic!("Mount thread error: {}", err),
         });
@@ -50,8 +50,9 @@ impl MountAsync {
         // if let UserUpdate::MountUpdate(mount_update) = user_update {
         //     self.data = mount_update.clone();
         // }
-        let UserUpdate::MountUpdate(mount_update) = user_update;
-        self.data = mount_update.clone();
+        if let UserUpdate::MountUpdate(mount_update) = user_update {
+            self.data = mount_update.clone();
+        }
     }
 
     fn send(&self, cmd: MountCommand) -> Result<()> {
@@ -90,7 +91,7 @@ impl MountAsync {
     }
 }
 
-fn run(mut mount: Mount, recv: mpsc::Receiver<MountCommand>, send: &SendUserUpdate) -> Result<()> {
+fn run(mut mount: Mount, recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
     let update_rate = Duration::from_secs(1);
     let mut next_update = Instant::now() + update_rate;
     loop {
@@ -101,7 +102,7 @@ fn run(mut mount: Mount, recv: mpsc::Receiver<MountCommand>, send: &SendUserUpda
                 // dropped frames
                 next_update = now + update_rate;
             }
-            if !run_update(&mut mount, send)? {
+            if !run_update(&mut mount, &send)? {
                 break Ok(());
             }
         }
@@ -121,7 +122,7 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
     let tracking_mode = mount.tracking_mode()?;
     let location = mount.location()?;
     let time = mount.time()?;
-    let send_result = send(UserUpdate::MountUpdate(MountData {
+    let send_result = send.send_event(UserUpdate::MountUpdate(MountData {
         ra_dec,
         az_alt,
         aligned,

@@ -11,10 +11,11 @@ mod qhycamera;
 mod text_input;
 
 use camera_display::CameraDisplay;
+use dms::Angle;
 use glutin::{
     self,
     event::{ElementState, Event, VirtualKeyCode as Key, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopClosed},
+    event_loop::{ControlFlow, EventLoop, EventLoopProxy},
     window::WindowBuilder,
     ContextBuilder, GlProfile,
 };
@@ -36,9 +37,9 @@ type Result<T> = std::result::Result<T, failure::Error>;
 
 pub enum UserUpdate {
     MountUpdate(mount_async::MountData),
+    SolveFinished(Angle, Angle),
 }
-type SendUserUpdate =
-    dyn Fn(UserUpdate) -> std::result::Result<(), EventLoopClosed> + Send + 'static;
+type SendUserUpdate = EventLoopProxy<UserUpdate>;
 
 fn read_png(path: impl AsRef<Path>) -> Result<CpuTexture<u16>> {
     let mut decoder = png::Decoder::new(File::open(path)?);
@@ -100,8 +101,7 @@ impl Display {
             command_okay |= true;
         }
         if let Some(ref mut camera_display) = self.camera_display {
-            let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
-            command_okay |= camera_display.cmd(&cmd, mount)?;
+            command_okay |= camera_display.cmd(&cmd)?;
         }
         if let Some(ref mut mount_display) = self.mount_display {
             command_okay |= mount_display.cmd(&cmd)?;
@@ -135,12 +135,13 @@ impl Display {
         command_okay: bool,
         window_size: (usize, usize),
         dpi: f64,
-        send_user_update: Box<SendUserUpdate>,
+        send_user_update: SendUserUpdate,
     ) -> Result<Self> {
         let texture_renderer = TextureRenderer::new()?;
         let height = 20.0 * dpi as f32;
         let text_renderer = TextRenderer::new(height)?;
-        let camera_display = Some(CameraDisplay::new(camera));
+        let send_user_update_2 = send_user_update.clone();
+        let camera_display = Some(CameraDisplay::new(camera, send_user_update_2));
         let mount_display = mount
             .map(|m| MountAsync::new(m, send_user_update))
             .map(MountDisplay::new);
@@ -273,6 +274,10 @@ impl Display {
         if let Some(ref mut mount_display) = self.mount_display {
             mount_display.user_update(&user_update);
         }
+        if let Some(ref mut camera_display) = self.camera_display {
+            let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
+            camera_display.user_update(&user_update, mount)?;
+        }
         Ok(())
     }
 }
@@ -332,7 +337,6 @@ fn main() -> Result<()> {
     }
 
     let proxy = el.create_proxy();
-    let send_user_update = Box::new(move |u| proxy.send_event(u));
 
     let mut display = Some(Display::setup(
         camera,
@@ -341,7 +345,7 @@ fn main() -> Result<()> {
         command_okay,
         (initial_size.width as usize, initial_size.height as usize),
         dpi,
-        send_user_update,
+        proxy,
     )?);
 
     el.run(move |event, _, control_flow| match event {

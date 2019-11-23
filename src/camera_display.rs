@@ -5,7 +5,7 @@ use crate::{
     platesolve::platesolve,
     process,
     qhycamera::{ControlId, EXPOSURE_FACTOR},
-    Result,
+    Result, SendUserUpdate, UserUpdate,
 };
 use dirs;
 use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
@@ -20,6 +20,7 @@ use std::{
 
 pub struct CameraDisplay {
     camera: Option<camera::Camera>,
+    send_user_update: SendUserUpdate,
     image_display: ImageDisplay,
     processor: process::Processor,
     process_result: Option<process::ProcessResult>,
@@ -35,9 +36,10 @@ pub struct CameraDisplay {
 }
 
 impl CameraDisplay {
-    pub fn new(camera: Option<camera::Camera>) -> Self {
+    pub fn new(camera: Option<camera::Camera>, send_user_update: SendUserUpdate) -> Self {
         Self {
             camera,
+            send_user_update,
             image_display: ImageDisplay::new(),
             processor: process::Processor::new(),
             process_result: None,
@@ -53,7 +55,7 @@ impl CameraDisplay {
         }
     }
 
-    pub fn cmd(&mut self, command: &[&str], mount: Option<&mut MountAsync>) -> Result<bool> {
+    pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
         match *command {
             ["cross"] => {
                 self.image_display.cross = !self.image_display.cross;
@@ -133,20 +135,7 @@ impl CameraDisplay {
             }
             ["solve"] => {
                 if let Some(ref raw) = self.image_display.raw() {
-                    let old_mount_radec = mount.as_ref().map(|m| m.data.ra_dec);
-                    let (ra, dec) = platesolve(raw)?;
-                    self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
-                    if let (Some(mount), Some(old_mount_radec)) = (mount, old_mount_radec) {
-                        let delta_ra = old_mount_radec.0 - ra;
-                        let delta_dec = old_mount_radec.1 - dec;
-                        mount.add_real_to_mount_delta(delta_ra, delta_dec)?;
-                        self.solve_status = format!(
-                            "{} -> Δ {} {}",
-                            self.solve_status,
-                            delta_ra.fmt_hours(),
-                            delta_dec.fmt_degrees()
-                        );
-                    }
+                    platesolve(raw, self.send_user_update.clone())?;
                 } else {
                     return Ok(false);
                 }
@@ -355,6 +344,29 @@ impl CameraDisplay {
             self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
         };
         self.image_display.draw(pos, displayer, screen_size)?;
+        Ok(())
+    }
+
+    pub fn user_update(
+        &mut self,
+        user_update: &UserUpdate,
+        mount: Option<&mut MountAsync>,
+    ) -> Result<()> {
+        if let UserUpdate::SolveFinished(ra, dec) = *user_update {
+            self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
+            if let Some(mount) = mount {
+                let old_mount_radec = mount.data.ra_dec;
+                let delta_ra = old_mount_radec.0 - ra;
+                let delta_dec = old_mount_radec.1 - dec;
+                mount.add_real_to_mount_delta(delta_ra, delta_dec)?;
+                self.solve_status = format!(
+                    "{} -> Δ {} {}",
+                    self.solve_status,
+                    delta_ra.fmt_hours(),
+                    delta_dec.fmt_degrees()
+                );
+            }
+        }
         Ok(())
     }
 }
