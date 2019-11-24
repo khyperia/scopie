@@ -126,7 +126,7 @@ impl MountDisplay {
         Ok(())
     }
 
-    pub fn user_update(&mut self, user_update: &UserUpdate) {
+    pub fn user_update(&mut self, user_update: UserUpdate) {
         self.mount.user_update(user_update)
     }
 }

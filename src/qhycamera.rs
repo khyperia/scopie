@@ -1,9 +1,9 @@
-use std::{ffi::c_void, fmt, os::raw::c_char};
+use std::{ffi::c_void, fmt, os::raw::c_char, str::FromStr};
 
 pub type QHYCCD = *mut c_void;
 
 #[repr(u32)]
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ControlId {
     ControlBrightness = 0, // image brightness
     ControlContrast,       // image contrast
@@ -185,7 +185,7 @@ impl ControlId {
             ControlId::ControlRownoisere => "ControlRownoisere",
             ControlId::ControlCurtemp => "ControlCurtemp",
             ControlId::ControlCurpwm => "ControlCurpwm",
-            ControlId::ControlManulpwm => "ControlManulpwm",
+            ControlId::ControlManulpwm => "ControlManualpwm",
             ControlId::ControlCfwport => "ControlCfwport",
             ControlId::ControlCooler => "ControlCooler",
             ControlId::ControlSt4port => "ControlSt4port",
@@ -233,6 +233,19 @@ impl ControlId {
             ControlId::ControlMaxId => "ControlMaxId",
             ControlId::CamHumidity => "CamHumidity ",
         }
+    }
+}
+
+impl FromStr for ControlId {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        for &control in VALUES {
+            if control.to_str().eq_ignore_ascii_case(s) {
+                return Ok(control);
+            }
+        }
+        Err(())
     }
 }
 
@@ -300,9 +313,9 @@ extern "system" {
     pub fn StopQHYCCDLive(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDBinMode(handle: QHYCCD, wbin: u32, hbin: u32) -> u32;
     pub fn SetQHYCCDBitsMode(handle: QHYCCD, bits: u32) -> u32;
-    //pub fn ControlQHYCCDTemp(handle: QHYCCD, target_temp: f64) -> u32;
-    //pub fn ControlQHYCCDGuide(handle: QHYCCD, direction: u32, duration: u16) -> u32;
-    //pub fn GetQHYCCDReadingProgress(handle: QHYCCD) -> f64;
-    //pub fn SetQHYCCDLogLevel(log_level: u8);
-    pub fn GetQHYCCDExposureRemaining(handle: QHYCCD) -> u32;
+//pub fn ControlQHYCCDTemp(handle: QHYCCD, target_temp: f64) -> u32;
+//pub fn ControlQHYCCDGuide(handle: QHYCCD, direction: u32, duration: u16) -> u32;
+//pub fn GetQHYCCDReadingProgress(handle: QHYCCD) -> f64;
+//pub fn SetQHYCCDLogLevel(log_level: u8);
+//pub fn GetQHYCCDExposureRemaining(handle: QHYCCD) -> u32;
 }

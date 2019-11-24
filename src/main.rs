@@ -1,4 +1,5 @@
 mod camera;
+mod camera_async;
 mod camera_display;
 mod dms;
 mod image_display;
@@ -30,6 +31,7 @@ use std::{
     fmt::Write,
     fs::File,
     path::Path,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -37,7 +39,10 @@ type Result<T> = std::result::Result<T, failure::Error>;
 
 pub enum UserUpdate {
     MountUpdate(mount_async::MountData),
+    CameraUpdate(camera_async::CameraData),
+    CameraData(Arc<CpuTexture<u16>>),
     SolveFinished(Angle, Angle),
+    ProcessResult(process::ProcessResult),
 }
 type SendUserUpdate = EventLoopProxy<UserUpdate>;
 
@@ -129,7 +134,6 @@ impl Display {
 
 impl Display {
     fn setup(
-        camera: Option<camera::Camera>,
         mount: Option<mount::Mount>,
         input_error: String,
         command_okay: bool,
@@ -141,7 +145,7 @@ impl Display {
         let height = 20.0 * dpi as f32;
         let text_renderer = TextRenderer::new(height)?;
         let send_user_update_2 = send_user_update.clone();
-        let camera_display = Some(CameraDisplay::new(camera, send_user_update_2));
+        let camera_display = Some(CameraDisplay::new(send_user_update_2));
         let mount_display = mount
             .map(|m| MountAsync::new(m, send_user_update))
             .map(MountDisplay::new);
@@ -200,9 +204,6 @@ impl Display {
         if self.old_status != self.status {
             self.old_status = self.status.clone();
             redraw = true;
-        }
-        if let Some(ref mut camera_display) = self.camera_display {
-            redraw |= camera_display.update()?;
         }
         Ok((self.next_frequent_update, redraw))
     }
@@ -271,12 +272,18 @@ impl Display {
     }
 
     fn user_update(&mut self, user_update: UserUpdate) -> Result<()> {
-        if let Some(ref mut mount_display) = self.mount_display {
-            mount_display.user_update(&user_update);
-        }
-        if let Some(ref mut camera_display) = self.camera_display {
-            let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
-            camera_display.user_update(&user_update, mount)?;
+        match user_update {
+            UserUpdate::MountUpdate(_) => {
+                if let Some(ref mut mount_display) = self.mount_display {
+                    mount_display.user_update(user_update);
+                }
+            }
+            _ => {
+                if let Some(ref mut camera_display) = self.camera_display {
+                    let mount = self.mount_display.as_mut().map(|m| &mut m.mount);
+                    camera_display.user_update(user_update, mount)?;
+                }
+            }
         }
         Ok(())
     }
@@ -290,17 +297,8 @@ fn handle<T>(res: Result<T>) -> T {
 }
 
 fn main() -> Result<()> {
-    let live = true;
     let mut command_okay = true;
     let mut input_error = String::new();
-    let camera = match camera::autoconnect(live) {
-        Ok(ok) => Some(ok),
-        Err(err) => {
-            command_okay = false;
-            writeln!(&mut input_error, "Error connecting to camera: {}", err)?;
-            None
-        }
-    };
     let mount = match mount::autoconnect() {
         Ok(ok) => Some(ok),
         Err(err) => {
@@ -339,7 +337,6 @@ fn main() -> Result<()> {
     let proxy = el.create_proxy();
 
     let mut display = Some(Display::setup(
-        camera,
         mount,
         input_error,
         command_okay,

@@ -172,18 +172,13 @@ impl Camera {
         Ok(())
     }
 
-    fn stop_single(&self) -> Result<()> {
+    pub fn stop_single(&self) -> Result<()> {
         unsafe { Ok(check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?) }
     }
 
-    fn get_single(&self) -> Result<Option<CpuTexture<u16>>> {
+    pub fn get_single(&self) -> Result<CpuTexture<u16>> {
         unsafe {
-            let remaining_ms = qhy::GetQHYCCDExposureRemaining(self.handle);
-            println!("remaining_ms: {}", remaining_ms);
-            // QHY recommends 100 in qhyccd.h, I guess?
-            if remaining_ms > 100 {
-                return Ok(None);
-            }
+            // GetQHYCCDExposureRemaining seems to be unreliable, so just block
             let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
             let len_u16 = len_u8 / 2;
             let mut width = 0;
@@ -191,7 +186,6 @@ impl Camera {
             let mut bpp = 0;
             let mut channels = 0;
             let mut data = vec![0; len_u16];
-            println!("Get frame");
             check(qhy::GetQHYCCDSingleFrame(
                 self.handle,
                 &mut width,
@@ -200,25 +194,21 @@ impl Camera {
                 &mut channels,
                 data.as_mut_ptr() as _,
             ))?;
-            println!("Done get frame");
             assert_eq!(bpp, 16);
             assert_eq!(channels, 1);
-            Ok(Some(CpuTexture::new(
-                data,
-                (width as usize, height as usize),
-            )))
+            Ok(CpuTexture::new(data, (width as usize, height as usize)))
         }
     }
 
-    fn start_live(&self) -> Result<()> {
+    pub fn start_live(&self) -> Result<()> {
         unsafe { Ok(check(qhy::BeginQHYCCDLive(self.handle))?) }
     }
 
-    fn stop_live(&self) -> Result<()> {
+    pub fn stop_live(&self) -> Result<()> {
         unsafe { Ok(check(qhy::StopQHYCCDLive(self.handle))?) }
     }
 
-    fn get_live(&self) -> Result<Option<CpuTexture<u16>>> {
+    pub fn get_live(&self) -> Option<CpuTexture<u16>> {
         unsafe {
             let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
             let len_u16 = len_u8 / 2;
@@ -237,14 +227,12 @@ impl Camera {
             );
             if res != 0 {
                 // function will fail if image isn't ready yet
-                return Ok(None);
+                None
+            } else {
+                assert_eq!(bpp, 16);
+                assert_eq!(channels, 1);
+                Some(CpuTexture::new(data, (width as usize, height as usize)))
             }
-            assert_eq!(bpp, 16);
-            assert_eq!(channels, 1);
-            Ok(Some(CpuTexture::new(
-                data,
-                (width as usize, height as usize),
-            )))
         }
     }
 
@@ -264,15 +252,15 @@ impl Camera {
         }
     }
 
-    pub fn try_get(&self) -> Result<Option<CpuTexture<u16>>> {
-        if self.use_live {
-            self.get_live()
-        } else {
-            let res = self.get_single()?;
-            self.start_single()?;
-            Ok(res)
-        }
-    }
+    // pub fn try_get(&self) -> Result<Option<CpuTexture<u16>>> {
+    //     if self.use_live {
+    //         Ok(self.get_live())
+    //     } else {
+    //         let res = self.get_single()?;
+    //         self.start_single()?;
+    //         Ok(Some(res))
+    //     }
+    // }
 }
 
 impl Drop for Camera {
@@ -316,25 +304,21 @@ impl Control {
         self.control
     }
 
-    pub fn name(&self) -> &'static str {
-        self.control.to_str()
-    }
-
-    pub fn max_value(&self) -> f64 {
-        self.max
-    }
-    pub fn min_value(&self) -> f64 {
-        self.min
-    }
-    pub fn step_value(&self) -> f64 {
-        self.step
-    }
-    pub fn readonly(&self) -> bool {
-        self.readonly
-    }
-    pub fn interesting(&self) -> bool {
-        self.interesting
-    }
+    // pub fn max_value(&self) -> f64 {
+    //     self.max
+    // }
+    // pub fn min_value(&self) -> f64 {
+    //     self.min
+    // }
+    // pub fn step_value(&self) -> f64 {
+    //     self.step
+    // }
+    // pub fn readonly(&self) -> bool {
+    //     self.readonly
+    // }
+    // pub fn interesting(&self) -> bool {
+    //     self.interesting
+    // }
 
     pub fn get(&self) -> f64 {
         unsafe { qhy::GetQHYCCDParam(self.handle, self.control) }
@@ -344,21 +328,74 @@ impl Control {
         check(unsafe { qhy::SetQHYCCDParam(self.handle, self.control, value) })?;
         Ok(())
     }
+
+    pub fn to_value(&self) -> ControlValue {
+        ControlValue::new(self)
+    }
 }
 
-impl fmt::Display for Control {
+// impl fmt::Display for Control {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//         if self.readonly() {
+//             write!(f, "{} = {} (readonly)", self.control, self.get())
+//         } else {
+//             write!(
+//                 f,
+//                 "{} = {} ({}-{} by {})",
+//                 self.control,
+//                 self.get(),
+//                 self.min_value(),
+//                 self.max_value(),
+//                 self.step_value(),
+//             )
+//         }
+//     }
+// }
+
+#[derive(Clone)]
+pub struct ControlValue {
+    pub id: ControlId,
+    pub value: f64,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+    pub readonly: bool,
+    pub interesting: bool,
+}
+
+impl ControlValue {
+    fn new(control: &Control) -> Self {
+        Self {
+            id: control.control,
+            value: control.get(),
+            min: control.min,
+            max: control.max,
+            step: control.step,
+            readonly: control.readonly,
+            interesting: control.interesting,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.id.to_str()
+    }
+}
+
+impl fmt::Display for ControlValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.readonly() {
-            write!(f, "{} = {} (readonly)", self.control, self.get())
+        #[allow(clippy::float_cmp)]
+        let value = if self.value == f64::from(u32::max_value()) {
+            -1.0
+        } else {
+            self.value
+        };
+        if self.readonly {
+            write!(f, "{} = {} (readonly)", self.id, value)
         } else {
             write!(
                 f,
                 "{} = {} ({}-{} by {})",
-                self.control,
-                self.get(),
-                self.min_value(),
-                self.max_value(),
-                self.step_value(),
+                self.id, value, self.min, self.max, self.step,
             )
         }
     }

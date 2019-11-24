@@ -46,12 +46,12 @@ impl MountAsync {
         }
     }
 
-    pub fn user_update(&mut self, user_update: &UserUpdate) {
+    pub fn user_update(&mut self, user_update: UserUpdate) {
         // if let UserUpdate::MountUpdate(mount_update) = user_update {
         //     self.data = mount_update.clone();
         // }
         if let UserUpdate::MountUpdate(mount_update) = user_update {
-            self.data = mount_update.clone();
+            self.data = mount_update;
         }
     }
 

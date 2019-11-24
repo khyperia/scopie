@@ -1,4 +1,4 @@
-use crate::Result;
+use crate::{Result, SendUserUpdate, UserUpdate};
 use khygl::texture::CpuTexture;
 use std::{
     sync::{mpsc, Arc},
@@ -33,6 +33,7 @@ fn stdev(data: &[u16], mean: f64) -> f64 {
 
 pub struct ProcessResult {
     sorted: Vec<u16>,
+    gap: u16,
     pub duration: Duration,
 }
 
@@ -45,8 +46,19 @@ impl ProcessResult {
         let begin = Instant::now();
         let mut sorted = image.data().to_vec();
         sorted.sort_unstable();
+        let median = sorted[sorted.len() / 2];
+        let after_median_location = match sorted.binary_search(&(median + 1)) {
+            Ok(v) => v,
+            Err(v) => v,
+        };
+        let after_median = sorted.get(after_median_location).map_or(median + 1, |&v| v);
+        let gap = after_median - median;
         let duration = Instant::now() - begin;
-        Self { sorted, duration }
+        Self {
+            sorted,
+            gap,
+            duration,
+        }
     }
 
     pub fn apply(&self, clip: f64, median_location: f64) -> AppliedProcessResult {
@@ -79,7 +91,10 @@ impl AppliedProcessResult<'_> {
     }
 
     pub fn get_scale_offset(&self) -> (f64, f64) {
-        let (clip, median) = self.get_clip_median();
+        let (clip, mut median) = self.get_clip_median();
+        if clip == median {
+            median = clip + (1 << 5);
+        }
         let (clip, median) = (u16_to_f64(clip), u16_to_f64(median));
         // (x - clip) * (median_location / (median - clip))
         // x * (median_location / (median - clip)) + (-clip * (median_location / (median - clip)))
@@ -106,6 +121,7 @@ impl std::fmt::Display for AppliedProcessResult<'_> {
             "median: {} -> subtract: {} scale: {:.3} offset {:.3}",
             median, clip, scale, offset
         )?;
+        writeln!(f, "space between pixel values: {}", self.result.gap)?;
         writeln!(f, "image processing time: {:?}", self.result.duration)?;
         Ok(())
     }
@@ -113,24 +129,21 @@ impl std::fmt::Display for AppliedProcessResult<'_> {
 
 pub struct Processor {
     send: mpsc::SyncSender<Arc<CpuTexture<u16>>>,
-    recv: mpsc::Receiver<ProcessResult>,
+    //recv: mpsc::Receiver<ProcessResult>,
 }
 
 impl Processor {
-    pub fn new() -> Self {
-        let (send_u16, recv_u16) = mpsc::sync_channel::<Arc<CpuTexture<u16>>>(1);
-        let (send_u8, recv_u8) = mpsc::channel();
+    pub fn new(send_user_update: SendUserUpdate) -> Self {
+        let (send, recv) = mpsc::sync_channel::<Arc<CpuTexture<u16>>>(1);
         spawn(move || {
-            while let Ok(img) = recv_u16.recv() {
-                if send_u8.send(ProcessResult::compute(&img)).is_err() {
+            while let Ok(img) = recv.recv() {
+                let result = UserUpdate::ProcessResult(ProcessResult::compute(&img));
+                if send_user_update.send_event(result).is_err() {
                     break;
                 }
             }
         });
-        Self {
-            send: send_u16,
-            recv: recv_u8,
-        }
+        Self { send }
     }
 
     // true if ok, false if dropped frame
@@ -139,16 +152,6 @@ impl Processor {
             Ok(()) => Ok(true),
             Err(mpsc::TrySendError::Full(_)) => Ok(false),
             Err(mpsc::TrySendError::Disconnected(_)) => {
-                Err(failure::err_msg("Processing thread disconnected"))
-            }
-        }
-    }
-
-    pub fn get(&self) -> Result<Option<ProcessResult>> {
-        match self.recv.try_recv() {
-            Ok(img) => Ok(Some(img)),
-            Err(mpsc::TryRecvError::Empty) => Ok(None),
-            Err(mpsc::TryRecvError::Disconnected) => {
                 Err(failure::err_msg("Processing thread disconnected"))
             }
         }
