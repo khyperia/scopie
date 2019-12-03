@@ -15,7 +15,11 @@ use camera_display::CameraDisplay;
 use dms::Angle;
 use glutin::{
     self,
-    event::{ElementState, Event, VirtualKeyCode as Key, WindowEvent},
+    dpi::LogicalPosition,
+    event::{
+        ElementState, Event, ModifiersState, MouseButton, MouseScrollDelta, TouchPhase,
+        VirtualKeyCode as Key, WindowEvent,
+    },
     event_loop::{ControlFlow, EventLoop, EventLoopProxy},
     window::WindowBuilder,
     ContextBuilder, GlProfile,
@@ -27,6 +31,7 @@ use khygl::{
 use mount_async::MountAsync;
 use mount_display::MountDisplay;
 use std::{
+    collections::HashSet,
     convert::TryInto,
     fmt::Write,
     fs::File,
@@ -85,6 +90,8 @@ struct Display {
     next_frequent_update: Instant,
     next_infrequent_update: Instant,
     window_size: (usize, usize),
+    last_mouse: Option<LogicalPosition>,
+    pressed_mouse: HashSet<MouseButton>,
     status: String,
     old_status: String,
     text_input: text_input::TextInput,
@@ -157,6 +164,8 @@ impl Display {
             next_frequent_update: Instant::now(),
             next_infrequent_update: Instant::now(),
             window_size,
+            last_mouse: None,
+            pressed_mouse: HashSet::new(),
             status: String::new(),
             old_status: String::new(),
             text_input,
@@ -264,6 +273,79 @@ impl Display {
         Ok(())
     }
 
+    fn mouse_dragged(
+        &mut self,
+        button: MouseButton,
+        modifiers: ModifiersState,
+        delta: LogicalPosition,
+    ) -> Result<()> {
+        Ok(())
+    }
+
+    fn mouse_down(&mut self, button: MouseButton, modifiers: ModifiersState) -> Result<()> {
+        Ok(())
+    }
+
+    fn mouse_up(&mut self, button: MouseButton, modifiers: ModifiersState) -> Result<()> {
+        Ok(())
+    }
+
+    fn mouse_input(
+        &mut self,
+        state: ElementState,
+        button: MouseButton,
+        modifiers: ModifiersState,
+    ) -> Result<()> {
+        match state {
+            ElementState::Pressed => {
+                if self.pressed_mouse.insert(button) {
+                    self.mouse_down(button, modifiers)?;
+                }
+            }
+            ElementState::Released => {
+                if self.pressed_mouse.remove(&button) {
+                    self.mouse_up(button, modifiers)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn mouse_wheel_y(&mut self, delta: f64, modifiers: ModifiersState) -> Result<()> {
+        Ok(())
+    }
+
+    fn mouse_wheel(
+        &mut self,
+        delta: MouseScrollDelta,
+        phase: TouchPhase,
+        modifiers: ModifiersState,
+    ) -> Result<()> {
+        let pixels = match delta {
+            MouseScrollDelta::LineDelta(_, y) => self.text_renderer.spacing as f64 * y as f64,
+            MouseScrollDelta::PixelDelta(logical) => logical.y,
+        };
+        self.mouse_wheel_y(pixels, modifiers)
+    }
+
+    fn mouse_moved(&mut self, position: LogicalPosition, modifiers: ModifiersState) -> Result<()> {
+        if let Some(last_mouse) = self.last_mouse {
+            let delta = LogicalPosition::new(position.x - last_mouse.x, position.y - last_mouse.y);
+            // dumb
+            if self.pressed_mouse.contains(&MouseButton::Left) {
+                self.mouse_dragged(MouseButton::Left, modifiers, delta)?;
+            }
+            if self.pressed_mouse.contains(&MouseButton::Right) {
+                self.mouse_dragged(MouseButton::Right, modifiers, delta)?;
+            }
+            if self.pressed_mouse.contains(&MouseButton::Middle) {
+                self.mouse_dragged(MouseButton::Middle, modifiers, delta)?;
+            }
+        }
+        self.last_mouse = Some(position);
+        Ok(())
+    }
+
     fn received_character(&mut self, ch: char) -> Result<()> {
         if !self.wasd_mode {
             self.text_input.received_character(ch);
@@ -289,10 +371,13 @@ impl Display {
     }
 }
 
-fn handle<T>(res: Result<T>) -> T {
+fn handle(control_flow: &mut ControlFlow, res: Result<()>) {
     match res {
-        Ok(ok) => ok,
-        Err(err) => panic!("{:?}", err),
+        Ok(()) => (),
+        Err(err) => {
+            println!("{:?}", err);
+            *control_flow = ControlFlow::Exit;
+        }
     }
 }
 
@@ -353,7 +438,10 @@ fn main() -> Result<()> {
                 if let Some(ref mut display) = display {
                     let dpi_factor = windowed_context.window().hidpi_factor();
                     let physical = logical_size.to_physical(dpi_factor);
-                    handle(display.resize((physical.width as usize, physical.height as usize)));
+                    handle(
+                        control_flow,
+                        display.resize((physical.width as usize, physical.height as usize)),
+                    );
                     unsafe { gl::Viewport(0, 0, physical.width as i32, physical.height as i32) };
                 }
             }
@@ -361,23 +449,60 @@ fn main() -> Result<()> {
                 if let Some(ref mut display) = display {
                     if let Some(code) = input.virtual_keycode {
                         match input.state {
-                            ElementState::Pressed => handle(display.key_down(code)),
-                            ElementState::Released => handle(display.key_up(code)),
+                            ElementState::Pressed => handle(control_flow, display.key_down(code)),
+                            ElementState::Released => handle(control_flow, display.key_up(code)),
                         }
                         windowed_context.window().request_redraw();
                     }
                 }
             }
+            WindowEvent::MouseInput {
+                state,
+                button,
+                modifiers,
+                ..
+            } => {
+                if let Some(ref mut display) = display {
+                    handle(control_flow, display.mouse_input(state, button, modifiers));
+                }
+            }
+            WindowEvent::MouseWheel {
+                delta,
+                phase,
+                modifiers,
+                ..
+            } => {
+                if let Some(ref mut display) = display {
+                    handle(control_flow, display.mouse_wheel(delta, phase, modifiers));
+                }
+            }
+            WindowEvent::CursorMoved {
+                position,
+                modifiers,
+                ..
+            } => {
+                if let Some(ref mut display) = display {
+                    handle(control_flow, display.mouse_moved(position, modifiers));
+                }
+            }
+            WindowEvent::CursorLeft { .. } => {
+                if let Some(ref mut display) = display {
+                    display.last_mouse = None
+                }
+            }
             WindowEvent::ReceivedCharacter(ch) => {
                 if let Some(ref mut display) = display {
-                    handle(display.received_character(ch));
+                    handle(control_flow, display.received_character(ch));
                     windowed_context.window().request_redraw();
                 }
             }
             WindowEvent::RedrawRequested => {
                 if let Some(ref mut display) = display {
-                    handle(display.render());
-                    handle(windowed_context.swap_buffers().map_err(|e| e.into()));
+                    handle(control_flow, display.render());
+                    handle(
+                        control_flow,
+                        windowed_context.swap_buffers().map_err(|e| e.into()),
+                    );
                 }
             }
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
@@ -385,23 +510,28 @@ fn main() -> Result<()> {
         },
         Event::UserEvent(user_update) => {
             if let Some(ref mut display) = display {
-                handle(display.user_update(user_update));
+                handle(control_flow, display.user_update(user_update));
                 windowed_context.window().request_redraw();
             }
         }
         Event::EventsCleared => {
             if *control_flow == ControlFlow::Exit {
                 display = None;
-            } else {
-                let wait_until = if let Some(ref mut display) = display {
-                    let (wait_until, redraw) = handle(display.update());
-                    if redraw {
-                        windowed_context.window().request_redraw();
+            } else if let Some(ref mut display) = display {
+                match display.update() {
+                    Ok((wait_until, redraw)) => {
+                        if redraw {
+                            windowed_context.window().request_redraw();
+                        }
+                        *control_flow = ControlFlow::WaitUntil(wait_until);
                     }
-                    wait_until
-                } else {
-                    Instant::now() + Duration::from_millis(10)
-                };
+                    Err(err) => {
+                        println!("{:?}", err);
+                        *control_flow = ControlFlow::Exit;
+                    }
+                }
+            } else {
+                let wait_until = Instant::now() + Duration::from_millis(10);
                 *control_flow = ControlFlow::WaitUntil(wait_until);
             }
         }
