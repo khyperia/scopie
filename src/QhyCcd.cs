@@ -7,7 +7,7 @@ using System.Text;
 
 namespace Scopie
 {
-    struct Frame
+    public struct Frame
     {
         public ushort[] Imgdata;
         public uint Width;
@@ -39,7 +39,7 @@ namespace Scopie
         private bool _binChanged;
         private bool _bin;
 
-        private bool _exposing;
+        public bool Exposing { get; private set; }
 
         public static void Check(uint result, [CallerMemberName] string name = "", [CallerFilePath] string filePath = "", [CallerLineNumber] int line = 0)
         {
@@ -147,7 +147,7 @@ namespace Scopie
 
         public void StartExposure()
         {
-            _exposing = true;
+            Exposing = true;
             if (_useLive)
             {
                 Check(QhyCcdDll.BeginQHYCCDLive(_handle));
@@ -233,7 +233,7 @@ namespace Scopie
                 if (updatePending)
                 {
                     StopExposure();
-                    ControlUpdate();
+                    // StopExposure calls ControlUpdate()
                     StartExposure();
                 }
             }
@@ -255,8 +255,7 @@ namespace Scopie
 
         public void StopExposure()
         {
-            ControlUpdate();
-            _exposing = false;
+            Exposing = false;
             if (_useLive)
             {
                 Check(QhyCcdDll.StopQHYCCDLive(_handle));
@@ -265,6 +264,7 @@ namespace Scopie
             {
                 Check(QhyCcdDll.CancelQHYCCDExposing(_handle));
             }
+            ControlUpdate();
         }
 
         public void Dispose() => Check(QhyCcdDll.CloseQHYCCD(_handle));
@@ -328,7 +328,7 @@ namespace Scopie
                     }
                     _targetValue = value;
                     UpdatePending = true;
-                    if (!_camera._exposing)
+                    if (!_camera.Exposing)
                     {
                         SetValue();
                     }

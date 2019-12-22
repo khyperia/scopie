@@ -135,7 +135,7 @@ namespace Scopie
                             }
                             else
                             {
-                                Console.WriteLine($"Invalid parameter type to command {cmd.Cmd}: {parameters[i]}");
+                                Console.WriteLine($"Invalid parameter type to command {cmd?.Cmd}: {parameters[i]}");
                                 return true;
                             }
                         }
@@ -150,7 +150,7 @@ namespace Scopie
                         }
                         else
                         {
-                            Console.WriteLine($"Invalid return type of {cmd.Cmd}: {result}");
+                            Console.WriteLine($"Invalid return type of {cmd?.Cmd}: {result}");
                             return true;
                         }
                     }

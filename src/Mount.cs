@@ -9,7 +9,6 @@ namespace Scopie
     {
         private readonly SerialPort _port;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1);
-        private readonly byte[] _readBuffer = new byte[1];
 
         public static Mount? Create()
         {
@@ -86,9 +85,16 @@ namespace Scopie
             }
         }
 
+        private void InteractEmpty(byte[] command) => _ = Interact(command, 0);
+
+        private string InteractString(string command, int responseLength) =>
+            ByteArrayToStr(Interact(StrToByteArr(command), responseLength));
+
+        private void InteractStringEmpty(string command) => InteractEmpty(StrToByteArr(command));
+
         public (Dms, Dms) GetRaDec()
         {
-            var line = Interact("e");
+            var line = InteractString("e", 17);
             var split = line.Split(',');
             if (split.Length != 2)
             {
@@ -106,27 +112,13 @@ namespace Scopie
             return intval.ToString("X8");
         }
 
-        public void SyncRaDec(Dms ra, Dms dec)
-        {
-            var res = Interact($"s{ToMountHex(ra)},{ToMountHex(dec)}");
-            if (!string.IsNullOrEmpty(res))
-            {
-                throw new Exception($"Overwrite RA/DEC failed: {res}");
-            }
-        }
+        public void SyncRaDec(Dms ra, Dms dec) => InteractStringEmpty($"s{ToMountHex(ra)},{ToMountHex(dec)}");
 
-        public void Slew(Dms ra, Dms dec)
-        {
-            var res = Interact($"r{ToMountHex(ra)},{ToMountHex(dec)}");
-            if (!string.IsNullOrEmpty(res))
-            {
-                throw new Exception($"Slew RA/DEC failed: {res}");
-            }
-        }
+        public void Slew(Dms ra, Dms dec) => InteractStringEmpty($"r{ToMountHex(ra)},{ToMountHex(dec)}");
 
         public (Dms, Dms) GetAzAlt()
         {
-            var line = Interact("z");
+            var line = InteractString("z", 17);
             var split = line.Split(',');
             if (split.Length != 2)
             {
@@ -137,23 +129,9 @@ namespace Scopie
             return (Dms.From0to1(az), Dms.From0to1(alt));
         }
 
-        public void SlewAzAlt(Dms az, Dms alt)
-        {
-            var res = Interact($"b{ToMountHex(az)},{ToMountHex(alt)}");
-            if (!string.IsNullOrEmpty(res))
-            {
-                throw new Exception($"Slew az/alt failed: {res}");
-            }
-        }
+        public void SlewAzAlt(Dms az, Dms alt) => InteractStringEmpty($"b{ToMountHex(az)},{ToMountHex(alt)}");
 
-        public void CancelSlew()
-        {
-            var res = Interact("M");
-            if (!string.IsNullOrEmpty(res))
-            {
-                throw new Exception($"Cancel slew failed: {res}");
-            }
-        }
+        public void CancelSlew() => InteractStringEmpty("M");
 
         public enum TrackingMode
         {
@@ -165,19 +143,11 @@ namespace Scopie
 
         public TrackingMode GetTrackingMode()
         {
-            var result = Interact("t");
-            return (TrackingMode)(int)result[0];
+            var result = Interact(new[] { (byte)'t' }, 1);
+            return (TrackingMode)result[0];
         }
 
-        public void SetTrackingMode(TrackingMode mode)
-        {
-            var modeStr = (char)(int)mode;
-            var result = Interact($"T{modeStr}");
-            if (!string.IsNullOrEmpty(result))
-            {
-                throw new Exception($"Set tracking mode failed: {result}");
-            }
-        }
+        public void SetTrackingMode(TrackingMode mode) => InteractStringEmpty($"T{(char)(int)mode}");
 
         private static string FormatLatLon(Dms lat, Dms lon)
         {
@@ -204,7 +174,7 @@ namespace Scopie
             return builder.ToString();
         }
 
-        private static (Dms, Dms) ParseLatLon(string value)
+        private static (Dms, Dms) ParseLatLon(byte[] value)
         {
             if (value.Length != 8)
             {
@@ -223,23 +193,11 @@ namespace Scopie
             return (lat, lon);
         }
 
-        public (Dms lat, Dms lon) GetLocation()
-        {
-            var result = Interact("w");
-            return ParseLatLon(result);
-        }
+        public (Dms lat, Dms lon) GetLocation() => ParseLatLon(Interact(new[] { (byte)'w' }, 8));
 
-        public void SetLocation(Dms lat, Dms lon)
-        {
-            var location = FormatLatLon(lat, lon);
-            var result = Interact($"W{location}");
-            if (!string.IsNullOrEmpty(result))
-            {
-                throw new Exception($"Set location failed: {result}");
-            }
-        }
+        public void SetLocation(Dms lat, Dms lon) => InteractStringEmpty($"W{FormatLatLon(lat, lon)}");
 
-        private static DateTime ParseTime(string time)
+        private static DateTime ParseTime(byte[] time)
         {
             if (time.Length != 8)
             {
@@ -305,34 +263,19 @@ namespace Scopie
             return builder.ToString();
         }
 
-        public DateTime GetTime()
-        {
-            var result = Interact("h");
-            return ParseTime(result);
-        }
+        public DateTime GetTime() => ParseTime(Interact(new[] { (byte)'h' }, 8));
 
-        public void SetTime(DateTime time)
-        {
-            var location = FormatTime(time);
-            var result = Interact($"H{location}");
-            if (!string.IsNullOrEmpty(result))
-            {
-                throw new Exception($"Set time failed: {result}");
-            }
-        }
+        public void SetTime(DateTime time) => InteractStringEmpty($"H{FormatTime(time)}");
 
-        public bool IsAligned()
-        {
-            var aligned = Interact("J");
-            return aligned != "0";
-        }
+        // this is 0 or 1...
+        public bool IsAligned() => Interact(new[] { (byte)'J' }, 1)[0] != 0;
 
-        public char Echo(char c)
-        {
-            var echo = Interact($"K{c}");
-            return echo[0];
-        }
+        // ... but this is '0' or '1'???
+        public bool IsDoingGoto() => Interact(new[] { (byte)'L' }, 1)[0] != '0';
 
+        public char Echo(char c) => InteractString($"K{c}", 1)[0];
+
+        /*
         static void SplitThreeBytes(Dms valueDms, out byte high, out byte med, out byte low)
         {
             var value = valueDms.Value0to1;
@@ -358,9 +301,10 @@ namespace Scopie
             cmd[5] = (char)med;
             cmd[6] = (char)low;
             cmd[7] = (char)0;
-            Interact(new string(cmd));
+            InteractStringEmpty(new string(cmd));
         }
 
+        // these are fucky and confusing and just, no
         public void ResetRA(Dms data) => PCommandThree(4, 16, 4, data);
 
         public void ResetDec(Dms data) => PCommandThree(4, 17, 4, data);
@@ -368,24 +312,25 @@ namespace Scopie
         public void SlowGotoRA(Dms data) => PCommandThree(4, 16, 23, data);
 
         public void SlowGotoDec(Dms data) => PCommandThree(4, 17, 23, data);
+        */
 
         void FixedSlewCommand(byte one, byte two, byte three, byte rate)
         {
-            var cmd = new char[8];
-            cmd[0] = 'P';
-            cmd[1] = (char)one;
-            cmd[2] = (char)two;
-            cmd[3] = (char)three;
-            cmd[4] = (char)rate;
-            cmd[5] = (char)0;
-            cmd[6] = (char)0;
-            cmd[7] = (char)0;
-            Interact(new string(cmd));
+            var cmd = new byte[8];
+            cmd[0] = (byte)'P';
+            cmd[1] = one;
+            cmd[2] = two;
+            cmd[3] = three;
+            cmd[4] = rate;
+            cmd[5] = 0;
+            cmd[6] = 0;
+            cmd[7] = 0;
+            InteractEmpty(cmd);
         }
 
         public void FixedSlewRA(int speed)
         {
-            if (speed > 0)
+            if (speed >= 0)
             {
                 FixedSlewCommand(2, 16, 36, (byte)speed);
             }
@@ -397,13 +342,59 @@ namespace Scopie
 
         public void FixedSlewDec(int speed)
         {
-            if (speed > 0)
+            if (speed >= 0)
             {
                 FixedSlewCommand(2, 17, 36, (byte)speed);
             }
             else
             {
                 FixedSlewCommand(2, 17, 37, (byte)-speed);
+            }
+        }
+
+        void VariableSlewCommand(byte one, byte two, byte three, double arcsecondsPerSecond)
+        {
+            var mul4 = (int)(arcsecondsPerSecond * 4);
+            if (mul4 >= 256 * 256)
+            {
+                mul4 = 256 * 256 - 1;
+            }
+            var trackRateHigh = (byte)(mul4 / 256);
+            var trackRateLow = (byte)(mul4 % 256);
+
+            var cmd = new byte[8];
+            cmd[0] = (byte)'P';
+            cmd[1] = one;
+            cmd[2] = two;
+            cmd[3] = three;
+            cmd[4] = trackRateHigh;
+            cmd[5] = trackRateLow;
+            cmd[6] = 0;
+            cmd[7] = 0;
+            InteractEmpty(cmd);
+        }
+
+        public void VariableSlewRA(double arcsecondsPerSecond)
+        {
+            if (arcsecondsPerSecond >= 0)
+            {
+                VariableSlewCommand(3, 16, 6, arcsecondsPerSecond);
+            }
+            else
+            {
+                VariableSlewCommand(3, 16, 7, -arcsecondsPerSecond);
+            }
+        }
+
+        public void VariableSlewDec(double arcsecondsPerSecond)
+        {
+            if (arcsecondsPerSecond >= 0)
+            {
+                VariableSlewCommand(3, 17, 6, arcsecondsPerSecond);
+            }
+            else
+            {
+                VariableSlewCommand(3, 17, 7, -arcsecondsPerSecond);
             }
         }
 
