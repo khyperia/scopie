@@ -14,7 +14,7 @@
     <PackageReference Include="DotImaging.IO" Version="5.2.0" />
   </ItemGroup>
   <ItemGroup>
-    <None Update="qhyccd/*.dll">
+    <None Update="qhyccd/x64/*.dll">
       <Link>%(FileName)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

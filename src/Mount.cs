@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace Scopie
 {
-    public class Mount : IDisposable
+    public sealed class Mount : IDisposable
     {
         private readonly SerialPort _port;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1);
@@ -50,56 +50,35 @@ namespace Scopie
             _port.Open();
         }
 
-        private string Interact(string command)
+        private byte[] StrToByteArr(string str)
         {
-            /*
-            static void Debug(string prefix, string value)
+            var array = new byte[str.Length];
+            var i = 0;
+            foreach (var chr in str)
             {
-                var nums = string.Join(", ", value.Select(c => (int)c));
-                if (value.Length > 0 && value.All(c => c >= 32 && c < 128))
-                {
-                    nums += $" ({value})";
-                }
-                Console.WriteLine($"{prefix} {nums}");
+                array[i++] = (byte)chr;
             }
-            */
+            return array;
+        }
 
-            void Write(string cmd)
-            {
-                //Debug("  >", cmd);
-                var array = new byte[cmd.Length];
-                var i = 0;
-                foreach (var chr in cmd)
-                {
-                    array[i++] = (byte)chr;
-                }
-                _port.Write(array, 0, array.Length);
-            }
+        private string ByteArrayToStr(byte[] bytes) => Encoding.ASCII.GetString(bytes);
 
-            string ReadLine()
-            {
-                var builder = new StringBuilder();
-                while (true)
-                {
-                    var length = _port.Read(_readBuffer, 0, 1);
-                    var data = (char)_readBuffer[0];
-                    // all responses end with #
-                    if (length <= 0 || data == '#')
-                    {
-                        break;
-                    }
-                    builder.Append(data);
-                }
-                var result = builder.ToString();
-                // Debug("  <", result);
-                return result;
-            }
-
+        private byte[] Interact(byte[] command, int responseLength)
+        {
             _semaphore.Wait();
             try
             {
-                Write(command);
-                return ReadLine();
+                _port.Write(command, 0, command.Length);
+                var result = new byte[responseLength];
+                for (var i = 0; i < responseLength; i++)
+                {
+                    result[i] = (byte)_port.ReadByte();
+                }
+                if (_port.ReadByte() != '#')
+                {
+                    throw new Exception("Mount response did not end in '#'");
+                }
+                return result;
             }
             finally
             {
@@ -122,7 +101,7 @@ namespace Scopie
 
         private static string ToMountHex(Dms value)
         {
-            var intval = (uint)(value.ValueMod * (uint.MaxValue + 1.0));
+            var intval = (uint)(value.Value0to1 * (uint.MaxValue + 1.0));
             intval &= 0xffffff00;
             return intval.ToString("X8");
         }
@@ -356,7 +335,7 @@ namespace Scopie
 
         static void SplitThreeBytes(Dms valueDms, out byte high, out byte med, out byte low)
         {
-            var value = valueDms.ValueMod;
+            var value = valueDms.Value0to1;
             value *= 256;
             high = (byte)value;
             value = Dms.Mod(value, 1);

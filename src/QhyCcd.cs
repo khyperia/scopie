@@ -434,7 +434,7 @@ namespace Scopie
 
     static class QhyCcdDll
     {
-        private const string DLL_NAME = "qhyccd_x64.dll";
+        private const string DLL_NAME = "qhyccd.dll";
 
         [DllImport(DLL_NAME, EntryPoint = "InitQHYCCDResource",
          CharSet = CharSet.Ansi, CallingConvention = CallingConvention.StdCall)]

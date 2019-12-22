@@ -5,10 +5,9 @@ namespace Scopie
 {
     public struct Dms : IEquatable<Dms>
     {
-        public double ValueRaw { get; }
-        public double ValueMod => Mod(ValueRaw, 1);
-        public double Degrees => ValueRaw * 360.0;
-        public double Hours => ValueRaw * 24.0;
+        public double Value0to1 { get; }
+        public double Degrees => Value0to1 * 360.0;
+        public double Hours => Value0to1 * 24.0;
 
         public (bool isNegative, int degrees, int minutes, int seconds, double remainderSeconds) DegreesMinutesSeconds => DmsAlg(Degrees);
         public (bool isNegative, int hours, int minutes, int seconds, double remainderSeconds) HoursMinutesSeconds => DmsAlg(Hours);
@@ -60,7 +59,7 @@ namespace Scopie
 
         private Dms(double value)
         {
-            ValueRaw = value;
+            Value0to1 = value - Math.Floor(value);
         }
 
         public enum Unit
@@ -143,8 +142,8 @@ namespace Scopie
         }
 
         public override bool Equals(object? obj) => obj is Dms dms && Equals(dms);
-        public bool Equals(Dms other) => ValueRaw == other.ValueRaw;
-        public override int GetHashCode() => ValueRaw.GetHashCode();
+        public bool Equals(Dms other) => Value0to1 == other.Value0to1;
+        public override int GetHashCode() => Value0to1.GetHashCode();
 
         public static bool operator ==(Dms left, Dms right) => left.Equals(right);
         public static bool operator !=(Dms left, Dms right) => !(left == right);

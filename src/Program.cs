@@ -60,7 +60,7 @@ namespace Scopie
             _camera?.Dispose();
         }
 
-        class CmdAttribute : Attribute
+        sealed class CmdAttribute : Attribute
         {
             public CmdAttribute(string cmd)
             {
