@@ -1,4 +1,4 @@
-use crate::{Result, SendUserUpdate, UserUpdate};
+use crate::{camera::ROIImage, Result, SendUserUpdate, UserUpdate};
 use khygl::texture::CpuTexture;
 use std::{
     sync::{mpsc, Arc},
@@ -128,16 +128,16 @@ impl std::fmt::Display for AppliedProcessResult<'_> {
 }
 
 pub struct Processor {
-    send: mpsc::SyncSender<Arc<CpuTexture<u16>>>,
+    send: mpsc::SyncSender<Arc<ROIImage>>,
     //recv: mpsc::Receiver<ProcessResult>,
 }
 
 impl Processor {
     pub fn new(send_user_update: SendUserUpdate) -> Self {
-        let (send, recv) = mpsc::sync_channel::<Arc<CpuTexture<u16>>>(1);
+        let (send, recv) = mpsc::sync_channel::<Arc<ROIImage>>(1);
         spawn(move || {
             while let Ok(img) = recv.recv() {
-                let result = UserUpdate::ProcessResult(ProcessResult::compute(&img));
+                let result = UserUpdate::ProcessResult(ProcessResult::compute(&img.image));
                 if send_user_update.send_event(result).is_err() {
                     break;
                 }
@@ -147,7 +147,7 @@ impl Processor {
     }
 
     // true if ok, false if dropped frame
-    pub fn process(&self, image: Arc<CpuTexture<u16>>) -> Result<bool> {
+    pub fn process(&self, image: Arc<ROIImage>) -> Result<bool> {
         match self.send.try_send(image) {
             Ok(()) => Ok(true),
             Err(mpsc::TrySendError::Full(_)) => Ok(false),

@@ -3,7 +3,7 @@ use crate::{
     qhycamera::{ControlId, QHYCCD},
     Result,
 };
-use khygl::texture::CpuTexture;
+use khygl::{texture::CpuTexture, Rect};
 use std::{error::Error, ffi::CString, fmt, str, sync::Once};
 
 #[derive(Debug)]
@@ -28,6 +28,23 @@ fn check(code: u32) -> ::std::result::Result<(), QhyError> {
         Ok(())
     } else {
         Err(QhyError { code })
+    }
+}
+
+pub struct ROIImage {
+    pub image: CpuTexture<u16>,
+    pub location: Rect<usize>,
+    pub original: Rect<usize>,
+}
+
+impl From<CpuTexture<u16>> for ROIImage {
+    fn from(image: CpuTexture<u16>) -> ROIImage {
+        let original = Rect::new(0, 0, image.size.0, image.size.1);
+        ROIImage {
+            image,
+            location: original.clone(),
+            original,
+        }
     }
 }
 
@@ -92,6 +109,8 @@ pub struct Camera {
     info: CameraInfo,
     controls: Vec<Control>,
     use_live: bool,
+    effective_area: Rect<usize>,
+    current_roi: Rect<usize>,
 }
 
 impl Camera {
@@ -126,6 +145,18 @@ impl Camera {
                     0.0,
                 ))?;
             }
+            let mut x = 0;
+            let mut y = 0;
+            let mut width = 0;
+            let mut height = 0;
+            check(qhy::GetQHYCCDEffectiveArea(
+                handle,
+                &mut x,
+                &mut y,
+                &mut width,
+                &mut height,
+            ))?;
+            let current_roi = Rect::new(x as usize, y as usize, width as usize, height as usize);
 
             let controls = Self::get_controls(handle);
 
@@ -134,6 +165,8 @@ impl Camera {
                 info,
                 controls,
                 use_live,
+                effective_area: current_roi.clone(),
+                current_roi,
             })
         }
     }
@@ -146,14 +179,50 @@ impl Camera {
         self.use_live
     }
 
+    pub fn effective_area(&self) -> Rect<usize> {
+        self.effective_area.clone()
+    }
+
     pub fn name(&self) -> &str {
         &self.info().name()
     }
 
+    pub fn set_roi(&mut self, roi: Rect<usize>) -> Result<()> {
+        self.current_roi = roi.clone();
+        unsafe {
+            Ok(check(qhy::SetQHYCCDResolution(
+                self.handle,
+                roi.x as u32,
+                roi.y as u32,
+                roi.width as u32,
+                roi.height as u32,
+            ))?)
+        }
+    }
+
+    pub fn unset_roi(&mut self) -> Result<()> {
+        self.current_roi = self.effective_area.clone();
+        unsafe {
+            Ok(check(qhy::SetQHYCCDResolution(
+                self.handle,
+                self.effective_area.x as u32,
+                self.effective_area.y as u32,
+                self.effective_area.width as u32,
+                self.effective_area.height as u32,
+            ))?)
+        }
+    }
+
     fn get_controls(handle: QHYCCD) -> Vec<Control> {
+        const BANNED: [ControlId; 3] = [
+            ControlId::ControlCfwport,
+            ControlId::ControlCfwslotsnum,
+            ControlId::ControlDdr,
+        ];
         ControlId::values()
             .iter()
             .cloned()
+            .filter(|&id| !BANNED.iter().any(|&x| id == x))
             .filter(|&id| unsafe { qhy::IsQHYCCDControlAvailable(handle, id) } == 0)
             .map(|id| Control::new(handle, id))
             .collect::<Vec<_>>()
@@ -176,7 +245,7 @@ impl Camera {
         unsafe { Ok(check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?) }
     }
 
-    pub fn get_single(&self) -> Result<CpuTexture<u16>> {
+    pub fn get_single(&self) -> Result<ROIImage> {
         unsafe {
             // GetQHYCCDExposureRemaining seems to be unreliable, so just block
             let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
@@ -196,7 +265,13 @@ impl Camera {
             ))?;
             assert_eq!(bpp, 16);
             assert_eq!(channels, 1);
-            Ok(CpuTexture::new(data, (width as usize, height as usize)))
+            assert_eq!(width as usize, self.current_roi.width);
+            assert_eq!(height as usize, self.current_roi.height);
+            Ok(ROIImage {
+                image: CpuTexture::new(data, (width as usize, height as usize)),
+                location: self.current_roi.clone(),
+                original: self.effective_area.clone(),
+            })
         }
     }
 
@@ -208,7 +283,7 @@ impl Camera {
         unsafe { Ok(check(qhy::StopQHYCCDLive(self.handle))?) }
     }
 
-    pub fn get_live(&self) -> Option<CpuTexture<u16>> {
+    pub fn get_live(&self) -> Option<ROIImage> {
         unsafe {
             let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
             let len_u16 = len_u8 / 2;
@@ -231,7 +306,13 @@ impl Camera {
             } else {
                 assert_eq!(bpp, 16);
                 assert_eq!(channels, 1);
-                Some(CpuTexture::new(data, (width as usize, height as usize)))
+                assert_eq!(width as usize, self.current_roi.width);
+                assert_eq!(height as usize, self.current_roi.height);
+                Some(ROIImage {
+                    image: CpuTexture::new(data, (width as usize, height as usize)),
+                    location: self.current_roi.clone(),
+                    original: self.effective_area.clone(),
+                })
             }
         }
     }
@@ -251,16 +332,6 @@ impl Camera {
             self.stop_single()
         }
     }
-
-    // pub fn try_get(&self) -> Result<Option<CpuTexture<u16>>> {
-    //     if self.use_live {
-    //         Ok(self.get_live())
-    //     } else {
-    //         let res = self.get_single()?;
-    //         self.start_single()?;
-    //         Ok(Some(res))
-    //     }
-    // }
 }
 
 impl Drop for Camera {
@@ -275,6 +346,7 @@ pub struct Control {
     min: f64,
     max: f64,
     step: f64,
+    constant_value: f64,
     readonly: bool,
     interesting: bool,
 }
@@ -288,15 +360,21 @@ impl Control {
             let res = qhy::GetQHYCCDParamMinMaxStep(handle, control, &mut min, &mut max, &mut step);
             let readonly = res != 0;
             let interesting = ControlId::is_interesting(control);
-            Self {
+            let constant = ControlId::is_constant(control);
+            let mut res = Self {
                 handle,
                 control,
                 min,
                 max,
                 step,
+                constant_value: std::f64::NAN,
                 readonly,
                 interesting,
+            };
+            if constant {
+                res.constant_value = res.get();
             }
+            res
         }
     }
 
@@ -321,7 +399,17 @@ impl Control {
     // }
 
     pub fn get(&self) -> f64 {
+        if self.constant_value.is_finite() {
+            return self.constant_value;
+        }
+        // use std::time::Instant;
+        // let now = Instant::now();
         unsafe { qhy::GetQHYCCDParam(self.handle, self.control) }
+        // println!(
+        //     "{: >16} = {}",
+        //     (Instant::now() - now).as_micros(),
+        //     self.control
+        // );
     }
 
     pub fn set(&self, value: f64) -> Result<()> {

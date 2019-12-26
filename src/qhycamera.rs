@@ -158,9 +158,31 @@ static INTERESTING_VALUES: &[ControlId] = &[
     ControlId::ControlCooler,
 ];
 
+static CONSTANT_VALUES: &[ControlId] = &[
+    ControlId::ControlSt4port,
+    ControlId::CamBin1x1mode,
+    ControlId::CamBin2x2mode,
+    ControlId::CamBin3x3mode,
+    ControlId::CamBin4x4mode,
+    ControlId::Cam8bits,
+    ControlId::Cam16bits,
+    ControlId::CamGps,
+    ControlId::ControlAmpv,
+    ControlId::ControlVcam,
+    ControlId::ControlDdr,
+    ControlId::DdrBufferCapacity,
+    ControlId::DdrBufferReadThreshold,
+    ControlId::CamSingleframemode,
+    ControlId::CamLivevideomode,
+];
+
 impl ControlId {
     pub fn is_interesting(id: ControlId) -> bool {
         INTERESTING_VALUES.iter().any(|&x| x == id)
+    }
+
+    pub fn is_constant(id: ControlId) -> bool {
+        CONSTANT_VALUES.iter().any(|&x| x == id)
     }
 
     pub fn values() -> &'static [ControlId] {
@@ -268,16 +290,23 @@ extern "system" {
     pub fn CloseQHYCCD(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDStreamMode(handle: QHYCCD, mode: u8) -> u32;
     pub fn InitQHYCCD(handle: QHYCCD) -> u32;
-    //pub fn GetQHYCCDChipInfo(
-    //    handle: QHYCCD,
-    //    chipw: &mut f64,
-    //    chiph: &mut f64,
-    //    imagew: &mut u32,
-    //    imageh: &mut u32,
-    //    pixelw: &mut f64,
-    //    pixelh: &mut f64,
-    //    bpp: &mut u32,
-    //) -> u32;
+    // pub fn GetQHYCCDChipInfo(
+    //     handle: QHYCCD,
+    //     chipw: &mut f64,
+    //     chiph: &mut f64,
+    //     imagew: &mut u32,
+    //     imageh: &mut u32,
+    //     pixelw: &mut f64,
+    //     pixelh: &mut f64,
+    //     bpp: &mut u32,
+    // ) -> u32;
+    pub fn GetQHYCCDEffectiveArea(
+        handle: QHYCCD,
+        start_x: &mut u32,
+        start_y: &mut u32,
+        size_x: &mut u32,
+        size_y: &mut u32,
+    ) -> u32;
     pub fn IsQHYCCDControlAvailable(handle: QHYCCD, control_id: ControlId) -> u32;
     pub fn SetQHYCCDParam(handle: QHYCCD, control_id: ControlId, value: f64) -> u32;
     pub fn GetQHYCCDParam(handle: QHYCCD, control_id: ControlId) -> f64;
@@ -288,7 +317,7 @@ extern "system" {
         max: *mut f64,
         step: *mut f64,
     ) -> u32;
-    //pub fn SetQHYCCDResolution(handle: QHYCCD, x: u32, y: u32, width: u32, height: u32) -> u32;
+    pub fn SetQHYCCDResolution(handle: QHYCCD, x: u32, y: u32, width: u32, height: u32) -> u32;
     pub fn GetQHYCCDMemLength(handle: QHYCCD) -> u32;
     pub fn ExpQHYCCDSingleFrame(handle: QHYCCD) -> u32;
     pub fn GetQHYCCDSingleFrame(

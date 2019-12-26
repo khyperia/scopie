@@ -5,11 +5,14 @@ use crate::{
     platesolve::platesolve,
     process,
     qhycamera::{ControlId, EXPOSURE_FACTOR},
-    Result, SendUserUpdate, UserUpdate,
+    Key, Result, SendUserUpdate, UserUpdate,
 };
 use dirs;
 use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
-use std::{convert::TryInto, fmt::Write, fs::create_dir_all, path::PathBuf, time::Instant};
+use std::{
+    collections::HashSet, convert::TryInto, fmt::Write, fs::create_dir_all, path::PathBuf,
+    time::Instant,
+};
 
 pub struct CameraDisplay {
     camera: Option<camera_async::CameraAsync>,
@@ -17,6 +20,7 @@ pub struct CameraDisplay {
     image_display: ImageDisplay,
     processor: process::Processor,
     process_result: Option<process::ProcessResult>,
+    roi_thing: ROIThing,
     display_clip: f64,
     display_median_location: f64,
     display_interesting: bool,
@@ -28,12 +32,18 @@ pub struct CameraDisplay {
 
 impl CameraDisplay {
     pub fn new(send_user_update: SendUserUpdate) -> Self {
+        if let Ok(img) = crate::read_png("telescope.2019-11-21.19-39-54.png") {
+            send_user_update
+                .send_event(UserUpdate::CameraData(std::sync::Arc::new(img.into())))
+                .unwrap();
+        }
         Self {
             camera: Some(camera_async::CameraAsync::new(send_user_update.clone())),
             send_user_update: send_user_update.clone(),
             image_display: ImageDisplay::new(),
             processor: process::Processor::new(send_user_update),
             process_result: None,
+            roi_thing: ROIThing::new(),
             display_clip: 0.01,
             display_median_location: 0.2,
             display_interesting: true,
@@ -48,9 +58,6 @@ impl CameraDisplay {
         match *command {
             ["cross"] => {
                 self.image_display.cross = !self.image_display.cross;
-            }
-            ["zoom"] => {
-                self.image_display.zoom = !self.image_display.zoom;
             }
             ["bin"] => {
                 self.image_display.bin = !self.image_display.bin;
@@ -92,7 +99,7 @@ impl CameraDisplay {
             }
             ["save", "now"] if self.image_display.raw().is_some() => {
                 if let Some(ref raw) = self.image_display.raw() {
-                    self.save_png(raw)?;
+                    self.save_png(&raw.image)?;
                 }
             }
             ["save", n] => {
@@ -104,7 +111,7 @@ impl CameraDisplay {
             }
             ["solve"] => {
                 if let Some(ref raw) = self.image_display.raw() {
-                    platesolve(raw, self.send_user_update.clone())?;
+                    platesolve(&raw.image, self.send_user_update.clone())?;
                 } else {
                     return Ok(false);
                 }
@@ -136,7 +143,7 @@ impl CameraDisplay {
 
     fn camera_op(
         &mut self,
-        op: impl Fn(&camera_async::CameraAsync) -> std::result::Result<(), ()>,
+        op: impl FnOnce(&camera_async::CameraAsync) -> std::result::Result<(), ()>,
     ) {
         let ok = match self.camera {
             Some(ref mut camera) => op(camera).is_ok(),
@@ -196,10 +203,10 @@ impl CameraDisplay {
         }
         writeln!(
             status,
-            "cross:{}|zoom:{}|bin:{}",
-            self.image_display.cross, self.image_display.zoom, self.image_display.bin,
+            "cross:{}|bin:{}",
+            self.image_display.cross, self.image_display.bin,
         )?;
-        writeln!(status, "interesting: {}", self.display_interesting,)?;
+        writeln!(status, "interesting: {}", self.display_interesting)?;
         writeln!(status, "save|save [n]: {}", self.save)?;
         if !self.solve_status.is_empty() {
             writeln!(status, "solve: {}", self.solve_status)?;
@@ -260,7 +267,8 @@ impl CameraDisplay {
                 .get_scale_offset();
             self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
         };
-        self.image_display.draw(pos, displayer, screen_size)?;
+        self.image_display
+            .draw(pos, displayer, screen_size, &self.roi_thing)?;
         Ok(())
     }
 
@@ -288,7 +296,7 @@ impl CameraDisplay {
             UserUpdate::CameraData(image) => {
                 if self.save > 0 {
                     self.save -= 1;
-                    self.save_png(&image)?;
+                    self.save_png(&image.image)?;
                 }
                 self.image_display.set_raw(image)?;
                 let ok = self.processor.process(
@@ -300,7 +308,7 @@ impl CameraDisplay {
                 )?;
                 if !ok {
                     // TODO
-                    // println!("Dropped frame");
+                    //println!("Dropped processing frame");
                 }
             }
             UserUpdate::ProcessResult(process_result) => self.process_result = Some(process_result),
@@ -309,6 +317,120 @@ impl CameraDisplay {
                     camera.user_update(user_update);
                 }
             }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::float_cmp)]
+    pub fn key_down(&mut self, key: Key) -> Result<()> {
+        if key == Key::G {
+            if self.roi_thing.zoom == 1.0 {
+                self.camera_op(|c| c.set_roi(None));
+            } else if let Some(raw) = self.image_display.raw() {
+                let roi = ROIThing::clamp(
+                    self.roi_thing.get_roi_unclamped(&raw.original),
+                    &raw.original,
+                );
+                self.camera_op(move |c| c.set_roi(Some(roi)));
+            }
+        }
+        self.roi_thing.key_down(key)
+    }
+
+    pub fn key_up(&mut self, key: Key) -> Result<()> {
+        self.roi_thing.key_up(key)
+    }
+}
+
+pub struct ROIThing {
+    pressed_keys: HashSet<Key>,
+    position: (f64, f64),
+    zoom: f64,
+}
+
+impl ROIThing {
+    pub fn new() -> Self {
+        Self {
+            pressed_keys: HashSet::new(),
+            position: (0.5, 0.5),
+            zoom: 1.0,
+        }
+    }
+
+    fn tf(&self, point: (f64, f64)) -> (f64, f64) {
+        (
+            (point.0 - 0.5) * self.zoom + self.position.0,
+            (point.1 - 0.5) * self.zoom + self.position.1,
+        )
+    }
+
+    fn tf_space(&self, point: (f64, f64), space: &Rect<usize>) -> (isize, isize) {
+        let point = self.tf(point);
+        (
+            (point.0 * space.width as f64 + space.x as f64) as isize,
+            (point.1 * space.height as f64 + space.y as f64) as isize,
+        )
+    }
+
+    fn clamp1(val: isize, low: usize, high: usize) -> usize {
+        if val < low as isize {
+            low
+        } else if val >= high as isize {
+            high - 1
+        } else {
+            val as usize
+        }
+    }
+
+    pub fn clamp(area: Rect<isize>, clamp: &Rect<usize>) -> Rect<usize> {
+        let clampedx = Self::clamp1(area.x, clamp.x, clamp.right() - 1);
+        let clampedy = Self::clamp1(area.y, clamp.y, clamp.bottom() - 1);
+        // result.right() < clamp.right()
+        // result.x + result.width < clamp.right()
+        // result.width < clamp.right() - result.x
+        Rect::new(
+            clampedx,
+            clampedy,
+            Self::clamp1(area.width, 1, clamp.right() - clampedx),
+            Self::clamp1(area.height, 1, clamp.bottom() - clampedy),
+        )
+    }
+
+    pub fn get_roi_unclamped(&self, reference: &Rect<usize>) -> Rect<isize> {
+        let zerozero = self.tf_space((0.0, 0.0), reference);
+        let oneone = self.tf_space((1.0, 1.0), reference);
+        let size = (oneone.0 - zerozero.0, oneone.1 - zerozero.1);
+        Rect::new(zerozero.0, zerozero.1, size.0, size.1)
+    }
+
+    #[allow(clippy::float_cmp)]
+    pub fn key_down(&mut self, key: Key) -> Result<()> {
+        if !self.pressed_keys.insert(key) {
+            return Ok(());
+        }
+        match key {
+            Key::D => self.position.0 += self.zoom * 0.125,
+            Key::A => self.position.0 -= self.zoom * 0.125,
+            Key::S => self.position.1 += self.zoom * 0.125,
+            Key::W => self.position.1 -= self.zoom * 0.125,
+            Key::R => self.zoom /= 1.25,
+            Key::F => {
+                self.zoom = (self.zoom * 1.25).min(1.0);
+                if self.zoom == 1.0 {
+                    self.position = (0.5, 0.5);
+                }
+            }
+            _ => (),
+        }
+        Ok(())
+    }
+
+    pub fn key_up(&mut self, key: Key) -> Result<()> {
+        if !self.pressed_keys.remove(&key) {
+            return Ok(());
+        }
+        match key {
+            _ => (),
         }
         Ok(())
     }

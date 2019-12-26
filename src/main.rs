@@ -45,7 +45,7 @@ type Result<T> = std::result::Result<T, failure::Error>;
 pub enum UserUpdate {
     MountUpdate(mount_async::MountData),
     CameraUpdate(camera_async::CameraData),
-    CameraData(Arc<CpuTexture<u16>>),
+    CameraData(Arc<camera::ROIImage>),
     SolveFinished(Angle, Angle),
     ProcessResult(process::ProcessResult),
 }
@@ -97,7 +97,8 @@ struct Display {
     text_input: text_input::TextInput,
     texture_renderer: TextureRenderer,
     text_renderer: TextRenderer,
-    wasd_mode: bool,
+    wasd_mount_mode: bool,
+    wasd_camera_mode: bool,
 }
 
 impl Display {
@@ -108,9 +109,16 @@ impl Display {
     fn run_cmd_impl(&mut self, text: &str) -> Result<()> {
         let cmd = text.split_whitespace().collect::<Vec<_>>();
         let mut command_okay = cmd.is_empty();
-        if let ["wasd"] = &cmd as &[&str] {
-            self.wasd_mode = true;
-            command_okay |= true;
+        match &cmd as &[&str] {
+            ["wasd"] => {
+                self.wasd_mount_mode = true;
+                command_okay |= true;
+            }
+            ["zoom"] => {
+                self.wasd_camera_mode = true;
+                command_okay |= true;
+            }
+            _ => (),
         }
         if let Some(ref mut camera_display) = self.camera_display {
             command_okay |= camera_display.cmd(&cmd)?;
@@ -171,7 +179,8 @@ impl Display {
             text_input,
             texture_renderer,
             text_renderer,
-            wasd_mode: false,
+            wasd_mount_mode: false,
+            wasd_camera_mode: false,
         })
     }
 
@@ -204,10 +213,16 @@ impl Display {
         if let Some(ref mut mount_display) = self.mount_display {
             mount_display.status(&mut self.status)?;
         }
-        if self.wasd_mode {
+        if self.wasd_mount_mode {
             write!(
                 &mut self.status,
                 "WASD/RF mount control mode (esc to cancel)"
+            )?;
+        }
+        if self.wasd_camera_mode {
+            write!(
+                &mut self.status,
+                "WASD/RF camera control mode (esc to cancel)"
             )?;
         }
         if self.old_status != self.status {
@@ -251,20 +266,30 @@ impl Display {
     }
 
     fn key_up(&mut self, key: Key) -> Result<()> {
-        if self.wasd_mode {
+        if self.wasd_mount_mode {
             if let Some(ref mut mount_display) = self.mount_display {
                 mount_display.key_up(key)?;
+            }
+        } else if self.wasd_camera_mode {
+            if let Some(ref mut camera_display) = self.camera_display {
+                camera_display.key_up(key)?;
             }
         }
         Ok(())
     }
 
     fn key_down(&mut self, key: Key) -> Result<()> {
-        if self.wasd_mode {
+        if self.wasd_mount_mode {
             if key == Key::Escape {
-                self.wasd_mode = false;
+                self.wasd_mount_mode = false;
             } else if let Some(ref mut mount_display) = self.mount_display {
                 mount_display.key_down(key)?;
+            }
+        } else if self.wasd_camera_mode {
+            if key == Key::Escape {
+                self.wasd_camera_mode = false;
+            } else if let Some(ref mut camera_display) = self.camera_display {
+                camera_display.key_down(key)?;
             }
         } else {
             self.text_input.key_down(key);
@@ -347,7 +372,7 @@ impl Display {
     }
 
     fn received_character(&mut self, ch: char) -> Result<()> {
-        if !self.wasd_mode {
+        if !self.wasd_mount_mode && !self.wasd_camera_mode {
             self.text_input.received_character(ch);
         }
         Ok(())
