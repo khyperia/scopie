@@ -208,6 +208,7 @@ impl Display {
         }
         self.status.clear();
         if let Some(ref mut camera_display) = self.camera_display {
+            redraw |= camera_display.update();
             camera_display.status(&mut self.status, infrequent_update)?;
         }
         if let Some(ref mut mount_display) = self.mount_display {
@@ -272,7 +273,7 @@ impl Display {
             }
         } else if self.wasd_camera_mode {
             if let Some(ref mut camera_display) = self.camera_display {
-                camera_display.key_up(key)?;
+                camera_display.key_up(key);
             }
         }
         Ok(())
@@ -289,7 +290,7 @@ impl Display {
             if key == Key::Escape {
                 self.wasd_camera_mode = false;
             } else if let Some(ref mut camera_display) = self.camera_display {
-                camera_display.key_down(key)?;
+                camera_display.key_down(key);
             }
         } else {
             self.text_input.key_down(key);

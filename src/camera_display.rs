@@ -10,7 +10,7 @@ use crate::{
 use dirs;
 use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
 use std::{
-    collections::HashSet, convert::TryInto, fmt::Write, fs::create_dir_all, path::PathBuf,
+    collections::HashMap, convert::TryInto, fmt::Write, fs::create_dir_all, path::PathBuf,
     time::Instant,
 };
 
@@ -154,6 +154,10 @@ impl CameraDisplay {
         }
     }
 
+    pub fn update(&mut self) -> bool {
+        self.roi_thing.update()
+    }
+
     pub fn status(&mut self, status: &mut String, infrequent_update: bool) -> Result<()> {
         if infrequent_update {
             self.cached_status.clear();
@@ -267,6 +271,7 @@ impl CameraDisplay {
                 .get_scale_offset();
             self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
         };
+        self.roi_thing.update();
         self.image_display
             .draw(pos, displayer, screen_size, &self.roi_thing)?;
         Ok(())
@@ -322,8 +327,9 @@ impl CameraDisplay {
     }
 
     #[allow(clippy::float_cmp)]
-    pub fn key_down(&mut self, key: Key) -> Result<()> {
+    pub fn key_down(&mut self, key: Key) {
         if key == Key::G {
+            self.roi_thing.update();
             if self.roi_thing.zoom == 1.0 {
                 self.camera_op(|c| c.set_roi(None));
             } else if let Some(raw) = self.image_display.raw() {
@@ -334,16 +340,16 @@ impl CameraDisplay {
                 self.camera_op(move |c| c.set_roi(Some(roi)));
             }
         }
-        self.roi_thing.key_down(key)
+        self.roi_thing.key_down(key);
     }
 
-    pub fn key_up(&mut self, key: Key) -> Result<()> {
-        self.roi_thing.key_up(key)
+    pub fn key_up(&mut self, key: Key) {
+        self.roi_thing.key_up(key);
     }
 }
 
 pub struct ROIThing {
-    pressed_keys: HashSet<Key>,
+    pressed_keys: HashMap<Key, Instant>,
     position: (f64, f64),
     zoom: f64,
 }
@@ -351,7 +357,7 @@ pub struct ROIThing {
 impl ROIThing {
     pub fn new() -> Self {
         Self {
-            pressed_keys: HashSet::new(),
+            pressed_keys: HashMap::new(),
             position: (0.5, 0.5),
             zoom: 1.0,
         }
@@ -404,34 +410,38 @@ impl ROIThing {
     }
 
     #[allow(clippy::float_cmp)]
-    pub fn key_down(&mut self, key: Key) -> Result<()> {
-        if !self.pressed_keys.insert(key) {
-            return Ok(());
-        }
-        match key {
-            Key::D => self.position.0 += self.zoom * 0.125,
-            Key::A => self.position.0 -= self.zoom * 0.125,
-            Key::S => self.position.1 += self.zoom * 0.125,
-            Key::W => self.position.1 -= self.zoom * 0.125,
-            Key::R => self.zoom /= 1.25,
-            Key::F => {
-                self.zoom = (self.zoom * 1.25).min(1.0);
-                if self.zoom == 1.0 {
-                    self.position = (0.5, 0.5);
+    pub fn update(&mut self) -> bool {
+        let mut any_key = false;
+        for (key, time) in &mut self.pressed_keys {
+            let now = Instant::now();
+            let dt = (now - *time).as_secs_f64();
+            let mut handled_key = true;
+            match *key {
+                Key::D => self.position.0 += self.zoom * dt * 0.25,
+                Key::A => self.position.0 -= self.zoom * dt * 0.25,
+                Key::S => self.position.1 += self.zoom * dt * 0.25,
+                Key::W => self.position.1 -= self.zoom * dt * 0.25,
+                Key::R => self.zoom *= (-dt).exp2(),
+                Key::F => {
+                    self.zoom = (self.zoom * dt.exp2()).min(1.0);
+                    if self.zoom == 1.0 {
+                        self.position = (0.5, 0.5);
+                    }
                 }
+                _ => handled_key = false,
             }
-            _ => (),
+            any_key |= handled_key;
+            *time = now;
         }
-        Ok(())
+        any_key
     }
 
-    pub fn key_up(&mut self, key: Key) -> Result<()> {
-        if !self.pressed_keys.remove(&key) {
-            return Ok(());
-        }
-        match key {
-            _ => (),
-        }
-        Ok(())
+    pub fn key_down(&mut self, key: Key) {
+        self.pressed_keys.entry(key).or_insert_with(Instant::now);
+    }
+
+    pub fn key_up(&mut self, key: Key) {
+        self.update();
+        self.pressed_keys.remove(&key);
     }
 }
