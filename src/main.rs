@@ -15,10 +15,10 @@ use camera_display::CameraDisplay;
 use dms::Angle;
 use glutin::{
     self,
-    dpi::LogicalPosition,
+    dpi::{LogicalPosition, PhysicalPosition},
     event::{
-        ElementState, Event, ModifiersState, MouseButton, MouseScrollDelta, TouchPhase,
-        VirtualKeyCode as Key, WindowEvent,
+        ElementState, Event, MouseButton, MouseScrollDelta, TouchPhase, VirtualKeyCode as Key,
+        WindowEvent,
     },
     event_loop::{ControlFlow, EventLoop, EventLoopProxy},
     window::WindowBuilder,
@@ -42,6 +42,7 @@ use std::{
 
 type Result<T> = std::result::Result<T, failure::Error>;
 
+#[derive(Debug)]
 pub enum UserUpdate {
     MountUpdate(mount_async::MountData),
     CameraUpdate(camera_async::CameraData),
@@ -90,7 +91,7 @@ struct Display {
     next_frequent_update: Instant,
     next_infrequent_update: Instant,
     window_size: (usize, usize),
-    last_mouse: Option<LogicalPosition>,
+    last_mouse: Option<PhysicalPosition<f64>>,
     pressed_mouse: HashSet<MouseButton>,
     status: String,
     old_status: String,
@@ -153,11 +154,11 @@ impl Display {
         input_error: String,
         command_okay: bool,
         window_size: (usize, usize),
-        dpi: f64,
         send_user_update: SendUserUpdate,
     ) -> Result<Self> {
         let texture_renderer = TextureRenderer::new()?;
-        let height = 20.0 * dpi as f32;
+        // TODO: let height = 20.0 * dpi as f32;
+        let height = 20.0;
         let text_renderer = TextRenderer::new(height)?;
         let send_user_update_2 = send_user_update.clone();
         let camera_display = Some(CameraDisplay::new(send_user_update_2));
@@ -299,73 +300,58 @@ impl Display {
         Ok(())
     }
 
-    fn mouse_dragged(
-        &mut self,
-        button: MouseButton,
-        modifiers: ModifiersState,
-        delta: LogicalPosition,
-    ) -> Result<()> {
+    fn mouse_dragged(&mut self, _button: MouseButton, _delta: LogicalPosition<f64>) -> Result<()> {
         Ok(())
     }
 
-    fn mouse_down(&mut self, button: MouseButton, modifiers: ModifiersState) -> Result<()> {
+    fn mouse_down(&mut self, _button: MouseButton) -> Result<()> {
         Ok(())
     }
 
-    fn mouse_up(&mut self, button: MouseButton, modifiers: ModifiersState) -> Result<()> {
+    fn mouse_up(&mut self, _button: MouseButton) -> Result<()> {
         Ok(())
     }
 
-    fn mouse_input(
-        &mut self,
-        state: ElementState,
-        button: MouseButton,
-        modifiers: ModifiersState,
-    ) -> Result<()> {
+    fn mouse_input(&mut self, state: ElementState, button: MouseButton) -> Result<()> {
         match state {
             ElementState::Pressed => {
                 if self.pressed_mouse.insert(button) {
-                    self.mouse_down(button, modifiers)?;
+                    self.mouse_down(button)?;
                 }
             }
             ElementState::Released => {
                 if self.pressed_mouse.remove(&button) {
-                    self.mouse_up(button, modifiers)?;
+                    self.mouse_up(button)?;
                 }
             }
         }
         Ok(())
     }
 
-    fn mouse_wheel_y(&mut self, delta: f64, modifiers: ModifiersState) -> Result<()> {
+    fn mouse_wheel_y(&mut self, _delta: f64) -> Result<()> {
         Ok(())
     }
 
-    fn mouse_wheel(
-        &mut self,
-        delta: MouseScrollDelta,
-        phase: TouchPhase,
-        modifiers: ModifiersState,
-    ) -> Result<()> {
+    fn mouse_wheel(&mut self, delta: MouseScrollDelta, _phase: TouchPhase) -> Result<()> {
         let pixels = match delta {
             MouseScrollDelta::LineDelta(_, y) => self.text_renderer.spacing as f64 * y as f64,
             MouseScrollDelta::PixelDelta(logical) => logical.y,
         };
-        self.mouse_wheel_y(pixels, modifiers)
+        self.mouse_wheel_y(pixels)
     }
 
-    fn mouse_moved(&mut self, position: LogicalPosition, modifiers: ModifiersState) -> Result<()> {
+    fn mouse_moved(&mut self, position: PhysicalPosition<f64>) -> Result<()> {
         if let Some(last_mouse) = self.last_mouse {
             let delta = LogicalPosition::new(position.x - last_mouse.x, position.y - last_mouse.y);
             // dumb
             if self.pressed_mouse.contains(&MouseButton::Left) {
-                self.mouse_dragged(MouseButton::Left, modifiers, delta)?;
+                self.mouse_dragged(MouseButton::Left, delta)?;
             }
             if self.pressed_mouse.contains(&MouseButton::Right) {
-                self.mouse_dragged(MouseButton::Right, modifiers, delta)?;
+                self.mouse_dragged(MouseButton::Right, delta)?;
             }
             if self.pressed_mouse.contains(&MouseButton::Middle) {
-                self.mouse_dragged(MouseButton::Middle, modifiers, delta)?;
+                self.mouse_dragged(MouseButton::Middle, delta)?;
             }
         }
         self.last_mouse = Some(position);
@@ -430,8 +416,7 @@ fn main() -> Result<()> {
 
     let windowed_context = unsafe { windowed_context.make_current().map_err(|(_, e)| e)? };
 
-    let dpi = windowed_context.window().hidpi_factor();
-    let initial_size = windowed_context.window().inner_size().to_physical(dpi);
+    let initial_size = windowed_context.window().inner_size();
 
     gl::load_with(|symbol| windowed_context.get_proc_address(symbol) as *const _);
 
@@ -452,23 +437,21 @@ fn main() -> Result<()> {
         input_error,
         command_okay,
         (initial_size.width as usize, initial_size.height as usize),
-        dpi,
         proxy,
     )?);
 
     el.run(move |event, _, control_flow| match event {
         Event::WindowEvent { event, .. } => match event {
-            WindowEvent::Resized(logical_size)
-                if logical_size.width > 0.0 && logical_size.height > 0.0 =>
+            WindowEvent::Resized(physical_size)
+                if physical_size.width > 0 && physical_size.height > 0 =>
             {
                 if let Some(ref mut display) = display {
-                    let dpi_factor = windowed_context.window().hidpi_factor();
-                    let physical = logical_size.to_physical(dpi_factor);
+                    let (width, height) = (physical_size.width, physical_size.height);
                     handle(
                         control_flow,
-                        display.resize((physical.width as usize, physical.height as usize)),
+                        display.resize((width as usize, height as usize)),
                     );
-                    unsafe { gl::Viewport(0, 0, physical.width as i32, physical.height as i32) };
+                    unsafe { gl::Viewport(0, 0, width as i32, height as i32) };
                 }
             }
             WindowEvent::KeyboardInput { input, .. } => {
@@ -482,33 +465,19 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            WindowEvent::MouseInput {
-                state,
-                button,
-                modifiers,
-                ..
-            } => {
+            WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(ref mut display) = display {
-                    handle(control_flow, display.mouse_input(state, button, modifiers));
+                    handle(control_flow, display.mouse_input(state, button));
                 }
             }
-            WindowEvent::MouseWheel {
-                delta,
-                phase,
-                modifiers,
-                ..
-            } => {
+            WindowEvent::MouseWheel { delta, phase, .. } => {
                 if let Some(ref mut display) = display {
-                    handle(control_flow, display.mouse_wheel(delta, phase, modifiers));
+                    handle(control_flow, display.mouse_wheel(delta, phase));
                 }
             }
-            WindowEvent::CursorMoved {
-                position,
-                modifiers,
-                ..
-            } => {
+            WindowEvent::CursorMoved { position, .. } => {
                 if let Some(ref mut display) = display {
-                    handle(control_flow, display.mouse_moved(position, modifiers));
+                    handle(control_flow, display.mouse_moved(position));
                 }
             }
             WindowEvent::CursorLeft { .. } => {
@@ -522,15 +491,6 @@ fn main() -> Result<()> {
                     windowed_context.window().request_redraw();
                 }
             }
-            WindowEvent::RedrawRequested => {
-                if let Some(ref mut display) = display {
-                    handle(control_flow, display.render());
-                    handle(
-                        control_flow,
-                        windowed_context.swap_buffers().map_err(|e| e.into()),
-                    );
-                }
-            }
             WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
             _ => (),
         },
@@ -540,7 +500,16 @@ fn main() -> Result<()> {
                 windowed_context.window().request_redraw();
             }
         }
-        Event::EventsCleared => {
+        Event::RedrawRequested(_) => {
+            if let Some(ref mut display) = display {
+                handle(control_flow, display.render());
+                handle(
+                    control_flow,
+                    windowed_context.swap_buffers().map_err(|e| e.into()),
+                );
+            }
+        }
+        Event::MainEventsCleared => {
             if *control_flow == ControlFlow::Exit {
                 display = None;
             } else if let Some(ref mut display) = display {

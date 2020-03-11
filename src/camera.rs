@@ -31,6 +31,7 @@ fn check(code: u32) -> ::std::result::Result<(), QhyError> {
     }
 }
 
+#[derive(Debug)]
 pub struct ROIImage {
     pub image: CpuTexture<u16>,
     pub location: Rect<usize>,
@@ -440,7 +441,7 @@ impl Control {
 //     }
 // }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ControlValue {
     pub id: ControlId,
     pub value: f64,

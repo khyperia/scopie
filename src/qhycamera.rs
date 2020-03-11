@@ -3,7 +3,7 @@ use std::{ffi::c_void, fmt, os::raw::c_char, str::FromStr};
 pub type QHYCCD = *mut c_void;
 
 #[repr(u32)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ControlId {
     ControlBrightness = 0, // image brightness
     ControlContrast,       // image contrast

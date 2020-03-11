@@ -31,6 +31,7 @@ fn stdev(data: &[u16], mean: f64) -> f64 {
 }
 */
 
+#[derive(Debug)]
 pub struct ProcessResult {
     sorted: Vec<u16>,
     gap: u16,

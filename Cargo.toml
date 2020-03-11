@@ -8,9 +8,9 @@ edition = "2018"
 dirs = { version = "", default-features = false }
 failure = { version = "", default-features = false }
 gl = { version = "", default-features = false }
-glutin = { version = "0.22.0-alpha3", default-features = false }
+glutin = { version = "", default-features = false }
 khygl = { git = "https://github.com/khyperia/khygl.git", default-features = false }
 png = ""
 regex = { version = "", default-features = false }
 serialport = { version = "", default-features = false }
-time = { version = "", default-features = false }
+time = { version = "", default-features = false, features = ["std"] }

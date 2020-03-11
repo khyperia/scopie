@@ -1,8 +1,7 @@
 use crate::{dms::Angle, Result};
-use serialport;
 use std::{ffi::OsStr, fmt, fmt::Display, str, str::FromStr, time::Duration};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TrackingMode {
     Off,
     AltAz,
@@ -63,7 +62,7 @@ impl From<TrackingMode> for u8 {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct MountTime {
     hour: u8,
     minute: u8,
@@ -77,16 +76,17 @@ pub struct MountTime {
 
 impl MountTime {
     pub fn now() -> Self {
-        let tm = time::now();
+        //let tm = time::now();
+        let tm = time::OffsetDateTime::now_local();
         MountTime {
-            hour: tm.tm_hour as u8,
-            minute: tm.tm_min as u8,
-            second: tm.tm_sec as u8,
-            month: (tm.tm_mon + 1) as u8,
-            day: tm.tm_mday as u8,
-            year: (tm.tm_year - 100) as u8, // tm_year is years since 1900
-            time_zone_offset: (tm.tm_utcoff / (60 * 60)) as i8, // tm_utcoff is seconds
-            dst: tm.tm_isdst != 0,
+            hour: tm.hour() as u8,
+            minute: tm.minute() as u8,
+            second: tm.second() as u8,
+            month: tm.month() as u8,
+            day: tm.day() as u8,
+            year: (tm.year() - 1900) as u8, // tm_year is years since 1900
+            time_zone_offset: tm.offset().as_hours(),
+            dst: false,
         }
     }
 }

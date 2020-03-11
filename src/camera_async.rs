@@ -1,5 +1,4 @@
 use crate::{camera, qhycamera::ControlId, Result, SendUserUpdate, UserUpdate};
-use glutin::event_loop::EventLoopClosed;
 use khygl::Rect;
 use std::{
     sync::{mpsc, Arc},
@@ -15,7 +14,7 @@ enum CameraCommand {
     SetROI(Option<Rect<usize>>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CameraData {
     pub controls: Vec<camera::ControlValue>,
     pub name: String,
@@ -131,7 +130,7 @@ fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> 
 
         match send.send_event(UserUpdate::CameraUpdate(data)) {
             Ok(()) => (),
-            Err(EventLoopClosed) => return Ok(()),
+            Err(_) => return Ok(()),
         }
         if running {
             if camera.use_live() {

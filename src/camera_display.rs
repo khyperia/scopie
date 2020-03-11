@@ -7,7 +7,6 @@ use crate::{
     qhycamera::{ControlId, EXPOSURE_FACTOR},
     Key, Result, SendUserUpdate, UserUpdate,
 };
-use dirs;
 use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
 use std::{
     collections::HashMap, convert::TryInto, fmt::Write, fs::create_dir_all, path::PathBuf,
@@ -230,22 +229,9 @@ impl CameraDisplay {
     }
 
     fn save_png(&self, data: &CpuTexture<u16>) -> Result<()> {
-        let tm = time::now();
-        let dirname = format!(
-            "{}_{:02}_{:02}",
-            tm.tm_year + 1900,
-            tm.tm_mon + 1,
-            tm.tm_mday,
-        );
-        let filename = format!(
-            "telescope.{}-{:02}-{:02}.{:02}-{:02}-{:02}.png",
-            tm.tm_year + 1900,
-            tm.tm_mon + 1,
-            tm.tm_mday,
-            tm.tm_hour,
-            tm.tm_min,
-            tm.tm_sec
-        );
+        let tm = time::OffsetDateTime::now_local();
+        let dirname = tm.format("%Y_%m_%d");
+        let filename = tm.format("telescope.%Y-%m-%d.%H-%M-%S.png");
         let mut filepath = dirs::desktop_dir().unwrap_or_else(PathBuf::new);
         filepath.push(dirname);
         if !self.folder.is_empty() {

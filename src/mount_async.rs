@@ -18,7 +18,7 @@ enum MountCommand {
     FixedSlewDec(i32),
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct MountData {
     pub ra_dec: (Angle, Angle),
     pub az_alt: (Angle, Angle),
@@ -132,7 +132,7 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
     }));
     match send_result {
         Ok(()) => Ok(true),
-        Err(glutin::event_loop::EventLoopClosed) => Ok(false),
+        Err(glutin::event_loop::EventLoopClosed(_)) => Ok(false),
     }
 }
 
