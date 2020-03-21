@@ -146,9 +146,7 @@ impl Display {
             self.try_run_cmd(&cmd);
         }
     }
-}
 
-impl Display {
     fn setup(
         mount: Option<mount::Mount>,
         input_error: String,

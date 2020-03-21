@@ -273,7 +273,7 @@ class CCyUSBInterface
 {
 public:
   CCyUSBEndPoint *EndPoints[MAX_ENDPTS];  /* Holds pointers to all the interface's endpoints,
-                                                                                                                                                                                                                     plus a pointer to the Control endpoint zero */
+                                                                                                                                                                                                                       plus a pointer to the Control endpoint zero */
   UCHAR   bLength;
   UCHAR   bDescriptorType;
   UCHAR   bInterfaceNumber;
