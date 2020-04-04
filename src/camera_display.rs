@@ -13,15 +13,13 @@ use std::{
     time::Instant,
 };
 
+// TODO: make saving images async
 pub struct CameraDisplay {
     camera: Option<camera_async::CameraAsync>,
     send_user_update: SendUserUpdate,
     image_display: ImageDisplay,
     processor: process::Processor,
-    process_result: Option<process::ProcessResult>,
     roi_thing: ROIThing,
-    display_clip: f64,
-    display_median_location: f64,
     display_interesting: bool,
     save: usize,
     folder: String,
@@ -41,10 +39,7 @@ impl CameraDisplay {
             send_user_update: send_user_update.clone(),
             image_display: ImageDisplay::new(),
             processor: process::Processor::new(send_user_update),
-            process_result: None,
             roi_thing: ROIThing::new(),
-            display_clip: 0.01,
-            display_median_location: 0.2,
             display_interesting: true,
             save: 0,
             folder: String::new(),
@@ -54,6 +49,9 @@ impl CameraDisplay {
     }
 
     pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
+        if self.processor.cmd(command)? {
+            return Ok(true);
+        }
         match *command {
             ["cross"] => {
                 self.image_display.cross = !self.image_display.cross;
@@ -63,20 +61,6 @@ impl CameraDisplay {
             }
             ["interesting"] => {
                 self.display_interesting = !self.display_interesting;
-            }
-            ["clip", clip] => {
-                if let Ok(clip) = clip.parse::<f64>() {
-                    self.display_clip = clip / 100.0;
-                } else {
-                    return Ok(false);
-                }
-            }
-            ["median_location", median_location] => {
-                if let Ok(median_location) = median_location.parse::<f64>() {
-                    self.display_median_location = median_location / 100.0;
-                } else {
-                    return Ok(false);
-                }
             }
             ["live"] => {
                 self.camera_op(|c| c.toggle_live());
@@ -219,11 +203,7 @@ impl CameraDisplay {
         } else {
             writeln!(status, "folder: {}", self.folder)?;
         }
-        if let Some(ref process_result) = self.process_result {
-            let process_result =
-                process_result.apply(self.display_clip, self.display_median_location);
-            write!(status, "{}", process_result)?;
-        }
+        self.processor.status(status)?;
         write!(status, "{}", self.cached_status)?;
         Ok(())
     }
@@ -251,10 +231,7 @@ impl CameraDisplay {
         displayer: &TextureRenderer,
         screen_size: (f32, f32),
     ) -> Result<()> {
-        if let Some(ref process_result) = self.process_result {
-            let scale_offset = process_result
-                .apply(self.display_clip, self.display_median_location)
-                .get_scale_offset();
+        if let Some(scale_offset) = self.processor.get_scale_offset() {
             self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
         };
         self.roi_thing.update();
@@ -302,7 +279,7 @@ impl CameraDisplay {
                     //println!("Dropped processing frame");
                 }
             }
-            UserUpdate::ProcessResult(process_result) => self.process_result = Some(process_result),
+            UserUpdate::ProcessResult(process_result) => self.processor.user_update(process_result),
             user_update => {
                 if let Some(ref mut camera) = self.camera {
                     camera.user_update(user_update);

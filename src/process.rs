@@ -1,17 +1,11 @@
 use crate::{camera::ROIImage, Result, SendUserUpdate, UserUpdate};
 use khygl::texture::CpuTexture;
 use std::{
+    fmt::Write,
     sync::{mpsc, Arc},
     thread::spawn,
     time::{Duration, Instant},
 };
-
-/*
-fn median(data: &[u16]) -> f64 {
-    let mut data = data.to_vec();
-    data.sort_unstable();
-    data[data.len() / 2] as f64
-}
 
 fn mean(data: &[u16]) -> f64 {
     let mut sum = 0;
@@ -29,13 +23,13 @@ fn stdev(data: &[u16], mean: f64) -> f64 {
     }
     (sum / data.len() as f64).sqrt()
 }
-*/
 
 #[derive(Debug)]
 pub struct ProcessResult {
     sorted: Vec<u16>,
-    gap: u16,
-    pub duration: Duration,
+    mean: f64,
+    stdev: f64,
+    duration: Duration,
 }
 
 fn u16_to_f64(val: u16) -> f64 {
@@ -47,90 +41,79 @@ impl ProcessResult {
         let begin = Instant::now();
         let mut sorted = image.data().to_vec();
         sorted.sort_unstable();
-        let median = sorted[sorted.len() / 2];
-        let after_median_location = match sorted.binary_search(&(median + 1)) {
-            Ok(v) => v,
-            Err(v) => v,
-        };
-        let after_median = sorted.get(after_median_location).map_or(median + 1, |&v| v);
-        let gap = after_median - median;
+        let mean = mean(&sorted);
+        let stdev = stdev(&sorted, mean);
         let duration = Instant::now() - begin;
         Self {
             sorted,
-            gap,
+            mean,
+            stdev,
             duration,
         }
     }
 
-    pub fn apply(&self, clip: f64, median_location: f64) -> AppliedProcessResult {
-        AppliedProcessResult {
-            result: self,
-            clip,
-            median_location,
-        }
-    }
-}
-
-pub struct AppliedProcessResult<'a> {
-    result: &'a ProcessResult,
-    clip: f64,
-    median_location: f64,
-}
-
-impl AppliedProcessResult<'_> {
-    fn get_clip_median(&self) -> (u16, u16) {
-        let len = self.result.sorted.len() as f64;
-        let clip_index = (self.clip * len).max(0.0).min(len - 1.0);
-        let clip = if self.clip == 0.0 {
+    fn get_clip_median(&self, clip_perc: f64) -> (u16, u16) {
+        let len = self.sorted.len() as f64;
+        let clip_index = (clip_perc * len).max(0.0).min(len - 1.0);
+        let clip = if clip_perc == 0.0 {
             0
         } else {
-            self.result.sorted[clip_index as usize]
+            self.sorted[clip_index as usize]
         };
         let median_index = (clip_index + (len - 1.0)) / 2.0;
-        let median = self.result.sorted[median_index as usize];
+        let median = self.sorted[median_index as usize];
         (clip, median)
     }
 
-    pub fn get_scale_offset(&self) -> (f64, f64) {
-        let (clip, mut median) = self.get_clip_median();
+    fn median_scale_offset(&self, clip_perc: f64, median_location: f64) -> (f64, f64) {
+        let (clip, mut median) = self.get_clip_median(clip_perc);
         if clip == median {
-            median = clip + (1 << 5);
+            if clip < u16::max_value() - (1 << 5) {
+                median = clip + (1 << 5);
+            } else {
+                median = u16::max_value();
+            }
         }
         let (clip, median) = (u16_to_f64(clip), u16_to_f64(median));
         // (x - clip) * (median_location / (median - clip))
         // x * (median_location / (median - clip)) + (-clip * (median_location / (median - clip)))
         // x * a + b
         let clipped_median = median - clip;
-        let scale = self.median_location / clipped_median;
+        let scale = median_location / clipped_median;
         let offset = -clip * scale;
+        (scale, offset)
+    }
+
+    fn mean_scale_offset(&self, sigma: f64, mean_location: f64) -> (f64, f64) {
+        // y = (x - mean) / (stdev * sigma) + mean_location
+        // y = x * 1 / (stdev * sigma) - mean / (stdev * sigma) + mean_location
+        let mean = self.mean / (f64::from(u16::max_value()) + 1.0);
+        let stdev = self.stdev / (f64::from(u16::max_value()) + 1.0);
+        let scale = 1.0 / (stdev * sigma);
+        let offset = mean_location - mean / (stdev * sigma);
         (scale, offset)
     }
 }
 
-impl std::fmt::Display for AppliedProcessResult<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let (clip, median) = self.get_clip_median();
-        let (scale, offset) = self.get_scale_offset();
-        writeln!(
-            f,
-            "clip: {}% median_location: {}%",
-            self.clip * 100.0,
-            self.median_location * 100.0,
-        )?;
-        writeln!(
-            f,
-            "median: {} -> subtract: {} scale: {:.3} offset {:.3}",
-            median, clip, scale, offset
-        )?;
-        writeln!(f, "space between pixel values: {}", self.result.gap)?;
-        writeln!(f, "image processing time: {:?}", self.result.duration)?;
-        Ok(())
-    }
+enum ProcessorType {
+    Median,
+    Mean,
+    Linear,
 }
 
 pub struct Processor {
     send: mpsc::SyncSender<Arc<ROIImage>>,
-    //recv: mpsc::Receiver<ProcessResult>,
+    process_result: Option<ProcessResult>,
+    processor_type: ProcessorType,
+
+    clip: f64,
+    median_location: f64,
+
+    sigma: f64,
+    mean_location: f64,
+
+    scale: f64,
+    offset: f64,
 }
 
 impl Processor {
@@ -144,7 +127,20 @@ impl Processor {
                 }
             }
         });
-        Self { send }
+        Self {
+            send,
+            process_result: None,
+            processor_type: ProcessorType::Median,
+
+            clip: 0.01,
+            median_location: 0.2,
+
+            sigma: 3.0,
+            mean_location: 0.2,
+
+            scale: 1.0,
+            offset: 0.0,
+        }
     }
 
     // true if ok, false if dropped frame
@@ -156,5 +152,108 @@ impl Processor {
                 Err(failure::err_msg("Processing thread disconnected"))
             }
         }
+    }
+
+    pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
+        fn parse(key: &str, value: &str, name: &str, data: &mut f64, perc: bool) -> bool {
+            if key == name {
+                if let Ok(v) = value.parse::<f64>() {
+                    *data = if perc { v / 100.0 } else { v };
+                    return true;
+                } else {
+                }
+            }
+            false
+        }
+        match *command {
+            ["median"] => self.processor_type = ProcessorType::Median,
+            ["mean"] => self.processor_type = ProcessorType::Mean,
+            ["linear"] => self.processor_type = ProcessorType::Linear,
+            [key, value] => {
+                let ok = parse(key, value, "clip", &mut self.clip, true)
+                    || parse(
+                        key,
+                        value,
+                        "median_location",
+                        &mut self.median_location,
+                        true,
+                    )
+                    || parse(key, value, "sigma", &mut self.sigma, false)
+                    || parse(key, value, "mean_location", &mut self.mean_location, true)
+                    || parse(key, value, "scale", &mut self.scale, false)
+                    || parse(key, value, "offset", &mut self.offset, false);
+                return Ok(ok);
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    pub fn status(&self, status: &mut String) -> Result<()> {
+        match self.processor_type {
+            ProcessorType::Median => {
+                writeln!(status, "process: median (mean, linear)")?;
+                writeln!(
+                    status,
+                    "clip: {}% median_location: {}%",
+                    self.clip * 100.0,
+                    self.median_location * 100.0,
+                )?;
+            }
+            ProcessorType::Mean => {
+                writeln!(status, "process: mean (median, linear)")?;
+                writeln!(
+                    status,
+                    "sigma: {} mean_location: {}%",
+                    self.sigma,
+                    self.mean_location * 100.0,
+                )?;
+            }
+            ProcessorType::Linear => {
+                writeln!(status, "process: linear (median, mean)")?;
+            }
+        }
+        if let Some(ref process_result) = self.process_result {
+            let (_, median) = process_result.get_clip_median(0.0);
+            let (scale, offset) = self
+                .get_scale_offset()
+                .expect("process_result should have been Some");
+            writeln!(status, "scale: {:.3} offset: {:.3}", scale, offset)?;
+            writeln!(
+                status,
+                "(median: {:.3} mean: {:.3} stdev: {:.3})",
+                median, process_result.mean, process_result.stdev
+            )?;
+            let percmul = 100.0 / f64::from(u16::max_value());
+            writeln!(
+                status,
+                "(median: {:.1}% mean: {:.1}% stdev: {:.1}%)",
+                median as f64 * percmul,
+                process_result.mean * percmul,
+                process_result.stdev * percmul,
+            )?;
+            writeln!(
+                status,
+                "image processing time: {:?}",
+                process_result.duration
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn user_update(&mut self, process_result: ProcessResult) {
+        self.process_result = Some(process_result);
+    }
+
+    pub fn get_scale_offset(&self) -> Option<(f64, f64)> {
+        let process_result = self.process_result.as_ref()?;
+        let result = match self.processor_type {
+            ProcessorType::Median => {
+                process_result.median_scale_offset(self.clip, self.median_location)
+            }
+            ProcessorType::Mean => process_result.mean_scale_offset(self.sigma, self.mean_location),
+            ProcessorType::Linear => (self.scale, self.offset),
+        };
+        Some(result)
     }
 }

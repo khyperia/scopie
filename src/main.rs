@@ -214,16 +214,13 @@ impl Display {
             mount_display.status(&mut self.status)?;
         }
         if self.wasd_mount_mode {
-            write!(
-                &mut self.status,
-                "WASD/RF mount control mode (esc to cancel)"
-            )?;
-        }
-        if self.wasd_camera_mode {
-            write!(
-                &mut self.status,
-                "WASD/RF camera control mode (esc to cancel)"
-            )?;
+            writeln!(&mut self.status, "WASD/RF mount control mode (esc to stop)")?;
+        } else if self.wasd_camera_mode {
+            writeln!(&mut self.status, "WASD/RF camera zoom mode (esc to stop)")?;
+            writeln!(&mut self.status, "G: set ROI (crop)")?;
+        } else {
+            writeln!(&mut self.status, "wasd: mount control mode")?;
+            writeln!(&mut self.status, "zoom: camera zoom mode")?;
         }
         if self.old_status != self.status {
             self.old_status = self.status.clone();
