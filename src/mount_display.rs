@@ -16,7 +16,10 @@ impl MountDisplay {
         }
     }
 
-    pub fn cmd(&mut self, command: &[&str]) -> Result<bool> {
+    pub fn cmd(
+        &mut self,
+        command: &[&str],
+    ) -> std::result::Result<bool, mount_async::MountSendError> {
         match command {
             ["syncpos", ra, dec] => {
                 let ra = Angle::parse(ra);
@@ -98,7 +101,7 @@ impl MountDisplay {
         Ok(())
     }
 
-    pub fn key_down(&mut self, key: Key) -> Result<()> {
+    pub fn key_down(&mut self, key: Key) -> std::result::Result<(), mount_async::MountSendError> {
         if !self.pressed_keys.insert(key) {
             return Ok(());
         }
@@ -114,7 +117,7 @@ impl MountDisplay {
         Ok(())
     }
 
-    pub fn key_up(&mut self, key: Key) -> Result<()> {
+    pub fn key_up(&mut self, key: Key) -> std::result::Result<(), mount_async::MountSendError> {
         if !self.pressed_keys.remove(&key) {
             return Ok(());
         }

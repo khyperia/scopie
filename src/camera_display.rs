@@ -1,7 +1,7 @@
 use crate::{
     camera_async,
     image_display::ImageDisplay,
-    mount_async::MountAsync,
+    mount_async, mount_display,
     platesolve::platesolve,
     process,
     qhycamera::{ControlId, EXPOSURE_FACTOR},
@@ -243,16 +243,21 @@ impl CameraDisplay {
     pub fn user_update(
         &mut self,
         user_update: UserUpdate,
-        mount: Option<&mut MountAsync>,
+        mount: &mut Option<mount_display::MountDisplay>,
     ) -> Result<()> {
         match user_update {
             UserUpdate::SolveFinished(ra, dec) => {
                 self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
-                if let Some(mount) = mount {
-                    let old_mount_radec = mount.data.ra_dec;
+                if let Some(smount) = mount {
+                    let old_mount_radec = smount.mount.data.ra_dec;
                     let delta_ra = old_mount_radec.0 - ra;
                     let delta_dec = old_mount_radec.1 - dec;
-                    mount.add_real_to_mount_delta(delta_ra, delta_dec)?;
+                    match smount.mount.add_real_to_mount_delta(delta_ra, delta_dec) {
+                        Ok(()) => (),
+                        Err(mount_async::MountSendError {}) => {
+                            *mount = None;
+                        }
+                    }
                     self.solve_status = format!(
                         "{} -> Δ {} {}",
                         self.solve_status,

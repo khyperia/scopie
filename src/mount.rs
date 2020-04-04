@@ -364,41 +364,6 @@ impl Mount {
         Ok(response[0] != 0)
     }
 
-    //fn split_three_bytes(value_angle: Angle) -> (u8, u8, u8) {
-    //    let mut value = value_angle.value_0to1();
-    //    value *= 256.0;
-    //    let high = value as u8;
-    //    value = value.fract();
-    //    value *= 256.0;
-    //    let med = value as u8;
-    //    value = value.fract();
-    //    value *= 256.0;
-    //    let low = value as u8;
-    //    (high, med, low)
-    //}
-
-    //fn p_command_three(&mut self, one: u8, two: u8, three: u8, data: Angle) -> Result<()> {
-    //    let (high, med, low) = Self::split_three_bytes(data);
-    //    let cmd = [b'P', one, two, three, high, med, low, 0];
-    //    self.interact0(cmd)?;
-    //    Ok(())
-    //}
-
-    // I think these reset like az/alt if the az axis was straight up, which like, wat
-    //pub fn reset_ra(&mut self, data: Angle) -> Result<()> {
-    //    self.p_command_three(4, 16, 4, data)
-    //}
-    //pub fn reset_dec(&mut self, data: Angle) -> Result<()> {
-    //    self.p_command_three(4, 17, 4, data)
-    //}
-    // note: this is similar to slew_az_alt in that the axis is weird
-    //pub fn slow_goto_az(&mut self, data: Angle) -> Result<()> {
-    //    self.p_command_three(4, 16, 23, data)
-    //}
-    //pub fn slow_goto_alt(&mut self, data: Angle) -> Result<()> {
-    //    self.p_command_three(4, 17, 23, data)
-    //}
-
     fn fixed_slew_command(&mut self, one: u8, two: u8, three: u8, rate: u8) -> Result<()> {
         let cmd = [b'P', one, two, three, rate, 0, 0, 0];
         self.interact0(cmd)?;

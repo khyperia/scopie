@@ -282,24 +282,12 @@ pub const EXPOSURE_FACTOR: f64 = 1_000_000.0;
 #[link(name = "qhyccd")]
 extern "system" {
     pub fn InitQHYCCDResource() -> u32;
-    //pub fn ReleaseQHYCCDResource() -> u32;
     pub fn ScanQHYCCD() -> u32;
     pub fn GetQHYCCDId(index: u32, id: *mut u8) -> u32;
-    //pub fn GetQHYCCDModel(id: *const u8, model: *mut u8) -> u32;
     pub fn OpenQHYCCD(id: *const c_char) -> QHYCCD;
     pub fn CloseQHYCCD(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDStreamMode(handle: QHYCCD, mode: u8) -> u32;
     pub fn InitQHYCCD(handle: QHYCCD) -> u32;
-    // pub fn GetQHYCCDChipInfo(
-    //     handle: QHYCCD,
-    //     chipw: &mut f64,
-    //     chiph: &mut f64,
-    //     imagew: &mut u32,
-    //     imageh: &mut u32,
-    //     pixelw: &mut f64,
-    //     pixelh: &mut f64,
-    //     bpp: &mut u32,
-    // ) -> u32;
     pub fn GetQHYCCDEffectiveArea(
         handle: QHYCCD,
         start_x: &mut u32,
@@ -328,7 +316,6 @@ extern "system" {
         channels: *mut u32,
         imgdata: *mut u8,
     ) -> u32;
-    //pub fn CancelQHYCCDExposing(handle: QHYCCD) -> u32;
     pub fn CancelQHYCCDExposingAndReadout(handle: QHYCCD) -> u32;
     pub fn BeginQHYCCDLive(handle: QHYCCD) -> u32;
     pub fn GetQHYCCDLiveFrame(
@@ -342,9 +329,4 @@ extern "system" {
     pub fn StopQHYCCDLive(handle: QHYCCD) -> u32;
     pub fn SetQHYCCDBinMode(handle: QHYCCD, wbin: u32, hbin: u32) -> u32;
     pub fn SetQHYCCDBitsMode(handle: QHYCCD, bits: u32) -> u32;
-//pub fn ControlQHYCCDTemp(handle: QHYCCD, target_temp: f64) -> u32;
-//pub fn ControlQHYCCDGuide(handle: QHYCCD, direction: u32, duration: u16) -> u32;
-//pub fn GetQHYCCDReadingProgress(handle: QHYCCD) -> f64;
-//pub fn SetQHYCCDLogLevel(log_level: u8);
-//pub fn GetQHYCCDExposureRemaining(handle: QHYCCD) -> u32;
 }

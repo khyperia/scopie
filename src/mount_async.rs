@@ -28,15 +28,17 @@ pub struct MountData {
     pub time: MountTime,
 }
 
+pub struct MountSendError {}
+
 pub struct MountAsync {
     send: mpsc::Sender<MountCommand>,
     pub data: MountData,
 }
 
 impl MountAsync {
-    pub fn new(mount: Mount, send_user_update: SendUserUpdate) -> Self {
+    pub fn new(send_user_update: SendUserUpdate) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
-        spawn(move || match run(mount, recv_cmd, send_user_update) {
+        spawn(move || match run(recv_cmd, send_user_update) {
             Ok(()) => (),
             Err(err) => panic!("Mount thread error: {}", err),
         });
@@ -55,43 +57,57 @@ impl MountAsync {
         }
     }
 
-    fn send(&self, cmd: MountCommand) -> Result<()> {
-        Ok(self.send.send(cmd)?)
+    fn send(&self, cmd: MountCommand) -> std::result::Result<(), MountSendError> {
+        match self.send.send(cmd) {
+            Ok(()) => Ok(()),
+            Err(mpsc::SendError(_)) => Err(MountSendError {}),
+        }
     }
 
-    pub fn slew(&self, ra: Angle, dec: Angle) -> Result<()> {
+    pub fn slew(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::Slew(ra, dec))
     }
-    pub fn sync(&self, ra: Angle, dec: Angle) -> Result<()> {
+    pub fn sync(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::Sync(ra, dec))
     }
-    pub fn add_real_to_mount_delta(&self, ra: Angle, dec: Angle) -> Result<()> {
+    pub fn add_real_to_mount_delta(
+        &self,
+        ra: Angle,
+        dec: Angle,
+    ) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::AddRealToMountDelta(ra, dec))
     }
-    pub fn slew_azalt(&self, az: Angle, alt: Angle) -> Result<()> {
+    pub fn slew_azalt(&self, az: Angle, alt: Angle) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::SlewAzAlt(az, alt))
     }
-    pub fn cancel(&self) -> Result<()> {
+    pub fn cancel(&self) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::Cancel)
     }
-    pub fn set_tracking_mode(&self, mode: TrackingMode) -> Result<()> {
+    pub fn set_tracking_mode(&self, mode: TrackingMode) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::TrackingMode(mode))
     }
-    pub fn set_location(&self, lat: Angle, lon: Angle) -> Result<()> {
+    pub fn set_location(&self, lat: Angle, lon: Angle) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::SetLocation(lat, lon))
     }
-    pub fn set_time_now(&self) -> Result<()> {
+    pub fn set_time_now(&self) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::SetTimeNow)
     }
-    pub fn fixed_slew_ra(&self, speed: i32) -> Result<()> {
+    pub fn fixed_slew_ra(&self, speed: i32) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::FixedSlewRA(speed))
     }
-    pub fn fixed_slew_dec(&self, speed: i32) -> Result<()> {
+    pub fn fixed_slew_dec(&self, speed: i32) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::FixedSlewDec(speed))
     }
 }
 
-fn run(mut mount: Mount, recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
+fn run(recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
+    let mut mount = match autoconnect() {
+        Ok(ok) => ok,
+        Err(err) => {
+            println!("Error connecting to mount: {}", err);
+            return Ok(());
+        }
+    };
     let update_rate = Duration::from_secs(1);
     let mut next_update = Instant::now() + update_rate;
     loop {

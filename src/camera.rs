@@ -383,34 +383,11 @@ impl Control {
         self.control
     }
 
-    // pub fn max_value(&self) -> f64 {
-    //     self.max
-    // }
-    // pub fn min_value(&self) -> f64 {
-    //     self.min
-    // }
-    // pub fn step_value(&self) -> f64 {
-    //     self.step
-    // }
-    // pub fn readonly(&self) -> bool {
-    //     self.readonly
-    // }
-    // pub fn interesting(&self) -> bool {
-    //     self.interesting
-    // }
-
     pub fn get(&self) -> f64 {
         if self.constant_value.is_finite() {
             return self.constant_value;
         }
-        // use std::time::Instant;
-        // let now = Instant::now();
         unsafe { qhy::GetQHYCCDParam(self.handle, self.control) }
-        // println!(
-        //     "{: >16} = {}",
-        //     (Instant::now() - now).as_micros(),
-        //     self.control
-        // );
     }
 
     pub fn set(&self, value: f64) -> Result<()> {
@@ -422,24 +399,6 @@ impl Control {
         ControlValue::new(self)
     }
 }
-
-// impl fmt::Display for Control {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         if self.readonly() {
-//             write!(f, "{} = {} (readonly)", self.control, self.get())
-//         } else {
-//             write!(
-//                 f,
-//                 "{} = {} ({}-{} by {})",
-//                 self.control,
-//                 self.get(),
-//                 self.min_value(),
-//                 self.max_value(),
-//                 self.step_value(),
-//             )
-//         }
-//     }
-// }
 
 #[derive(Clone, Debug)]
 pub struct ControlValue {
