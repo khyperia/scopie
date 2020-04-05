@@ -1,6 +1,8 @@
 use crate::{
-    qhycamera as qhy,
-    qhycamera::{ControlId, QHYCCD},
+    camera::{
+        qhycamera as qhy,
+        qhycamera::{ControlId, QHYCCD},
+    },
     Result,
 };
 use khygl::{texture::CpuTexture, Rect};
@@ -112,6 +114,7 @@ pub struct Camera {
     use_live: bool,
     effective_area: Rect<usize>,
     current_roi: Rect<usize>,
+    qhyccd_mem_length_u16: usize,
 }
 
 impl Camera {
@@ -161,6 +164,9 @@ impl Camera {
 
             let controls = Self::get_controls(handle);
 
+            let len_u8 = qhy::GetQHYCCDMemLength(handle) as usize;
+            let len_u16 = len_u8 / 2;
+
             Ok(Camera {
                 handle,
                 info,
@@ -168,6 +174,7 @@ impl Camera {
                 use_live,
                 effective_area: current_roi.clone(),
                 current_roi,
+                qhyccd_mem_length_u16: len_u16,
             })
         }
     }
@@ -249,13 +256,11 @@ impl Camera {
     pub fn get_single(&self) -> Result<ROIImage> {
         unsafe {
             // GetQHYCCDExposureRemaining seems to be unreliable, so just block
-            let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
-            let len_u16 = len_u8 / 2;
             let mut width = 0;
             let mut height = 0;
             let mut bpp = 0;
             let mut channels = 0;
-            let mut data = vec![0; len_u16];
+            let mut data = vec![0; self.qhyccd_mem_length_u16];
             check(qhy::GetQHYCCDSingleFrame(
                 self.handle,
                 &mut width,
@@ -286,13 +291,11 @@ impl Camera {
 
     pub fn get_live(&self) -> Option<ROIImage> {
         unsafe {
-            let len_u8 = qhy::GetQHYCCDMemLength(self.handle) as usize;
-            let len_u16 = len_u8 / 2;
             let mut width = 0;
             let mut height = 0;
             let mut bpp = 0;
             let mut channels = 0;
-            let mut data = vec![0; len_u16];
+            let mut data = vec![0; self.qhyccd_mem_length_u16];
             let res = qhy::GetQHYCCDLiveFrame(
                 self.handle,
                 &mut width,

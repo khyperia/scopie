@@ -1,4 +1,4 @@
-use crate::{camera, qhycamera::ControlId, Result, SendUserUpdate, UserUpdate};
+use crate::{camera, camera::qhycamera::ControlId, Result, SendUserUpdate, UserUpdate};
 use khygl::Rect;
 use std::{
     sync::{mpsc, Arc},
@@ -16,7 +16,7 @@ enum CameraCommand {
 
 #[derive(Clone, Debug)]
 pub struct CameraData {
-    pub controls: Vec<camera::ControlValue>,
+    pub controls: Vec<camera::interface::ControlValue>,
     pub name: String,
     pub cmd_status: String,
     pub running: bool,
@@ -83,7 +83,7 @@ impl CameraAsync {
 }
 
 fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> {
-    let mut camera = Some(camera::autoconnect(false)?);
+    let mut camera = Some(camera::interface::autoconnect(false)?);
     let mut running = false;
     let mut exposure_duration = Duration::default();
     let mut cmd_status = String::new();
@@ -160,7 +160,7 @@ fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> 
 }
 
 fn run_one(
-    camera: &mut Option<camera::Camera>,
+    camera: &mut Option<camera::interface::Camera>,
     cmd: CameraCommand,
     running: &mut bool,
     restart: &mut bool,
@@ -220,7 +220,7 @@ fn run_one(
 }
 
 fn cancel_for_modification(
-    camera: &camera::Camera,
+    camera: &camera::interface::Camera,
     running: &mut bool,
     restart: &mut bool,
 ) -> Result<()> {

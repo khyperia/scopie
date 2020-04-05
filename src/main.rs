@@ -1,17 +1,12 @@
 mod camera;
-mod camera_async;
-mod camera_display;
 mod dms;
 mod image_display;
 mod mount;
-mod mount_async;
-mod mount_display;
 mod platesolve;
 mod process;
-mod qhycamera;
 mod text_input;
 
-use camera_display::CameraDisplay;
+use camera::display::CameraDisplay;
 use dms::Angle;
 use glutin::{
     self,
@@ -28,8 +23,7 @@ use khygl::{
     check_gl, gl_register_debug, render_text::TextRenderer, render_texture::TextureRenderer,
     texture::CpuTexture, Rect,
 };
-use mount_async::MountAsync;
-use mount_display::MountDisplay;
+use mount::{display::MountDisplay, thread::MountAsync};
 use std::{
     collections::HashSet,
     convert::TryInto,
@@ -44,9 +38,9 @@ type Result<T> = std::result::Result<T, failure::Error>;
 
 #[derive(Debug)]
 pub enum UserUpdate {
-    MountUpdate(mount_async::MountData),
-    CameraUpdate(camera_async::CameraData),
-    CameraData(Arc<camera::ROIImage>),
+    MountUpdate(mount::thread::MountData),
+    CameraUpdate(camera::thread::CameraData),
+    CameraData(Arc<camera::interface::ROIImage>),
     SolveFinished(Angle, Angle),
     ProcessResult(process::ProcessResult),
 }
@@ -86,8 +80,8 @@ fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
 }
 
 struct Display {
-    camera_display: camera_display::CameraDisplay,
-    mount_display: Option<mount_display::MountDisplay>,
+    camera_display: camera::display::CameraDisplay,
+    mount_display: Option<mount::display::MountDisplay>,
     next_frequent_update: Instant,
     next_infrequent_update: Instant,
     window_size: (usize, usize),
@@ -125,7 +119,7 @@ impl Display {
         if let Some(ref mut mount_display) = self.mount_display {
             match mount_display.cmd(&cmd) {
                 Ok(ok) => command_okay |= ok,
-                Err(mount_async::MountSendError {}) => self.mount_display = None,
+                Err(mount::thread::MountSendError {}) => self.mount_display = None,
             }
         }
         if command_okay {
@@ -262,7 +256,7 @@ impl Display {
             if let Some(ref mut mount_display) = self.mount_display {
                 match mount_display.key_up(key) {
                     Ok(()) => (),
-                    Err(mount_async::MountSendError {}) => self.mount_display = None,
+                    Err(mount::thread::MountSendError {}) => self.mount_display = None,
                 }
             }
             if self.mount_display.is_none() {
@@ -281,7 +275,7 @@ impl Display {
             } else if let Some(ref mut mount_display) = self.mount_display {
                 match mount_display.key_down(key) {
                     Ok(()) => (),
-                    Err(mount_async::MountSendError {}) => self.mount_display = None,
+                    Err(mount::thread::MountSendError {}) => self.mount_display = None,
                 }
                 if self.mount_display.is_none() {
                     self.wasd_mount_mode = false;

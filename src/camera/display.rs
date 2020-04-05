@@ -1,11 +1,10 @@
 use crate::{
-    camera_async,
+    camera,
+    camera::qhycamera::{ControlId, EXPOSURE_FACTOR},
     image_display::ImageDisplay,
-    mount_async, mount_display,
+    mount,
     platesolve::platesolve,
-    process,
-    qhycamera::{ControlId, EXPOSURE_FACTOR},
-    Key, Result, SendUserUpdate, UserUpdate,
+    process, Key, Result, SendUserUpdate, UserUpdate,
 };
 use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
 use std::{
@@ -15,7 +14,7 @@ use std::{
 
 // TODO: make saving images async
 pub struct CameraDisplay {
-    camera: Option<camera_async::CameraAsync>,
+    camera: Option<camera::thread::CameraAsync>,
     send_user_update: SendUserUpdate,
     image_display: ImageDisplay,
     processor: process::Processor,
@@ -35,7 +34,7 @@ impl CameraDisplay {
                 .unwrap();
         }
         Self {
-            camera: Some(camera_async::CameraAsync::new(send_user_update.clone())),
+            camera: Some(camera::thread::CameraAsync::new(send_user_update.clone())),
             send_user_update: send_user_update.clone(),
             image_display: ImageDisplay::new(),
             processor: process::Processor::new(send_user_update),
@@ -126,7 +125,7 @@ impl CameraDisplay {
 
     fn camera_op(
         &mut self,
-        op: impl FnOnce(&camera_async::CameraAsync) -> std::result::Result<(), ()>,
+        op: impl FnOnce(&camera::thread::CameraAsync) -> std::result::Result<(), ()>,
     ) {
         let ok = match self.camera {
             Some(ref mut camera) => op(camera).is_ok(),
@@ -243,7 +242,7 @@ impl CameraDisplay {
     pub fn user_update(
         &mut self,
         user_update: UserUpdate,
-        mount: &mut Option<mount_display::MountDisplay>,
+        mount: &mut Option<mount::display::MountDisplay>,
     ) -> Result<()> {
         match user_update {
             UserUpdate::SolveFinished(ra, dec) => {
@@ -254,7 +253,7 @@ impl CameraDisplay {
                     let delta_dec = old_mount_radec.1 - dec;
                     match smount.mount.add_real_to_mount_delta(delta_ra, delta_dec) {
                         Ok(()) => (),
-                        Err(mount_async::MountSendError {}) => {
+                        Err(mount::thread::MountSendError {}) => {
                             *mount = None;
                         }
                     }

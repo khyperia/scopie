@@ -1,4 +1,4 @@
-use crate::{dms::Angle, mount::*, Result, SendUserUpdate, UserUpdate};
+use crate::{dms::Angle, mount::interface::*, Result, SendUserUpdate, UserUpdate};
 use std::{
     sync::mpsc,
     thread::spawn,

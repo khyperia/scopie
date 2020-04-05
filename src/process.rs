@@ -1,4 +1,4 @@
-use crate::{camera::ROIImage, Result, SendUserUpdate, UserUpdate};
+use crate::{camera::interface::ROIImage, Result, SendUserUpdate, UserUpdate};
 use khygl::texture::CpuTexture;
 use std::{
     fmt::Write,

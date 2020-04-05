@@ -1,14 +1,14 @@
-use crate::{dms::Angle, mount_async, Key, Result, UserUpdate};
+use crate::{dms::Angle, mount, Key, Result, UserUpdate};
 use std::{collections::HashSet, fmt::Write};
 
 pub struct MountDisplay {
-    pub mount: mount_async::MountAsync,
+    pub mount: mount::thread::MountAsync,
     pressed_keys: HashSet<Key>,
     slew_speed: u32,
 }
 
 impl MountDisplay {
-    pub fn new(mount: mount_async::MountAsync) -> Self {
+    pub fn new(mount: mount::thread::MountAsync) -> Self {
         Self {
             mount,
             pressed_keys: HashSet::new(),
@@ -19,7 +19,7 @@ impl MountDisplay {
     pub fn cmd(
         &mut self,
         command: &[&str],
-    ) -> std::result::Result<bool, mount_async::MountSendError> {
+    ) -> std::result::Result<bool, mount::thread::MountSendError> {
         match command {
             ["syncpos", ra, dec] => {
                 let ra = Angle::parse(ra);
@@ -101,7 +101,7 @@ impl MountDisplay {
         Ok(())
     }
 
-    pub fn key_down(&mut self, key: Key) -> std::result::Result<(), mount_async::MountSendError> {
+    pub fn key_down(&mut self, key: Key) -> std::result::Result<(), mount::thread::MountSendError> {
         if !self.pressed_keys.insert(key) {
             return Ok(());
         }
@@ -117,7 +117,7 @@ impl MountDisplay {
         Ok(())
     }
 
-    pub fn key_up(&mut self, key: Key) -> std::result::Result<(), mount_async::MountSendError> {
+    pub fn key_up(&mut self, key: Key) -> std::result::Result<(), mount::thread::MountSendError> {
         if !self.pressed_keys.remove(&key) {
             return Ok(());
         }

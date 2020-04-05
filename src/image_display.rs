@@ -1,4 +1,4 @@
-use crate::{camera::ROIImage, Result};
+use crate::{camera::interface::ROIImage, Result};
 use khygl::{render_texture::TextureRenderer, texture::Texture, Rect};
 use std::sync::Arc;
 
@@ -73,13 +73,13 @@ impl ImageDisplay {
         pos: Rect<usize>,
         displayer: &TextureRenderer,
         screen_size: (f32, f32),
-        roi: &crate::camera_display::ROIThing,
+        roi: &crate::camera::display::ROIThing,
     ) -> Result<()> {
         if let Some(ref texture) = self.texture {
             if let Some(ref raw) = self.raw {
                 let roi_unclamped = roi.get_roi_unclamped(&raw.original);
                 let roi_clamped =
-                    crate::camera_display::ROIThing::clamp(roi_unclamped.clone(), &raw.location);
+                    crate::camera::display::ROIThing::clamp(roi_unclamped.clone(), &raw.location);
 
                 let scale = ((pos.width as f64) / (roi_unclamped.width as f64))
                     .min((pos.height as f64) / (roi_unclamped.height as f64));
