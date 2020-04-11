@@ -8,7 +8,7 @@ use std::{
 enum MountCommand {
     Slew(Angle, Angle),
     Sync(Angle, Angle),
-    AddRealToMountDelta(Angle, Angle),
+    SetRealToMount(Angle, Angle),
     SlewAzAlt(Angle, Angle),
     Cancel,
     TrackingMode(TrackingMode),
@@ -20,7 +20,8 @@ enum MountCommand {
 
 #[derive(Default, Clone, Debug)]
 pub struct MountData {
-    pub ra_dec: (Angle, Angle),
+    pub ra_dec_real: (Angle, Angle),
+    pub ra_dec_mount: (Angle, Angle),
     pub az_alt: (Angle, Angle),
     pub aligned: bool,
     pub tracking_mode: TrackingMode,
@@ -70,12 +71,12 @@ impl MountAsync {
     pub fn sync(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::Sync(ra, dec))
     }
-    pub fn add_real_to_mount_delta(
+    pub fn set_real_to_mount(
         &self,
         ra: Angle,
         dec: Angle,
     ) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::AddRealToMountDelta(ra, dec))
+        self.send(MountCommand::SetRealToMount(ra, dec))
     }
     pub fn slew_azalt(&self, az: Angle, alt: Angle) -> std::result::Result<(), MountSendError> {
         self.send(MountCommand::SlewAzAlt(az, alt))
@@ -132,14 +133,16 @@ fn run(recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
 }
 
 fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
-    let ra_dec = mount.get_ra_dec()?;
+    let ra_dec_mount = mount.get_ra_dec_mount()?;
+    let ra_dec_real = mount.mount_to_real(ra_dec_mount);
     let az_alt = mount.get_az_alt()?;
     let aligned = mount.aligned()?;
     let tracking_mode = mount.tracking_mode()?;
     let location = mount.location()?;
     let time = mount.time()?;
     let send_result = send.send_event(UserUpdate::MountUpdate(MountData {
-        ra_dec,
+        ra_dec_mount,
+        ra_dec_real,
         az_alt,
         aligned,
         tracking_mode,
@@ -154,9 +157,10 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
 
 fn run_one(mount: &mut Mount, cmd: MountCommand) -> Result<()> {
     match cmd {
-        MountCommand::Slew(ra, dec) => mount.slew_ra_dec(ra, dec)?,
-        MountCommand::Sync(ra, dec) => mount.sync_ra_dec(ra, dec)?,
-        MountCommand::AddRealToMountDelta(ra, dec) => mount.add_real_to_mount_delta(ra, dec),
+        // TODO: naming (real)
+        MountCommand::Slew(ra, dec) => mount.slew_ra_dec_real(ra, dec)?,
+        MountCommand::Sync(ra, dec) => mount.sync_ra_dec_real(ra, dec)?,
+        MountCommand::SetRealToMount(ra, dec) => mount.set_real_to_mount(ra, dec),
         MountCommand::SlewAzAlt(az, alt) => mount.slew_az_alt(az, alt)?,
         MountCommand::Cancel => mount.cancel_slew()?,
         MountCommand::TrackingMode(mode) => mount.set_tracking_mode(mode)?,

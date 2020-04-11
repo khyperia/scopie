@@ -248,10 +248,10 @@ impl CameraDisplay {
             UserUpdate::SolveFinished(ra, dec) => {
                 self.solve_status = format!("{} {}", ra.fmt_hours(), dec.fmt_degrees());
                 if let Some(smount) = mount {
-                    let old_mount_radec = smount.mount.data.ra_dec;
-                    let delta_ra = old_mount_radec.0 - ra;
-                    let delta_dec = old_mount_radec.1 - dec;
-                    match smount.mount.add_real_to_mount_delta(delta_ra, delta_dec) {
+                    let ra_dec_mount = smount.mount.data.ra_dec_mount;
+                    let delta_ra = ra_dec_mount.0 - ra;
+                    let delta_dec = ra_dec_mount.1 - dec;
+                    match smount.mount.set_real_to_mount(delta_ra, delta_dec) {
                         Ok(()) => (),
                         Err(mount::thread::MountSendError {}) => {
                             *mount = None;
