@@ -5,18 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-enum MountCommand {
-    Slew(Angle, Angle),
-    Sync(Angle, Angle),
-    SetRealToMount(Angle, Angle),
-    SlewAzAlt(Angle, Angle),
-    Cancel,
-    TrackingMode(TrackingMode),
-    SetLocation(Angle, Angle),
-    SetTimeNow,
-    FixedSlewRA(i32),
-    FixedSlewDec(i32),
-}
+type MountCommand = Box<dyn FnOnce(&mut Mount) -> Result<()> + Send>;
 
 #[derive(Default, Clone, Debug)]
 pub struct MountData {
@@ -50,54 +39,57 @@ impl MountAsync {
     }
 
     pub fn user_update(&mut self, user_update: UserUpdate) {
-        // if let UserUpdate::MountUpdate(mount_update) = user_update {
-        //     self.data = mount_update.clone();
-        // }
         if let UserUpdate::MountUpdate(mount_update) = user_update {
             self.data = mount_update;
         }
     }
 
-    fn send(&self, cmd: MountCommand) -> std::result::Result<(), MountSendError> {
-        match self.send.send(cmd) {
+    fn send(
+        &self,
+        cmd: impl FnOnce(&mut Mount) -> Result<()> + Send + 'static,
+    ) -> std::result::Result<(), MountSendError> {
+        match self.send.send(Box::new(cmd)) {
             Ok(()) => Ok(()),
             Err(mpsc::SendError(_)) => Err(MountSendError {}),
         }
     }
 
-    pub fn slew(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::Slew(ra, dec))
+    pub fn slew_real(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
+        self.send(move |mount| mount.slew_ra_dec_real(ra, dec))
     }
-    pub fn sync(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::Sync(ra, dec))
+    pub fn sync_real(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
+        self.send(move |mount| mount.sync_ra_dec_real(ra, dec))
     }
     pub fn set_real_to_mount(
         &self,
         ra: Angle,
         dec: Angle,
     ) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::SetRealToMount(ra, dec))
+        self.send(move |mount| {
+            mount.set_real_to_mount(ra, dec);
+            Ok(())
+        })
     }
     pub fn slew_azalt(&self, az: Angle, alt: Angle) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::SlewAzAlt(az, alt))
+        self.send(move |mount| mount.slew_az_alt(az, alt))
     }
     pub fn cancel(&self) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::Cancel)
+        self.send(move |mount| mount.cancel_slew())
     }
     pub fn set_tracking_mode(&self, mode: TrackingMode) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::TrackingMode(mode))
+        self.send(move |mount| mount.set_tracking_mode(mode))
     }
     pub fn set_location(&self, lat: Angle, lon: Angle) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::SetLocation(lat, lon))
+        self.send(move |mount| mount.set_location(lat, lon))
     }
     pub fn set_time_now(&self) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::SetTimeNow)
+        self.send(move |mount| mount.set_time(MountTime::now()))
     }
     pub fn fixed_slew_ra(&self, speed: i32) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::FixedSlewRA(speed))
+        self.send(move |mount| mount.fixed_slew_ra(speed))
     }
     pub fn fixed_slew_dec(&self, speed: i32) -> std::result::Result<(), MountSendError> {
-        self.send(MountCommand::FixedSlewDec(speed))
+        self.send(move |mount| mount.fixed_slew_dec(speed))
     }
 }
 
@@ -125,7 +117,7 @@ fn run(recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
         }
         let duration = next_update - now;
         match recv.recv_timeout(duration) {
-            Ok(cmd) => run_one(&mut mount, cmd)?,
+            Ok(cmd) => cmd(&mut mount)?,
             Err(mpsc::RecvTimeoutError::Timeout) => (),
             Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
         }
@@ -153,21 +145,4 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
         Ok(()) => Ok(true),
         Err(glutin::event_loop::EventLoopClosed(_)) => Ok(false),
     }
-}
-
-fn run_one(mount: &mut Mount, cmd: MountCommand) -> Result<()> {
-    match cmd {
-        // TODO: naming (real)
-        MountCommand::Slew(ra, dec) => mount.slew_ra_dec_real(ra, dec)?,
-        MountCommand::Sync(ra, dec) => mount.sync_ra_dec_real(ra, dec)?,
-        MountCommand::SetRealToMount(ra, dec) => mount.set_real_to_mount(ra, dec),
-        MountCommand::SlewAzAlt(az, alt) => mount.slew_az_alt(az, alt)?,
-        MountCommand::Cancel => mount.cancel_slew()?,
-        MountCommand::TrackingMode(mode) => mount.set_tracking_mode(mode)?,
-        MountCommand::SetLocation(lat, lon) => mount.set_location(lat, lon)?,
-        MountCommand::SetTimeNow => mount.set_time(MountTime::now())?,
-        MountCommand::FixedSlewRA(speed) => mount.fixed_slew_ra(speed)?,
-        MountCommand::FixedSlewDec(speed) => mount.fixed_slew_dec(speed)?,
-    }
-    Ok(())
 }

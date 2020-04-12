@@ -25,7 +25,7 @@ impl MountDisplay {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.sync(ra, dec)?;
+                    self.mount.sync_real(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -34,7 +34,7 @@ impl MountDisplay {
                 let ra = Angle::parse(ra);
                 let dec = Angle::parse(dec);
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.slew(ra, dec)?;
+                    self.mount.slew_real(ra, dec)?;
                 } else {
                     return Ok(false);
                 }
@@ -77,9 +77,19 @@ impl MountDisplay {
     pub fn status(&mut self, status: &mut String) -> Result<()> {
         let data = &self.mount.data;
         let (ra_real, dec_real) = data.ra_dec_real;
-        writeln!(status, "RA/Dec real: {} {}", ra_real.fmt_hours(), dec_real.fmt_degrees())?;
+        writeln!(
+            status,
+            "RA/Dec real: {} {}",
+            ra_real.fmt_hours(),
+            dec_real.fmt_degrees()
+        )?;
         let (ra_mount, dec_mount) = data.ra_dec_mount;
-        writeln!(status, "RA/Dec mount: {} {}", ra_mount.fmt_hours(), dec_mount.fmt_degrees())?;
+        writeln!(
+            status,
+            "RA/Dec mount: {} {}",
+            ra_mount.fmt_hours(),
+            dec_mount.fmt_degrees()
+        )?;
         let (az, alt) = data.az_alt;
         writeln!(status, "Az/Alt: {} {}", az.fmt_degrees(), alt.fmt_degrees())?;
         writeln!(status, "aligned: {}", data.aligned)?;
