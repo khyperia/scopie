@@ -149,7 +149,7 @@ impl Processor {
             Ok(()) => Ok(true),
             Err(mpsc::TrySendError::Full(_)) => Ok(false),
             Err(mpsc::TrySendError::Disconnected(_)) => {
-                Err(failure::err_msg("Processing thread disconnected"))
+                Err("Processing thread disconnected".into())
             }
         }
     }

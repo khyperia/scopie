@@ -75,7 +75,7 @@ pub fn autoconnect(live: bool) -> Result<Camera> {
     if let Some(best) = best {
         Ok(best.open(live)?)
     } else {
-        Err(failure::err_msg("No QHY cameras found"))
+        Err("No QHY cameras found".into())
     }
 }
 
@@ -128,7 +128,7 @@ impl Camera {
             let cstring = CString::new(&info.name as &str)?;
             let handle = qhy::OpenQHYCCD(cstring.as_ptr());
             if handle.is_null() {
-                return Err(failure::err_msg("OpenQHYCCD returned null"));
+                return Err("OpenQHYCCD returned null".into());
             }
 
             check(qhy::SetQHYCCDStreamMode(

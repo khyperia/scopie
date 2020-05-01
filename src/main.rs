@@ -34,7 +34,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-type Result<T> = std::result::Result<T, failure::Error>;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 #[derive(Debug)]
 pub enum UserUpdate {
@@ -125,7 +125,7 @@ impl Display {
         if command_okay {
             Ok(())
         } else {
-            Err(failure::err_msg("Unknown command"))
+            Err("Unknown command".into())
         }
     }
 
@@ -402,7 +402,7 @@ fn main() -> Result<()> {
     gl::load_with(|symbol| windowed_context.get_proc_address(symbol) as *const _);
 
     if !gl::GetError::is_loaded() {
-        return Err(failure::err_msg("glGetError not loaded"));
+        return Err("glGetError not loaded".into());
     }
 
     if cfg!(debug_assertions) {

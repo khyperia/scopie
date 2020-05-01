@@ -121,7 +121,7 @@ pub fn autoconnect() -> Result<Mount> {
         m.set_time(MountTime::now())?;
         return Ok(m);
     }
-    Err(failure::err_msg("No mount found"))
+    Err("No mount found".into())
 }
 
 pub struct Mount {
@@ -157,7 +157,7 @@ impl Mount {
         if hash == [b'#'] {
             Ok(())
         } else {
-            Err(failure::err_msg("Mount reply didn't end with '#'"))
+            Err("Mount reply didn't end with '#'".into())
         }
     }
 
@@ -201,7 +201,7 @@ impl Mount {
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
         if response.len() != 2 {
-            return Err(failure::err_msg("Invalid response"));
+            return Err("Invalid response".into());
         }
         let result = (Angle::from_u32(response[0]), Angle::from_u32(response[1]));
         Ok(result)
@@ -234,7 +234,7 @@ impl Mount {
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
         if response.len() != 2 {
-            return Err(failure::err_msg("Invalid response"));
+            return Err("Invalid response".into());
         }
         Ok((Angle::from_u32(response[0]), Angle::from_u32(response[1])))
     }
