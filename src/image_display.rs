@@ -11,6 +11,11 @@ pub struct ImageDisplay {
     pub bin: bool,
 }
 
+pub struct Mapping {
+    pub scale: (f64, f64),
+    pub offset: (f64, f64),
+}
+
 impl ImageDisplay {
     pub fn new() -> Self {
         // TODO: Cache new_binning()
@@ -74,79 +79,108 @@ impl ImageDisplay {
         displayer: &TextureRenderer,
         screen_size: (f32, f32),
         roi: &crate::camera::display::ROIThing,
-    ) -> Result<()> {
-        if let Some(ref texture) = self.texture {
-            if let Some(ref raw) = self.raw {
-                let roi_unclamped = roi.get_roi_unclamped(&raw.original);
-                let roi_clamped =
-                    crate::camera::display::ROIThing::clamp(roi_unclamped.clone(), &raw.location);
+    ) -> Result<(Rect<usize>, Mapping)> {
+        if let (Some(texture), Some(raw)) = (self.texture.as_ref(), self.raw.as_ref()) {
+            let roi_unclamped = roi.get_roi_unclamped(&raw.original);
+            let roi_clamped =
+                crate::camera::display::ROIThing::clamp(roi_unclamped.clone(), &raw.location);
 
-                let scale = ((pos.width as f64) / (roi_unclamped.width as f64))
-                    .min((pos.height as f64) / (roi_unclamped.height as f64));
-                let screenspace_width = (roi_unclamped.width as f64) * scale;
-                let screenspace_height = (roi_unclamped.height as f64) * scale;
-                let screenspace_area = Rect::new(
-                    (pos.x + pos.width) as f64 - screenspace_width,
-                    pos.y as f64,
-                    screenspace_width,
-                    screenspace_height,
-                );
+            let scale = ((pos.width as f64) / (roi_unclamped.width as f64))
+                .min((pos.height as f64) / (roi_unclamped.height as f64));
+            let screenspace_width = (roi_unclamped.width as f64) * scale;
+            let screenspace_height = (roi_unclamped.height as f64) * scale;
+            let screenspace_area = Rect::new(
+                (pos.x + pos.width) as f64 - screenspace_width,
+                pos.y as f64,
+                screenspace_width,
+                screenspace_height,
+            );
 
-                let roi_clamped_f64 = Rect::new(
-                    roi_clamped.x as f64,
-                    roi_clamped.y as f64,
-                    roi_clamped.width as f64,
-                    roi_clamped.height as f64,
-                );
-                let roi_unclamped_f64 = Rect::new(
-                    roi_unclamped.x as f64,
-                    roi_unclamped.y as f64,
-                    roi_unclamped.width as f64,
-                    roi_unclamped.height as f64,
-                );
+            let roi_clamped_f64 = Rect::new(
+                roi_clamped.x as f64,
+                roi_clamped.y as f64,
+                roi_clamped.width as f64,
+                roi_clamped.height as f64,
+            );
+            let roi_unclamped_f64 = Rect::new(
+                roi_unclamped.x as f64,
+                roi_unclamped.y as f64,
+                roi_unclamped.width as f64,
+                roi_unclamped.height as f64,
+            );
 
-                let roi_clamped_in_screenspace =
-                    Self::space_transform(roi_clamped_f64, roi_unclamped_f64, screenspace_area);
+            let roi_clamped_in_screenspace =
+                Self::space_transform(roi_clamped_f64, roi_unclamped_f64, screenspace_area);
 
-                let src = Rect::new(
-                    (roi_clamped.x - raw.location.x) as f32,
-                    (roi_clamped.y - raw.location.y) as f32,
-                    roi_clamped.width as f32,
-                    roi_clamped.height as f32,
-                );
-                let dst = Rect::new(
-                    roi_clamped_in_screenspace.x.round() as f32,
-                    roi_clamped_in_screenspace.y.round() as f32,
-                    roi_clamped_in_screenspace.width.round() as f32,
-                    roi_clamped_in_screenspace.height.round() as f32,
-                );
+            let src = Rect::new(
+                roi_clamped.x - raw.location.x,
+                roi_clamped.y - raw.location.y,
+                roi_clamped.width,
+                roi_clamped.height,
+            );
+            let dst = Rect::new(
+                roi_clamped_in_screenspace.x.round(),
+                roi_clamped_in_screenspace.y.round(),
+                roi_clamped_in_screenspace.width.round(),
+                roi_clamped_in_screenspace.height.round(),
+            );
 
-                let disp = if self.bin { &self.displayer } else { displayer };
-                disp.render(texture, screen_size)
-                    .src(src)
-                    .dst(dst.clone())
-                    .scale_offset(self.scale_offset)
-                    .go()?;
-                if self.cross {
-                    let half_x = dst.x + (dst.width / 2.0);
-                    let half_y = dst.y + (dst.height / 2.0);
-                    displayer.line_x(
-                        dst.x as usize,
-                        dst.right() as usize,
-                        half_y as usize,
-                        [255.0, 0.0, 0.0, 255.0],
-                        screen_size,
-                    )?;
-                    displayer.line_y(
-                        half_x as usize,
-                        dst.y as usize,
-                        dst.bottom() as usize,
-                        [255.0, 0.0, 0.0, 255.0],
-                        screen_size,
-                    )?;
-                }
+            let disp = if self.bin { &self.displayer } else { displayer };
+            disp.render(texture, screen_size)
+                .src(src.to_f32())
+                .dst(dst.to_f32())
+                .scale_offset(self.scale_offset)
+                .go()?;
+            if self.cross {
+                let half_x = dst.x + (dst.width / 2.0);
+                let half_y = dst.y + (dst.height / 2.0);
+                displayer.line_x(
+                    dst.x as usize,
+                    dst.right() as usize,
+                    half_y as usize,
+                    [255.0, 0.0, 0.0, 255.0],
+                    screen_size,
+                )?;
+                displayer.line_y(
+                    half_x as usize,
+                    dst.y as usize,
+                    dst.bottom() as usize,
+                    [255.0, 0.0, 0.0, 255.0],
+                    screen_size,
+                )?;
             }
+            let (scale_x, offset_x) =
+                remap_to_scale_offset(src.x as f64, src.right() as f64, dst.x, dst.right());
+            let (scale_y, offset_y) =
+                remap_to_scale_offset(src.y as f64, src.bottom() as f64, dst.y, dst.bottom());
+            Ok((
+                src,
+                Mapping {
+                    scale: (scale_x, scale_y),
+                    offset: (offset_x, offset_y),
+                },
+            ))
+        } else {
+            Ok((
+                Rect::new(0, 0, 1, 1),
+                Mapping {
+                    scale: (1.0, 1.0),
+                    offset: (0.0, 0.0),
+                },
+            ))
         }
-        Ok(())
     }
+}
+
+fn remap_to_scale_offset(from_start: f64, from_end: f64, to_start: f64, to_end: f64) -> (f64, f64) {
+    // lerp(to_start, to_end, invlerp(from_start, from_end, t))
+    // invLerp(a, b, t) = (t - a) / (b - a)
+    // lerp(a, b, t) = a + (b - a) * t
+    // lerp(to_start, to_end, (t - from_start) / (from_end - from_start))
+    // to_start + (to_end - to_start) * (t - from_start) / (from_end - from_start)
+    // to_start + (to_end - to_start) * -from_start / (from_end - from_start) + (to_end - to_start) * t / (from_end - from_start)
+    // to_start - from_start * (to_end - to_start) / (from_end - from_start) + t * (to_end - to_start) / (from_end - from_start)
+    let slope = (to_end - to_start) / (from_end - from_start);
+    let offset = to_start - from_start * slope;
+    (slope, offset)
 }

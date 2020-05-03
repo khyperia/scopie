@@ -1,9 +1,9 @@
+mod alg;
 mod camera;
 mod dms;
 mod image_display;
 mod mount;
 mod platesolve;
-mod process;
 mod text_input;
 
 use camera::display::CameraDisplay;
@@ -42,7 +42,7 @@ pub enum UserUpdate {
     CameraUpdate(camera::thread::CameraData),
     CameraData(Arc<camera::interface::ROIImage>),
     SolveFinished(Angle, Angle),
-    ProcessResult(process::ProcessResult),
+    ProcessResult(alg::process::ProcessResult),
 }
 type SendUserUpdate = EventLoopProxy<UserUpdate>;
 

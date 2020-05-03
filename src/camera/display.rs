@@ -1,10 +1,11 @@
 use crate::{
+    alg::process,
     camera,
     camera::qhycamera::{ControlId, EXPOSURE_FACTOR},
     image_display::ImageDisplay,
     mount,
     platesolve::platesolve,
-    process, Key, Result, SendUserUpdate, UserUpdate,
+    Key, Result, SendUserUpdate, UserUpdate,
 };
 use khygl::{render_texture::TextureRenderer, texture::CpuTexture, Rect};
 use std::{
@@ -234,8 +235,36 @@ impl CameraDisplay {
             self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
         };
         self.roi_thing.update();
-        self.image_display
-            .draw(pos, displayer, screen_size, &self.roi_thing)?;
+        let (img_src, mapping) =
+            self.image_display
+                .draw(pos, displayer, screen_size, &self.roi_thing)?;
+        if let Some(stars) = self.processor.get_stars() {
+            for star in stars {
+                // multiply by two to get box of width 2*hfd
+                let two_hfr = star.hfr * 2.0;
+                // add 0.5 since the image displayer does a floor, not a round
+                let x_start = star.x - two_hfr + 0.5;
+                let x_end = star.x + two_hfr + 0.5;
+                let y_start = star.y - two_hfr + 0.5;
+                let y_end = star.y + two_hfr + 0.5;
+                if x_start < img_src.x as f64
+                    || x_end > img_src.right() as f64
+                    || y_start < img_src.y as f64
+                    || y_end > img_src.bottom() as f64
+                {
+                    continue;
+                }
+                let x_start = (x_start * mapping.scale.0 + mapping.offset.0) as usize;
+                let x_end = (x_end * mapping.scale.0 + mapping.offset.0) as usize;
+                let y_start = (y_start * mapping.scale.1 + mapping.offset.1) as usize;
+                let y_end = (y_end * mapping.scale.1 + mapping.offset.1) as usize;
+                let color = [1.0, 0.0, 0.0, 1.0];
+                displayer.line_x(x_start, x_end, y_start, color, screen_size)?;
+                displayer.line_x(x_start, x_end, y_end, color, screen_size)?;
+                displayer.line_y(x_start, y_start, y_end, color, screen_size)?;
+                displayer.line_y(x_end, y_start, y_end, color, screen_size)?;
+            }
+        };
         Ok(())
     }
 

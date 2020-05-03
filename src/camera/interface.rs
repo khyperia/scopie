@@ -36,7 +36,9 @@ fn check(code: u32) -> ::std::result::Result<(), QhyError> {
 #[derive(Debug)]
 pub struct ROIImage {
     pub image: CpuTexture<u16>,
+    // the ROI, i.e. bounds of image
     pub location: Rect<usize>,
+    // the original sensor size
     pub original: Rect<usize>,
 }
 
