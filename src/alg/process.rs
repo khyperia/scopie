@@ -1,4 +1,4 @@
-use super::starfinder::{find_stars, Star};
+// use super::starfinder::{find_stars, Star};
 use crate::{camera::interface::ROIImage, Result, SendUserUpdate, UserUpdate};
 use khygl::texture::CpuTexture;
 use std::{
@@ -31,7 +31,7 @@ pub struct ProcessResult {
     mean: f64,
     stdev: f64,
     duration: Duration,
-    stars: Vec<Star>,
+    // stars: Vec<Star>,
 }
 
 fn u16_to_f64(val: u16) -> f64 {
@@ -45,14 +45,14 @@ impl ProcessResult {
         sorted.sort_unstable();
         let mean = mean(&sorted);
         let stdev = stdev(&sorted, mean);
-        let stars = find_stars(image, mean, stdev);
+        // let stars = find_stars(image, mean, stdev);
         let duration = Instant::now() - begin;
         Self {
             sorted,
             mean,
             stdev,
             duration,
-            stars,
+            // stars,
         }
     }
 
@@ -246,10 +246,6 @@ impl Processor {
     }
 
     pub fn user_update(&mut self, process_result: ProcessResult) {
-        println!("flux,hfr");
-        for star in &process_result.stars {
-            println!("{},{}", star.flux, star.hfr);
-        }
         self.process_result = Some(process_result);
     }
 
@@ -265,7 +261,7 @@ impl Processor {
         Some(result)
     }
 
-    pub fn get_stars(&self) -> Option<&[Star]> {
-        Some(&self.process_result.as_ref()?.stars)
-    }
+    // pub fn get_stars(&self) -> Option<&[Star]> {
+    //     Some(&self.process_result.as_ref()?.stars)
+    // }
 }

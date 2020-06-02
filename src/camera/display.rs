@@ -208,10 +208,9 @@ impl CameraDisplay {
         Ok(())
     }
 
-    fn save_png(&self, data: &CpuTexture<u16>) -> Result<()> {
+    fn get_filename(&self) -> Result<PathBuf> {
         let tm = time::OffsetDateTime::now_local();
         let dirname = tm.format("%Y_%m_%d");
-        let filename = tm.format("telescope.%Y-%m-%d.%H-%M-%S.png");
         let mut filepath = dirs::desktop_dir().unwrap_or_else(PathBuf::new);
         filepath.push(dirname);
         if !self.folder.is_empty() {
@@ -220,8 +219,26 @@ impl CameraDisplay {
         if !filepath.exists() {
             create_dir_all(&filepath)?;
         }
-        filepath.push(filename);
-        crate::write_png(filepath, data)?;
+        let filepath1 = filepath.join(tm.format("telescope.%Y-%m-%d.%H-%M-%S.png"));
+        if !filepath1.exists() {
+            return Ok(filepath1);
+        }
+        let filepath2 = filepath.join(tm.format("telescope.%Y-%m-%d.%H-%M-%S.%N.png"));
+        if !filepath2.exists() {
+            return Ok(filepath2);
+        }
+        for i in 1.. {
+            let filepath3 =
+                filepath.join(tm.format(format!("telescope.%Y-%m-%d.%H-%M-%S.%N.{}.png", i)));
+            if !filepath3.exists() {
+                return Ok(filepath3);
+            }
+        }
+        panic!("Unable to find free file");
+    }
+
+    fn save_png(&self, data: &CpuTexture<u16>) -> Result<()> {
+        crate::write_png(self.get_filename()?, data)?;
         Ok(())
     }
 
@@ -235,36 +252,8 @@ impl CameraDisplay {
             self.image_display.scale_offset = (scale_offset.0 as f32, scale_offset.1 as f32);
         };
         self.roi_thing.update();
-        let (img_src, mapping) =
-            self.image_display
-                .draw(pos, displayer, screen_size, &self.roi_thing)?;
-        if let Some(stars) = self.processor.get_stars() {
-            for star in stars {
-                // multiply by two to get box of width 2*hfd
-                let two_hfr = star.hfr * 2.0;
-                // add 0.5 since the image displayer does a floor, not a round
-                let x_start = star.x - two_hfr + 0.5;
-                let x_end = star.x + two_hfr + 0.5;
-                let y_start = star.y - two_hfr + 0.5;
-                let y_end = star.y + two_hfr + 0.5;
-                if x_start < img_src.x as f64
-                    || x_end > img_src.right() as f64
-                    || y_start < img_src.y as f64
-                    || y_end > img_src.bottom() as f64
-                {
-                    continue;
-                }
-                let x_start = (x_start * mapping.scale.0 + mapping.offset.0) as usize;
-                let x_end = (x_end * mapping.scale.0 + mapping.offset.0) as usize;
-                let y_start = (y_start * mapping.scale.1 + mapping.offset.1) as usize;
-                let y_end = (y_end * mapping.scale.1 + mapping.offset.1) as usize;
-                let color = [1.0, 0.0, 0.0, 1.0];
-                displayer.line_x(x_start, x_end, y_start, color, screen_size)?;
-                displayer.line_x(x_start, x_end, y_end, color, screen_size)?;
-                displayer.line_y(x_start, y_start, y_end, color, screen_size)?;
-                displayer.line_y(x_end, y_start, y_end, color, screen_size)?;
-            }
-        };
+        self.image_display
+            .draw(pos, displayer, screen_size, &self.roi_thing)?;
         Ok(())
     }
 

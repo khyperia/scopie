@@ -141,7 +141,11 @@ fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> 
                             break;
                         }
                         None => {
-                            std::thread::sleep(Duration::from_millis(1));
+                            let limit = Duration::from_millis(10);
+                            if exposure_duration > limit || Instant::now() - exposure_start > limit
+                            {
+                                std::thread::sleep(Duration::from_millis(1));
+                            }
                         }
                     }
                 }
