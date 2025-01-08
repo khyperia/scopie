@@ -1,41 +1,22 @@
 mod alg;
 mod camera;
 mod dms;
-mod image_display;
-mod mount;
-mod platesolve;
-mod text_input;
+// mod image_display;
+// mod mount;
+// mod platesolve;
+// mod text_input;
 
-use camera::display::CameraDisplay;
-use dms::Angle;
-use glutin::{
-    self,
-    dpi::{LogicalPosition, PhysicalPosition},
-    event::{
-        ElementState, Event, MouseButton, MouseScrollDelta, TouchPhase, VirtualKeyCode as Key,
-        WindowEvent,
-    },
-    event_loop::{ControlFlow, EventLoop, EventLoopProxy},
-    window::WindowBuilder,
-    ContextBuilder, GlProfile,
-};
-use khygl::{
-    check_gl, gl_register_debug, render_text::TextRenderer, render_texture::TextureRenderer,
-    texture::CpuTexture, Rect,
-};
-use mount::{display::MountDisplay, thread::MountAsync};
-use std::{
-    collections::HashSet,
-    convert::TryInto,
-    fmt::Write,
-    fs::File,
-    path::Path,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use camera::interface::CpuTexture;
+// use camera::display::CameraDisplay;
+// use dms::Angle;
+use eframe::egui::{self, Color32};
+// use mount::{display::MountDisplay, thread::MountAsync};
+use std::{fs::File, path::Path};
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub use anyhow::Result;
+// type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+/*
 #[derive(Debug)]
 pub enum UserUpdate {
     MountUpdate(mount::thread::MountData),
@@ -45,23 +26,24 @@ pub enum UserUpdate {
     ProcessResult(alg::process::ProcessResult),
 }
 type SendUserUpdate = EventLoopProxy<UserUpdate>;
+*/
 
 fn read_png(path: impl AsRef<Path>) -> Result<CpuTexture<u16>> {
     let mut decoder = png::Decoder::new(File::open(path)?);
     decoder.set_transformations(png::Transformations::IDENTITY);
-    let (info, mut reader) = decoder.read_info()?;
+    let mut reader = decoder.read_info()?;
+    let info = reader.info();
     assert_eq!(info.bit_depth, png::BitDepth::Sixteen);
     assert_eq!(info.color_type, png::ColorType::Grayscale);
-    let mut buf = vec![0; info.buffer_size()];
+    let width = info.width;
+    let height = info.height;
+    let mut buf = vec![0; reader.output_buffer_size()];
     reader.next_frame(&mut buf)?;
-    let mut buf16 = vec![0; info.width as usize * info.height as usize];
+    let mut buf16 = vec![0; width as usize * height as usize];
     for i in 0..buf16.len() {
         buf16[i] = u16::from(buf[i * 2]) << 8 | u16::from(buf[i * 2 + 1]);
     }
-    Ok(CpuTexture::new(
-        buf16,
-        (info.width as usize, info.height as usize),
-    ))
+    Ok(CpuTexture::new(buf16, (width as usize, height as usize)))
 }
 
 fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
@@ -79,6 +61,7 @@ fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
     Ok(())
 }
 
+/*
 struct Display {
     camera_display: camera::display::CameraDisplay,
     mount_display: Option<mount::display::MountDisplay>,
@@ -384,7 +367,74 @@ fn handle(control_flow: &mut ControlFlow, res: Result<()>) {
         }
     }
 }
+*/
 
+fn main() -> eframe::Result {
+    std::env::set_var("RUST_BACKTRACE", "1");
+    let native_options = eframe::NativeOptions::default();
+    eframe::run_native(
+        "scopie",
+        native_options,
+        Box::new(|cc| Ok(Box::new(ScopieApp::new(cc)))),
+    )
+}
+
+#[derive(Clone)]
+struct UiThread {
+    ctx: egui::Context,
+}
+
+impl UiThread {
+    pub fn trigger(&self) {
+        self.ctx.request_repaint();
+    }
+}
+
+struct ScopieApp {
+    error: String,
+    camera: camera::camera_display::CameraDisplay,
+}
+
+impl ScopieApp {
+    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Customize egui here with cc.egui_ctx.set_fonts and cc.egui_ctx.set_visuals.
+        // Restore app state using cc.storage (requires the "persistence" feature).
+        // Use the cc.gl (a glow::Context) to create graphics shaders and buffers that you can use
+        // for e.g. egui::PaintCallback.
+        let ui_thread = UiThread {
+            ctx: cc.egui_ctx.clone(),
+        };
+        Self {
+            error: String::new(),
+            camera: camera::camera_display::CameraDisplay::new(ui_thread),
+        }
+    }
+}
+
+impl eframe::App for ScopieApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.camera.update(ctx);
+        ctx.request_repaint();
+        if !self.error.is_empty() {
+            egui::TopBottomPanel::bottom("error_panel").show(ctx, |ui| {
+                if ui.colored_label(Color32::RED, &self.error).clicked() {
+                    self.error = String::new();
+                }
+            });
+        }
+        let result = egui::CentralPanel::default()
+            .show(ctx, |ui| {
+                // if ui.button("Scan for cameras").clicked() {}
+                self.camera.ui(ui)
+            })
+            .inner;
+        if let Err(result) = result {
+            self.error = format!("{}", result);
+        }
+    }
+}
+
+/*
 fn main() -> Result<()> {
     let el = EventLoop::with_user_event();
     let wb = WindowBuilder::new()
@@ -514,3 +564,4 @@ fn main() -> Result<()> {
         _ => (),
     })
 }
+*/

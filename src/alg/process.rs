@@ -1,6 +1,5 @@
 // use super::starfinder::{find_stars, Star};
-use crate::{camera::interface::ROIImage, Result, SendUserUpdate, UserUpdate};
-use khygl::texture::CpuTexture;
+use crate::camera::interface::{CpuTexture, ROIImage};
 use std::{
     fmt::Write,
     sync::{mpsc, Arc},

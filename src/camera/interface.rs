@@ -1,12 +1,15 @@
 use crate::{
-    camera::{
-        qhycamera as qhy,
-        qhycamera::{ControlId, QHYCCD},
-    },
+    alg::Rect,
+    camera::qhycamera::{self as qhy, ControlId, QHYCCD},
     Result,
 };
-use khygl::{texture::CpuTexture, Rect};
-use std::{error::Error, ffi::CString, fmt, str, sync::Once};
+use anyhow::anyhow;
+use std::{
+    error::Error,
+    ffi::{CStr, CString},
+    fmt, str,
+    sync::Once,
+};
 
 #[derive(Debug)]
 struct QhyError {
@@ -25,11 +28,35 @@ impl Error for QhyError {
     }
 }
 
-fn check(code: u32) -> ::std::result::Result<(), QhyError> {
+fn check(code: u32) -> Result<()> {
     if code == 0 {
         Ok(())
     } else {
-        Err(QhyError { code })
+        Err(anyhow!(QhyError { code }))
+    }
+}
+
+// fn check(code: u32) -> ::std::result::Result<(), QhyError> {
+//     if code == 0 {
+//         Ok(())
+//     } else {
+//         Err(QhyError { code })
+//     }
+// }
+
+#[derive(Debug)]
+pub struct CpuTexture<T> {
+    data: Vec<T>,
+    pub size: (usize, usize),
+}
+impl<T> CpuTexture<T> {
+    pub fn new(data: Vec<T>, size: (usize, usize)) -> Self {
+        assert!(data.len() >= size.0 * size.1);
+        Self { data, size }
+    }
+
+    pub fn data(&self) -> &[T] {
+        &self.data[..self.size.0 * self.size.1]
     }
 }
 
@@ -77,7 +104,7 @@ pub fn autoconnect(live: bool) -> Result<Camera> {
     if let Some(best) = best {
         Ok(best.open(live)?)
     } else {
-        Err("No QHY cameras found".into())
+        Err(anyhow!("No QHY cameras found"))
     }
 }
 
@@ -130,7 +157,7 @@ impl Camera {
             let cstring = CString::new(&info.name as &str)?;
             let handle = qhy::OpenQHYCCD(cstring.as_ptr());
             if handle.is_null() {
-                return Err("OpenQHYCCD returned null".into());
+                return Err(anyhow!("OpenQHYCCD returned null"));
             }
 
             check(qhy::SetQHYCCDStreamMode(
@@ -138,6 +165,14 @@ impl Camera {
                 if use_live { 1 } else { 0 },
             ))?; // 0 == single, 1 == stream
             check(qhy::InitQHYCCD(handle))?;
+            if qhy::IsQHYCCDControlAvailable(handle, ControlId::CamSensorUlvoStatus) == 0 {
+                let ulvo_status = qhy::GetQHYCCDParam(handle, ControlId::CamSensorUlvoStatus);
+                if ulvo_status != 2.0 && ulvo_status != 9.0 {
+                    return Err(anyhow!(format!("camera ULVO status is {ulvo_status}")));
+                }
+            } else {
+                println!("No ULVO status");
+            }
             check(qhy::IsQHYCCDControlAvailable(
                 handle,
                 ControlId::ControlTransferbit,
@@ -145,11 +180,31 @@ impl Camera {
             check(qhy::SetQHYCCDBitsMode(handle, 16))?;
             check(qhy::SetQHYCCDBinMode(handle, 1, 1))?;
             if use_live {
+                check(qhy::IsQHYCCDControlAvailable(
+                    handle,
+                    ControlId::ControlUsbtraffic,
+                ))?;
                 check(qhy::SetQHYCCDParam(
                     handle,
                     ControlId::ControlUsbtraffic,
                     0.0,
                 ))?;
+            }
+            if qhy::IsQHYCCDControlAvailable(handle, ControlId::ControlSpeed) == 0 {
+                println!("ControlSpeed is available");
+            } else {
+                let mut num_modes = 0;
+                qhy::GetQHYCCDNumberOfReadModes(handle, &mut num_modes);
+                println!("Read Modes is available: {}", num_modes);
+                for mode in 0..num_modes {
+                    let mut name = [0u8; 128];
+                    qhy::GetQHYCCDReadModeName(handle, mode, &mut name[0]);
+                    println!(
+                        "mode {} = {:?}",
+                        mode,
+                        CStr::from_ptr(&name[0] as *const u8 as *const i8).to_str()
+                    );
+                }
             }
             let mut x = 0;
             let mut y = 0;
@@ -191,6 +246,10 @@ impl Camera {
 
     pub fn effective_area(&self) -> Rect<usize> {
         self.effective_area.clone()
+    }
+
+    pub fn current_roi(&self) -> Rect<usize> {
+        self.current_roi.clone()
     }
 
     pub fn name(&self) -> &str {
@@ -427,10 +486,6 @@ impl ControlValue {
             readonly: control.readonly,
             interesting: control.interesting,
         }
-    }
-
-    pub fn name(&self) -> &'static str {
-        self.id.to_str()
     }
 }
 

@@ -1,7 +1,58 @@
-use khygl::texture::{offset, CpuTexture};
+use std::ops::Add;
 
-pub mod process;
-mod starfinder;
+// pub mod process;
+// mod starfinder;
+
+#[derive(Clone, Debug)]
+pub struct Rect<T> {
+    pub x: T,
+    pub y: T,
+    pub width: T,
+    pub height: T,
+}
+
+impl<T> Rect<T> {
+    pub fn new(x: T, y: T, width: T, height: T) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    pub fn right(&self) -> <T as Add>::Output
+    where
+        T: Add<T> + Copy,
+    {
+        self.x + self.width
+    }
+
+    pub fn bottom(&self) -> <T as Add>::Output
+    where
+        T: Add<T> + Copy,
+    {
+        self.y + self.height
+    }
+}
+
+macro_rules! impl_into {
+    ($x:ty) => {
+        impl Rect<$x> {
+            pub fn to_f32(&self) -> Rect<f32> {
+                Rect {
+                    x: self.x as f32,
+                    y: self.y as f32,
+                    width: self.width as f32,
+                    height: self.height as f32,
+                }
+            }
+        }
+    };
+}
+
+impl_into!(f64);
+impl_into!(usize);
 
 pub fn median(seq: &mut [f64]) -> f64 {
     seq.sort_unstable_by(|l, r| l.partial_cmp(&r).unwrap());
@@ -82,6 +133,7 @@ pub fn f64_to_u8(mut value: f64) -> u8 {
     }
 }
 
+/*
 fn floodfind_one<T: Copy>(
     img: &CpuTexture<T>,
     condition: &impl Fn(T) -> bool,
@@ -129,3 +181,4 @@ pub fn floodfind<T: Copy>(
     }
     results
 }
+*/

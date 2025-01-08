@@ -1,10 +1,16 @@
-use crate::{camera, camera::qhycamera::ControlId, Result, SendUserUpdate, UserUpdate};
-use khygl::Rect;
+use crate::{
+    alg::Rect,
+    camera::{self, qhycamera::ControlId},
+    Result, UiThread,
+};
+use anyhow::anyhow;
 use std::{
-    sync::{mpsc, Arc},
+    sync::mpsc,
     thread::spawn,
     time::{Duration, Instant},
 };
+
+use super::interface::ROIImage;
 
 enum CameraCommand {
     SetControl(ControlId, f64),
@@ -24,22 +30,28 @@ pub struct CameraData {
     pub exposure_start: Instant,
     pub exposure_duration: Duration,
     pub effective_area: Option<Rect<usize>>,
+    pub current_roi: Option<Rect<usize>>,
 }
 
 pub struct CameraAsync {
     send: mpsc::Sender<CameraCommand>,
+    recv: mpsc::Receiver<CameraData>,
     pub data: CameraData,
 }
 
 impl CameraAsync {
-    pub fn new(send_user_update: SendUserUpdate) -> Self {
+    pub fn new(send_image: mpsc::Sender<ROIImage>, ui_thread: UiThread) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
-        spawn(move || match run(recv_cmd, send_user_update) {
-            Ok(()) => (),
-            Err(err) => println!("Camera thread error: {}", err),
-        });
+        let (send_result, recv_result) = mpsc::channel();
+        spawn(
+            move || match run(recv_cmd, send_image, send_result, ui_thread) {
+                Ok(()) => (),
+                Err(err) => println!("Camera thread error: {}\n{}", err, err.backtrace()),
+            },
+        );
         Self {
             send: send_cmd,
+            recv: recv_result,
             data: CameraData {
                 controls: Vec::new(),
                 name: String::new(),
@@ -49,7 +61,19 @@ impl CameraAsync {
                 exposure_start: Instant::now(),
                 exposure_duration: Duration::from_secs(0),
                 effective_area: None,
+                current_roi: None,
             },
+        }
+    }
+
+    pub fn update(&mut self) {
+        loop {
+            match self.recv.try_recv() {
+                Ok(data) => self.data = data,
+                // TODO: Disconnected
+                Err(mpsc::TryRecvError::Disconnected) => return,
+                Err(mpsc::TryRecvError::Empty) => return,
+            }
         }
     }
 
@@ -74,15 +98,22 @@ impl CameraAsync {
     pub fn set_roi(&self, roi: Option<Rect<usize>>) -> std::result::Result<(), ()> {
         self.send.send(CameraCommand::SetROI(roi)).map_err(|_| ())
     }
-
-    pub fn user_update(&mut self, user_update: UserUpdate) {
-        if let UserUpdate::CameraUpdate(data) = user_update {
-            self.data = data;
-        }
-    }
 }
 
-fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> {
+fn run(
+    recv: mpsc::Receiver<CameraCommand>,
+    send_image: mpsc::Sender<ROIImage>,
+    send_camera: mpsc::Sender<CameraData>,
+    ui_thread: UiThread,
+) -> Result<()> {
+    {
+        if let Ok(img) = crate::read_png("telescope.2019-11-21.19-39-54.png") {
+            send_image
+                .send(img.into())
+                .map_err(|_| anyhow!("unable to send initial test image"))?;
+        }
+    }
+
     let mut camera = Some(camera::interface::autoconnect(false)?);
     let mut running = false;
     let mut exposure_duration = Duration::default();
@@ -126,18 +157,20 @@ fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> 
             exposure_start,
             exposure_duration,
             effective_area: Some(camera.effective_area()),
+            current_roi: Some(camera.current_roi()),
         };
 
-        match send.send_event(UserUpdate::CameraUpdate(data)) {
+        match send_camera.send(data) {
             Ok(()) => (),
             Err(_) => return Ok(()),
         }
+        ui_thread.trigger();
         if running {
             if camera.use_live() {
                 loop {
                     match camera.get_live() {
                         Some(frame) => {
-                            send.send_event(UserUpdate::CameraData(Arc::new(frame)))?;
+                            send_image.send(frame)?;
                             break;
                         }
                         None => {
@@ -152,7 +185,7 @@ fn run(recv: mpsc::Receiver<CameraCommand>, send: SendUserUpdate) -> Result<()> 
             } else {
                 camera.start_single()?;
                 let single = camera.get_single()?;
-                send.send_event(UserUpdate::CameraData(Arc::new(single)))?;
+                send_image.send(single)?;
             }
             let new_exposure_start = Instant::now();
             exposure_duration = new_exposure_start - exposure_start;
