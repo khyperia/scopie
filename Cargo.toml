@@ -6,14 +6,9 @@ edition = "2018"
 
 [dependencies]
 anyhow = "*"
-dirs = { version = "*", default-features = false }
+dirs = "*"
 eframe = "*"
 png = "*"
-regex = { version = "*", default-features = false }
-serialport = { version = "*", default-features = false }
-time = { version = "*", default-features = false, features = [
-    "std",
-    "local-offset",
-    "formatting",
-    "macros",
-] }
+regex = "*"
+serialport = "*"
+time = { version = "*", features = ["local-offset", "formatting", "macros"] }

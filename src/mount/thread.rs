@@ -1,4 +1,5 @@
-use crate::{dms::Angle, mount::interface::*, Result, SendUserUpdate, UserUpdate};
+use crate::{dms::Angle, mount::interface::*, Result, UiThread};
+use anyhow::anyhow;
 use std::{
     sync::mpsc,
     thread::spawn,
@@ -18,82 +19,82 @@ pub struct MountData {
     pub time: MountTime,
 }
 
-pub struct MountSendError {}
-
 pub struct MountAsync {
     send: mpsc::Sender<MountCommand>,
+    recv: mpsc::Receiver<MountData>,
     pub data: MountData,
 }
 
 impl MountAsync {
-    pub fn new(send_user_update: SendUserUpdate) -> Self {
+    pub fn new(ui_thread: UiThread) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
-        spawn(move || match run(recv_cmd, send_user_update) {
+        let (send_data, recv_data) = mpsc::channel();
+        spawn(move || match run(recv_cmd, send_data, ui_thread) {
             Ok(()) => (),
             Err(err) => panic!("Mount thread error: {}", err),
         });
         Self {
             send: send_cmd,
+            recv: recv_data,
             data: MountData::default(),
         }
     }
 
-    pub fn user_update(&mut self, user_update: UserUpdate) {
-        if let UserUpdate::MountUpdate(mount_update) = user_update {
-            self.data = mount_update;
+    pub fn update(&mut self) {
+        while let Ok(data) = self.recv.try_recv() {
+            self.data = data;
         }
     }
 
-    fn send(
-        &self,
-        cmd: impl FnOnce(&mut Mount) -> Result<()> + Send + 'static,
-    ) -> std::result::Result<(), MountSendError> {
+    fn send(&self, cmd: impl FnOnce(&mut Mount) -> Result<()> + Send + 'static) -> Result<()> {
         match self.send.send(Box::new(cmd)) {
             Ok(()) => Ok(()),
-            Err(mpsc::SendError(_)) => Err(MountSendError {}),
+            Err(mpsc::SendError(_)) => Err(anyhow!("mount send error")),
         }
     }
 
-    pub fn slew_real(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
+    pub fn slew_real(&self, ra: Angle, dec: Angle) -> Result<()> {
         self.send(move |mount| mount.slew_ra_dec_real(ra, dec))
     }
-    pub fn sync_real(&self, ra: Angle, dec: Angle) -> std::result::Result<(), MountSendError> {
+    pub fn sync_real(&self, ra: Angle, dec: Angle) -> Result<()> {
         self.send(move |mount| mount.sync_ra_dec_real(ra, dec))
     }
-    pub fn set_real_to_mount(
-        &self,
-        ra: Angle,
-        dec: Angle,
-    ) -> std::result::Result<(), MountSendError> {
+    pub fn set_real_to_mount(&self, ra: Angle, dec: Angle) -> Result<()> {
         self.send(move |mount| {
             mount.set_real_to_mount(ra, dec);
             Ok(())
         })
     }
-    pub fn slew_azalt(&self, az: Angle, alt: Angle) -> std::result::Result<(), MountSendError> {
+    pub fn slew_azalt(&self, az: Angle, alt: Angle) -> Result<()> {
         self.send(move |mount| mount.slew_az_alt(az, alt))
     }
-    pub fn cancel(&self) -> std::result::Result<(), MountSendError> {
+    pub fn cancel(&self) -> Result<()> {
         self.send(move |mount| mount.cancel_slew())
     }
-    pub fn set_tracking_mode(&self, mode: TrackingMode) -> std::result::Result<(), MountSendError> {
+    pub fn set_tracking_mode(&self, mode: TrackingMode) -> Result<()> {
         self.send(move |mount| mount.set_tracking_mode(mode))
     }
-    pub fn set_location(&self, lat: Angle, lon: Angle) -> std::result::Result<(), MountSendError> {
+    pub fn set_location(&self, lat: Angle, lon: Angle) -> Result<()> {
         self.send(move |mount| mount.set_location(lat, lon))
     }
-    pub fn set_time_now(&self) -> std::result::Result<(), MountSendError> {
+    pub fn set_time_now(&self) -> Result<()> {
         self.send(move |mount| mount.set_time(MountTime::now()))
     }
-    pub fn fixed_slew_ra(&self, speed: i32) -> std::result::Result<(), MountSendError> {
+    pub fn fixed_slew_ra(&self, speed: i32) -> Result<()> {
+        println!("fixed_slew_ra {}", speed);
         self.send(move |mount| mount.fixed_slew_ra(speed))
     }
-    pub fn fixed_slew_dec(&self, speed: i32) -> std::result::Result<(), MountSendError> {
+    pub fn fixed_slew_dec(&self, speed: i32) -> Result<()> {
+        println!("fixed_slew_dec {}", speed);
         self.send(move |mount| mount.fixed_slew_dec(speed))
     }
 }
 
-fn run(recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
+fn run(
+    recv: mpsc::Receiver<MountCommand>,
+    send: mpsc::Sender<MountData>,
+    ui_thread: UiThread,
+) -> Result<()> {
     let mut mount = match autoconnect() {
         Ok(ok) => ok,
         Err(err) => {
@@ -111,7 +112,7 @@ fn run(recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
                 // dropped frames
                 next_update = now + update_rate;
             }
-            if !run_update(&mut mount, &send)? {
+            if !run_update(&mut mount, &send, &ui_thread)? {
                 break Ok(());
             }
         }
@@ -124,7 +125,11 @@ fn run(recv: mpsc::Receiver<MountCommand>, send: SendUserUpdate) -> Result<()> {
     }
 }
 
-fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
+fn run_update(
+    mount: &mut Mount,
+    send: &mpsc::Sender<MountData>,
+    ui_thread: &UiThread,
+) -> Result<bool> {
     let ra_dec_mount = mount.get_ra_dec_mount()?;
     let ra_dec_real = mount.mount_to_real(ra_dec_mount);
     let az_alt = mount.get_az_alt()?;
@@ -132,7 +137,7 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
     let tracking_mode = mount.tracking_mode()?;
     let location = mount.location()?;
     let time = mount.time()?;
-    let send_result = send.send_event(UserUpdate::MountUpdate(MountData {
+    let send_result = send.send(MountData {
         ra_dec_mount,
         ra_dec_real,
         az_alt,
@@ -140,9 +145,12 @@ fn run_update(mount: &mut Mount, send: &SendUserUpdate) -> Result<bool> {
         tracking_mode,
         location,
         time,
-    }));
+    });
     match send_result {
-        Ok(()) => Ok(true),
-        Err(glutin::event_loop::EventLoopClosed(_)) => Ok(false),
+        Ok(()) => {
+            ui_thread.trigger();
+            Ok(true)
+        }
+        Err(mpsc::SendError(_)) => Ok(false),
     }
 }

@@ -8,7 +8,7 @@ use std::{
     error::Error,
     ffi::{CStr, CString},
     fmt, str,
-    sync::Once,
+    sync::Once, time::Instant,
 };
 
 #[derive(Debug)]
@@ -141,6 +141,7 @@ pub struct Camera {
     info: CameraInfo,
     controls: Vec<Control>,
     use_live: bool,
+    is_live_running: bool,
     effective_area: Rect<usize>,
     current_roi: Rect<usize>,
     qhyccd_mem_length_u16: usize,
@@ -229,6 +230,7 @@ impl Camera {
                 info,
                 controls,
                 use_live,
+                is_live_running: false,
                 effective_area: current_roi.clone(),
                 current_roi,
                 qhyccd_mem_length_u16: len_u16,
@@ -301,27 +303,23 @@ impl Camera {
         &self.controls
     }
 
-    pub fn start_single(&self) -> Result<()> {
+    pub fn exp_single(&self) -> Result<ROIImage> {
+        let time_a = Instant::now();
         let single = unsafe { qhy::ExpQHYCCDSingleFrame(self.handle) };
         // QHYCCD_READ_DIRECTLY
         if single != 0x2001 {
             check(single)?;
         }
-        Ok(())
-    }
+        let time_b = Instant::now();
+        println!("expose = {:?}", time_b - time_a);
 
-    pub fn stop_single(&self) -> Result<()> {
-        unsafe { Ok(check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?) }
-    }
-
-    pub fn get_single(&self) -> Result<ROIImage> {
+        // GetQHYCCDExposureRemaining seems to be unreliable, so just block
+        let mut width = 0;
+        let mut height = 0;
+        let mut bpp = 0;
+        let mut channels = 0;
+        let mut data = vec![0; self.qhyccd_mem_length_u16];
         unsafe {
-            // GetQHYCCDExposureRemaining seems to be unreliable, so just block
-            let mut width = 0;
-            let mut height = 0;
-            let mut bpp = 0;
-            let mut channels = 0;
-            let mut data = vec![0; self.qhyccd_mem_length_u16];
             check(qhy::GetQHYCCDSingleFrame(
                 self.handle,
                 &mut width,
@@ -330,24 +328,41 @@ impl Camera {
                 &mut channels,
                 data.as_mut_ptr() as _,
             ))?;
-            assert_eq!(bpp, 16);
-            assert_eq!(channels, 1);
-            assert_eq!(width as usize, self.current_roi.width);
-            assert_eq!(height as usize, self.current_roi.height);
-            Ok(ROIImage {
-                image: CpuTexture::new(data, (width as usize, height as usize)),
-                location: self.current_roi.clone(),
-                original: self.effective_area.clone(),
-            })
         }
+        assert_eq!(bpp, 16);
+        assert_eq!(channels, 1);
+        assert_eq!(width as usize, self.current_roi.width);
+        assert_eq!(height as usize, self.current_roi.height);
+        let time_c = Instant::now();
+        println!("get = {:?}", time_c - time_b);
+        let image = ROIImage {
+            image: CpuTexture::new(data, (width as usize, height as usize)),
+            location: self.current_roi.clone(),
+            original: self.effective_area.clone(),
+        };
+        unsafe {
+            check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?;
+        }
+        let time_d = Instant::now();
+        println!("cancel = {:?}", time_d - time_c);
+        println!("total = {:?}", time_d - time_a);
+        Ok(image)
     }
 
-    pub fn start_live(&self) -> Result<()> {
-        unsafe { Ok(check(qhy::BeginQHYCCDLive(self.handle))?) }
+    pub fn try_start_live(&mut self) -> Result<()> {
+        if !self.is_live_running {
+            unsafe { check(qhy::BeginQHYCCDLive(self.handle))? }
+            self.is_live_running = true;
+        }
+        Ok(())
     }
 
-    pub fn stop_live(&self) -> Result<()> {
-        unsafe { Ok(check(qhy::StopQHYCCDLive(self.handle))?) }
+    pub fn try_stop_live(&mut self) -> Result<()> {
+        if self.is_live_running {
+            unsafe { check(qhy::StopQHYCCDLive(self.handle))? }
+            self.is_live_running = false;
+        }
+        Ok(())
     }
 
     pub fn get_live(&self) -> Option<ROIImage> {
@@ -357,6 +372,7 @@ impl Camera {
             let mut bpp = 0;
             let mut channels = 0;
             let mut data = vec![0; self.qhyccd_mem_length_u16];
+            let now = Instant::now();
             let res = qhy::GetQHYCCDLiveFrame(
                 self.handle,
                 &mut width,
@@ -366,9 +382,11 @@ impl Camera {
                 data.as_mut_ptr() as _,
             );
             if res != 0 {
+                println!("get_live fail {:?}", Instant::now() - now);
                 // function will fail if image isn't ready yet
                 None
             } else {
+                println!("get_live got image {:?}", Instant::now() - now);
                 assert_eq!(bpp, 16);
                 assert_eq!(channels, 1);
                 assert_eq!(width as usize, self.current_roi.width);
@@ -379,22 +397,6 @@ impl Camera {
                     original: self.effective_area.clone(),
                 })
             }
-        }
-    }
-
-    pub fn start(&self) -> Result<()> {
-        if self.use_live {
-            self.start_live()
-        } else {
-            self.start_single()
-        }
-    }
-
-    pub fn stop(&self) -> Result<()> {
-        if self.use_live {
-            self.stop_live()
-        } else {
-            self.stop_single()
         }
     }
 }

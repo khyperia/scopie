@@ -8,9 +8,10 @@ use crate::{
     Result, UiThread,
 };
 use anyhow::anyhow;
+use core::f32;
 use eframe::{
     egui::{
-        self, load::SizedTexture, Color32, ColorImage, Id, Image, NumExt, Pos2, Rect,
+        self, load::SizedTexture, Color32, ColorImage, Id, Image, Pos2, Rect, TextEdit,
         TextureHandle, Ui, Vec2,
     },
     emath::{self, TSTransform},
@@ -24,10 +25,8 @@ use std::{
 pub struct CameraDisplay {
     camera: CameraAsync,
     image_processor: Arc<Mutex<ImageProcessor>>,
-    image: Option<TextureHandle>,
+    pub image: Option<TextureHandle>,
     transform: TSTransform,
-    desired_running: bool,
-    desired_live: bool,
     display_interesting: bool,
     roi_select: bool,
     control_text_values: HashMap<ControlId, String>,
@@ -42,8 +41,6 @@ impl CameraDisplay {
             image_processor: ImageProcessor::new(ui_thread, recv_image),
             image: None,
             transform: TSTransform::default(),
-            desired_running: false,
-            desired_live: false,
             display_interesting: true,
             roi_select: false,
             control_text_values: HashMap::new(),
@@ -108,7 +105,7 @@ impl CameraDisplay {
         ui.scope(|ui| {
             ui.set_clip_rect(rect);
 
-            let draw_at_rect = self.transform * Self::clamp_aspect_ratio(image.size(), rect);
+            let draw_at_rect = self.transform * alg::clamp_aspect_ratio(image.size(), rect);
             ui.put(
                 draw_at_rect,
                 Image::new(SizedTexture::new(image, draw_at_rect.size())),
@@ -142,18 +139,6 @@ impl CameraDisplay {
             }
         }
         Ok(())
-    }
-
-    fn clamp_aspect_ratio(image_size: [usize; 2], rect: Rect) -> Rect {
-        if rect.width().at_least(1.0) / rect.height().at_least(1.0)
-            < image_size[0].at_least(1) as f32 / image_size[1].at_least(1) as f32
-        {
-            rect.with_max_y(rect.min.y + rect.width() * image_size[1] as f32 / image_size[0] as f32)
-        } else {
-            rect.with_max_x(
-                rect.min.x + rect.height() * image_size[0] as f32 / image_size[1] as f32,
-            )
-        }
     }
 
     fn navigate_image(transform: &mut TSTransform, ui: &mut Ui, id: Id, rect: Rect) {
@@ -207,7 +192,7 @@ impl CameraDisplay {
             if let Some(roi_select_end) = ui.ctx().input(|i| i.pointer.hover_pos()) {
                 if let Some(roi_select_start) = *roi_select_start {
                     let selected = Rect::from_two_pos(roi_select_start, roi_select_end);
-                    let draw_at_rect = *transform * Self::clamp_aspect_ratio(image_size, rect);
+                    let draw_at_rect = *transform * alg::clamp_aspect_ratio(image_size, rect);
                     let minx = emath::remap_clamp(
                         selected.min.x,
                         draw_at_rect.min.x..=draw_at_rect.max.x,
@@ -267,12 +252,10 @@ impl CameraDisplay {
         ui.label(&self.camera.data.name);
 
         {
-            let old_desired_running = self.desired_running;
-            ui.checkbox(&mut self.desired_running, "running");
-            if old_desired_running != self.desired_running
-                && self.desired_running != self.camera.data.running
-            {
-                if self.desired_running {
+            let mut running = self.camera.data.running;
+            ui.checkbox(&mut running, "running");
+            if running != self.camera.data.running {
+                if running {
                     self.camera
                         .start()
                         .map_err(|()| anyhow!("couldn't start camera"))?;
@@ -282,28 +265,14 @@ impl CameraDisplay {
                         .map_err(|()| anyhow!("couldn't stop camera"))?;
                 }
             }
-            if self.desired_running != self.camera.data.running {
-                if self.desired_running {
-                    ui.label("starting...");
-                } else {
-                    ui.label("stopping...");
-                }
-            }
         }
         {
-            let old_desired_live = self.desired_live;
-            ui.checkbox(&mut self.desired_live, "live");
-            if old_desired_live != self.desired_live {
+            let mut live = self.camera.data.is_live;
+            ui.checkbox(&mut live, "live");
+            if live != self.camera.data.is_live {
                 self.camera
                     .toggle_live()
                     .map_err(|()| anyhow!("couldn't toggle live"))?;
-            }
-            if self.desired_live != self.camera.data.is_live {
-                if self.desired_live {
-                    ui.label("setting live...");
-                } else {
-                    ui.label("setting single...");
-                }
             }
         }
 
@@ -351,6 +320,7 @@ impl CameraDisplay {
                 continue;
             }
             ui.horizontal(|ui| {
+                ui.set_max_width(400.0);
                 if control.id == ControlId::ControlExposure {
                     ui.label(format!(
                         "exposure = {} ({}-{} by {})",
@@ -367,7 +337,8 @@ impl CameraDisplay {
                         ui.button("set").clicked()
                     })
                     .inner;
-                ui.text_edit_singleline(edit_text);
+
+                ui.add(TextEdit::singleline(edit_text).desired_width(f32::INFINITY));
                 if set {
                     if let Ok(mut value) = edit_text.parse::<f64>() {
                         if control.id == ControlId::ControlExposure {

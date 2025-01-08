@@ -1,5 +1,7 @@
 use std::ops::Add;
 
+use eframe::egui::{self, NumExt};
+
 // pub mod process;
 // mod starfinder;
 
@@ -53,6 +55,26 @@ macro_rules! impl_into {
 
 impl_into!(f64);
 impl_into!(usize);
+
+pub fn clamp_aspect_ratio(image_size: [usize; 2], rect: egui::Rect) -> egui::Rect {
+    if rect.width().at_least(1.0) / rect.height().at_least(1.0)
+        < image_size[0].at_least(1) as f32 / image_size[1].at_least(1) as f32
+    {
+        rect.with_max_y(rect.min.y + rect.width() * image_size[1] as f32 / image_size[0] as f32)
+    } else {
+        rect.with_max_x(rect.min.x + rect.height() * image_size[0] as f32 / image_size[1] as f32)
+    }
+}
+
+pub fn clamp_aspect_ratio_vec(image_size: [usize; 2], to_clamp: egui::Vec2) -> egui::Vec2 {
+    if to_clamp.x.at_least(1.0) / to_clamp.y.at_least(1.0)
+        < image_size[0].at_least(1) as f32 / image_size[1].at_least(1) as f32
+    {
+        egui::Vec2::new(to_clamp.x, to_clamp.x * image_size[1] as f32 / image_size[0] as f32)
+    } else {
+        egui::Vec2::new(to_clamp.y * image_size[0] as f32 / image_size[1] as f32, to_clamp.y)
+    }
+}
 
 pub fn median(seq: &mut [f64]) -> f64 {
     seq.sort_unstable_by(|l, r| l.partial_cmp(&r).unwrap());

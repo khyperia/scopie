@@ -24,7 +24,7 @@ impl ImageProcessor {
         let result2 = result.clone();
         thread::spawn(move || {
             if let Err(err) = Self::run_thread(result2, ui_thread, recv) {
-                println!("image processor thread error {}", err)
+                println!("image processor thread error {:?}", err)
             }
         });
         result

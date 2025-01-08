@@ -46,7 +46,7 @@ impl CameraAsync {
         spawn(
             move || match run(recv_cmd, send_image, send_result, ui_thread) {
                 Ok(()) => (),
-                Err(err) => println!("Camera thread error: {}\n{}", err, err.backtrace()),
+                Err(err) => println!("Camera thread error: {:?}", err),
             },
         );
         Self {
@@ -120,12 +120,11 @@ fn run(
     let mut cmd_status = String::new();
     let mut exposure_start = Instant::now();
     loop {
-        let mut should_restart = false;
         let mut had_cmd = false;
         let mut had_bad_cmd = false;
         loop {
             match recv.try_recv() {
-                Ok(cmd) => match run_one(&mut camera, cmd, &mut running, &mut should_restart) {
+                Ok(cmd) => match run_command(&mut camera, cmd, &mut running) {
                     Ok(()) => had_cmd = true,
                     Err(err) => {
                         had_bad_cmd = true;
@@ -143,10 +142,6 @@ fn run(
         let camera = camera.as_mut().unwrap();
 
         let values = camera.controls().iter().map(|c| c.to_value()).collect();
-
-        if should_restart {
-            camera.start()?;
-        }
 
         let data = CameraData {
             controls: values,
@@ -167,6 +162,7 @@ fn run(
         ui_thread.trigger();
         if running {
             if camera.use_live() {
+                camera.try_start_live()?;
                 loop {
                     match camera.get_live() {
                         Some(frame) => {
@@ -183,8 +179,7 @@ fn run(
                     }
                 }
             } else {
-                camera.start_single()?;
-                let single = camera.get_single()?;
+                let single = camera.exp_single()?;
                 send_image.send(single)?;
             }
             let new_exposure_start = Instant::now();
@@ -196,16 +191,15 @@ fn run(
     }
 }
 
-fn run_one(
+fn run_command(
     camera: &mut Option<camera::interface::Camera>,
     cmd: CameraCommand,
     running: &mut bool,
-    restart: &mut bool,
 ) -> Result<()> {
     match cmd {
         CameraCommand::SetControl(id, val) => {
             let camera = camera.as_mut().unwrap();
-            cancel_for_modification(camera, running, restart)?;
+            camera.try_stop_live()?;
             for control in camera.controls() {
                 if control.id() == id {
                     control.set(val)?;
@@ -215,21 +209,16 @@ fn run_one(
         CameraCommand::Start => {
             if !*running {
                 *running = true;
-                camera.as_mut().unwrap().start()?;
             }
         }
         CameraCommand::Stop => {
             if *running {
                 *running = false;
-                *restart = false;
-                camera.as_mut().unwrap().stop()?;
             }
         }
         CameraCommand::ToggleLive => {
-            if let Some(ref camera) = camera {
-                if *running {
-                    camera.stop()?;
-                }
+            if let Some(camera) = camera {
+                camera.try_stop_live()?;
             }
             let info = camera
                 .take()
@@ -237,33 +226,16 @@ fn run_one(
             if let Some((info, old_use_live)) = info {
                 *camera = Some(info.open(!old_use_live)?);
             }
-            if let Some(ref camera) = camera {
-                if *running {
-                    camera.start()?;
-                }
-            }
         }
         CameraCommand::SetROI(roi) => {
             if let Some(ref mut camera) = camera {
-                cancel_for_modification(camera, running, restart)?;
+                camera.try_stop_live()?;
                 match roi {
                     Some(roi) => camera.set_roi(roi)?,
                     None => camera.unset_roi()?,
                 }
             }
         }
-    }
-    Ok(())
-}
-
-fn cancel_for_modification(
-    camera: &camera::interface::Camera,
-    running: &mut bool,
-    restart: &mut bool,
-) -> Result<()> {
-    if *running && camera.use_live() {
-        camera.stop()?;
-        *restart = true;
     }
     Ok(())
 }

@@ -1,7 +1,8 @@
 use crate::{dms::Angle, Result};
-use std::{ffi::OsStr, fmt, fmt::Display, str, str::FromStr, time::Duration};
+use anyhow::anyhow;
+use std::{fmt, fmt::Display, str, str::FromStr, time::Duration};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrackingMode {
     Off,
     AltAz,
@@ -76,8 +77,7 @@ pub struct MountTime {
 
 impl MountTime {
     pub fn now() -> Self {
-        //let tm = time::now();
-        let tm = time::OffsetDateTime::now_local();
+        let tm = time::OffsetDateTime::now_local().unwrap();
         MountTime {
             hour: tm.hour() as u8,
             minute: tm.minute() as u8,
@@ -85,7 +85,7 @@ impl MountTime {
             month: tm.month() as u8,
             day: tm.day() as u8,
             year: (tm.year() - 1900) as u8, // tm_year is years since 1900
-            time_zone_offset: tm.offset().as_hours(),
+            time_zone_offset: tm.offset().whole_hours(),
             dst: false,
         }
     }
@@ -110,7 +110,7 @@ impl Display for MountTime {
 
 pub fn autoconnect() -> Result<Mount> {
     for port in Mount::list() {
-        let mut m = match Mount::new(&port) {
+        let mut m = match Mount::new(port) {
             Ok(ok) => ok,
             Err(_) => continue,
         };
@@ -121,7 +121,7 @@ pub fn autoconnect() -> Result<Mount> {
         m.set_time(MountTime::now())?;
         return Ok(m);
     }
-    Err("No mount found".into())
+    Err(anyhow!("No mount found"))
 }
 
 pub struct Mount {
@@ -138,11 +138,9 @@ impl Mount {
             .collect()
     }
 
-    pub fn new<T: AsRef<OsStr> + ?Sized>(path: &T) -> Result<Mount> {
-        let mut port = serialport::open(path)?;
-        port.set_timeout(Duration::from_secs(3))?;
+    pub fn new(path: String) -> Result<Mount> {
         Ok(Mount {
-            port,
+            port: serialport::new(path, 9600).timeout(Duration::from_secs(3)).open()?,
             radec_offset: (Angle::from_0to1(0.0), Angle::from_0to1(0.0)),
         })
     }
@@ -157,7 +155,7 @@ impl Mount {
         if hash == [b'#'] {
             Ok(())
         } else {
-            Err("Mount reply didn't end with '#'".into())
+            Err(anyhow!("Mount reply didn't end with '#'"))
         }
     }
 
@@ -201,7 +199,7 @@ impl Mount {
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
         if response.len() != 2 {
-            return Err("Invalid response".into());
+            return Err(anyhow!("Invalid response"));
         }
         let result = (Angle::from_u32(response[0]), Angle::from_u32(response[1]));
         Ok(result)
@@ -234,7 +232,7 @@ impl Mount {
             .map(|x| u32::from_str_radix(x, 16))
             .collect::<::std::result::Result<Vec<_>, _>>()?;
         if response.len() != 2 {
-            return Err("Invalid response".into());
+            return Err(anyhow!("Invalid response"));
         }
         Ok((Angle::from_u32(response[0]), Angle::from_u32(response[1])))
     }
