@@ -18,7 +18,7 @@ internal abstract record DeviceImage(uint Width, uint Height);
 
 internal sealed record DeviceImage<T>(T[] Data, uint Width, uint Height) : DeviceImage(Width, Height);
 
-internal sealed class Camera(TabControl tabs)
+internal sealed class Camera : IDisposable
 {
     private readonly Threadling _threadling = new(null);
     private readonly List<CameraControl> _cameraControls = [];
@@ -41,6 +41,8 @@ internal sealed class Camera(TabControl tabs)
         Check(ReleaseQHYCCDResource());
     }
 
+    public void Dispose() => _threadling.Dispose();
+
     public static List<ScanResult> Scan()
     {
         var scan = ScanQHYCCD();
@@ -60,7 +62,7 @@ internal sealed class Camera(TabControl tabs)
         return result;
     }
 
-    public async Task Init(ScanResult camera)
+    public async Task<TabItem> Init(ScanResult camera)
     {
         await _threadling.Do(() => InitCamera(camera));
 
@@ -112,19 +114,18 @@ internal sealed class Camera(TabControl tabs)
             RefreshImage();
         }));
         stackPanel.Children.Add(_controlsStackPanel);
-        stackPanel.DetachedFromVisualTree += (_, _) => _threadling.Dispose();
 
         var horiz = new StackPanel { Orientation = Orientation.Horizontal };
         horiz.Children.Add(new ScrollViewer { Content = stackPanel });
         horiz.Children.Add(_image);
 
-        tabs.Items.Add(new TabItem
+        _threadling.IdleAction = IdleAction;
+
+        return new TabItem
         {
             Header = camera.Id,
             Content = horiz
-        });
-
-        _threadling.IdleAction = IdleAction;
+        };
     }
 
     private static ToggleSwitch Toggle(string name, Action<bool> checkedChange)
@@ -223,6 +224,8 @@ internal sealed class Camera(TabControl tabs)
         if (_exposing)
         {
             var image = ExposeSingle();
+            if (_save)
+                Try(Task.Run(() => ImageIO.Save(image)));
             Dispatcher.UIThread.Post(() => SetImage(image));
         }
         else if (_debugLoad)
@@ -283,8 +286,6 @@ internal sealed class Camera(TabControl tabs)
     {
         if (_image.Source is IDisposable disposable)
             disposable.Dispose();
-        if (_save)
-            Try(Task.Run(() => ImageIO.Save(deviceImage)));
         _deviceImage = deviceImage;
         RefreshImage();
     }
@@ -333,7 +334,8 @@ internal sealed class Camera(TabControl tabs)
             {
                 var img = _deviceImage;
                 var result = await Task.Run(() => ImageProcessor.SortStretch(img));
-                _image.Source = ToBitmap(result);
+                if (img == _deviceImage)
+                    _image.Source = ToBitmap(result);
             }
         }
         else
