@@ -1,6 +1,7 @@
 ﻿using System.Text;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -62,7 +63,6 @@ internal sealed class Camera(TabControl tabs)
     public async Task Init(ScanResult camera)
     {
         await _threadling.Do(() => InitCamera(camera));
-        _threadling.IdleAction = IdleAction;
 
         var (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel) = await _threadling.Do(() =>
         {
@@ -115,7 +115,7 @@ internal sealed class Camera(TabControl tabs)
         stackPanel.DetachedFromVisualTree += (_, _) => _threadling.Dispose();
 
         var horiz = new StackPanel { Orientation = Orientation.Horizontal };
-        horiz.Children.Add(stackPanel);
+        horiz.Children.Add(new ScrollViewer { Content = stackPanel });
         horiz.Children.Add(_image);
 
         tabs.Items.Add(new TabItem
@@ -123,6 +123,8 @@ internal sealed class Camera(TabControl tabs)
             Header = camera.Id,
             Content = horiz
         });
+
+        _threadling.IdleAction = IdleAction;
     }
 
     private static ToggleSwitch Toggle(string name, Action<bool> checkedChange)
@@ -245,8 +247,16 @@ internal sealed class Camera(TabControl tabs)
 
         while (_controlsStackPanel.Children.Count < controls.Count)
         {
+            var index = _controlsStackPanel.Children.Count;
             var horiz = new StackPanel { Orientation = Orientation.Horizontal };
             horiz.Children.Add(new Label());
+            var textBox = new TextBox();
+            textBox.KeyDown += (_, args) =>
+            {
+                if (textBox.IsFocused && args.Key == Key.Enter && TrySetControl(index, textBox.Text))
+                    textBox.Text = "";
+            };
+            horiz.Children.Add(textBox);
             _controlsStackPanel.Children.Add(horiz);
         }
 
@@ -256,6 +266,17 @@ internal sealed class Camera(TabControl tabs)
             var label = (Label)horiz.Children[0];
             label.Content = controls[i].ToString();
         }
+    }
+
+    private bool TrySetControl(int controlIndex, string? text)
+    {
+        if (!double.TryParse(text, out var v))
+            return false;
+        if (controlIndex >= _cameraControls.Count)
+            return false;
+        var c = _cameraControls[controlIndex];
+        Try(_threadling.Do(() => c.Value = v));
+        return true;
     }
 
     private void SetImage(DeviceImage deviceImage)

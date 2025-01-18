@@ -2,14 +2,15 @@
 
 namespace Scopie;
 
-internal struct CameraControl
+internal readonly struct CameraControl
 {
+    private const double ExposureFactor = 1_000_000.0;
     private readonly IntPtr _qhyHandle;
     private readonly ControlId _controlId;
     private readonly bool _hasMinMaxStep;
-    private double _min;
-    private double _max;
-    private double _step;
+    private readonly double _min;
+    private readonly double _max;
+    private readonly double _step;
 
     public static bool TryGet(IntPtr qhyHandle, ControlId controlId, out CameraControl cameraControl)
     {
@@ -23,33 +24,46 @@ internal struct CameraControl
         return true;
     }
 
-    public CameraControl(IntPtr qhyHandle, ControlId controlId)
+    private CameraControl(IntPtr qhyHandle, ControlId controlId)
     {
         _qhyHandle = qhyHandle;
         _controlId = controlId;
         _hasMinMaxStep = GetQHYCCDParamMinMaxStep(qhyHandle, controlId, out _min, out _max, out _step) == 0;
+        if (_controlId == ControlId.ControlExposure)
+        {
+            _min /= ExposureFactor;
+            _max /= ExposureFactor;
+            _step /= ExposureFactor;
+        }
     }
 
     public double Value
     {
-        get => GetQHYCCDParam(_qhyHandle, _controlId);
-        set => Check(SetQHYCCDParam(_qhyHandle, _controlId, value));
+        get
+        {
+            var v = GetQHYCCDParam(_qhyHandle, _controlId);
+            if (_controlId == ControlId.ControlExposure)
+                v /= ExposureFactor;
+            return v;
+        }
+        set
+        {
+            if (_controlId == ControlId.ControlExposure)
+                value *= ExposureFactor;
+            Check(SetQHYCCDParam(_qhyHandle, _controlId, value));
+        }
     }
 
-    public string ToString(double value) =>
-        _hasMinMaxStep ? $"{_controlId} = {value} ({_min}-{_max} by {_step})" : $"{_controlId} = {value} (readonly)";
+    public string ToString(double value)
+    {
+        var v = value.Equals(uint.MaxValue) ? -1 : value;
+        return _hasMinMaxStep ? $"{_controlId} = {v} ({_min}-{_max} by {_step})" : $"{_controlId} = {value} (readonly)";
+    }
 }
 
-internal struct CameraControlValue
+internal readonly struct CameraControlValue(CameraControl cameraControl)
 {
-    public CameraControl CameraControl;
-    public double Value;
+    private readonly double _value = cameraControl.Value;
 
-    public CameraControlValue(CameraControl cameraControl)
-    {
-        CameraControl = cameraControl;
-        Value = cameraControl.Value;
-    }
-
-    public override string ToString() => CameraControl.ToString(Value);
+    public override string ToString() => cameraControl.ToString(_value);
 }
