@@ -1,13 +1,40 @@
 ﻿using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Styling;
+using Avalonia.Themes.Fluent;
 
 namespace Scopie;
 
-// https://www.qhyccd.com/html/prepub/log_en.html#!log_en.md
-internal static class Program
+public class Program : Application
 {
     [STAThread]
-    private static int Main(string[] args) =>
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    private static int Main(string[] args) => AppBuilder.Configure<Program>().UsePlatformDetect().StartWithClassicDesktopLifetime(args);
 
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect();
+    public Program()
+    {
+        Styles.Add(new FluentTheme());
+        RequestedThemeVariant = ThemeVariant.Light;
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = MakeWindow();
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private static Window MakeWindow()
+    {
+        var window = new Window();
+        ExceptionReporter.SetWindow(window);
+        window.Closing += (_, _) => ExceptionReporter.SetWindow(null);
+        var tabs = new TabControl();
+        window.Content = tabs;
+        _ = new MainTab(tabs);
+        return window;
+    }
 }
