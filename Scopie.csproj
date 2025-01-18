@@ -11,10 +11,14 @@
         <PackageReference Include="Avalonia" Version="11.2.3"/>
         <PackageReference Include="Avalonia.Desktop" Version="11.2.3"/>
         <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.3"/>
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.6" />
         <PackageReference Include="WatneyAstrometry.Core" Version="1.2.3"/>
     </ItemGroup>
 
     <ItemGroup Condition=" '$(OS)' == 'Windows_NT' ">
         <None Include="qhy\*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" Visible="false"/>
+        <None Update="telescope.2019-11-21.19-39-54.png">
+          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
     </ItemGroup>
 </Project>

@@ -17,16 +17,18 @@ public static class ExceptionReporter
     {
         Dispatcher.UIThread.Post(() =>
         {
+            // TODO: Async stack traces
             var window = new Window
             {
                 Title = "Exception",
                 Content = e.ToString()
             };
-            window.KeyDown += (sender, args) =>
+            window.KeyDown += (_, args) =>
             {
                 if (args.Key is Key.Space)
                     window.Close();
             };
+            // TODO: Don't open more than like, 10 windows?
             if (_mainWindow != null)
                 window.Show(_mainWindow);
             else

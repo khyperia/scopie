@@ -9,7 +9,15 @@ namespace Scopie;
 public class Program : Application
 {
     [STAThread]
-    private static int Main(string[] args) => AppBuilder.Configure<Program>().UsePlatformDetect().StartWithClassicDesktopLifetime(args);
+    private static int Main(string[] args)
+    {
+        TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+        {
+            ExceptionReporter.Report(eventArgs.Exception);
+            eventArgs.SetObserved();
+        };
+        return AppBuilder.Configure<Program>().UsePlatformDetect().StartWithClassicDesktopLifetime(args);
+    }
 
     public Program()
     {

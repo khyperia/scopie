@@ -1,11 +1,22 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace Scopie;
 
-internal enum IdleActionResult
+internal struct IdleActionResult
 {
-    WaitForNextEvent,
-    LoopImmediately,
+    public readonly int Kind;
+    public readonly TimeSpan TimeSpan;
+
+    private IdleActionResult(int kind, TimeSpan timeSpan)
+    {
+        Kind = kind;
+        TimeSpan = timeSpan;
+    }
+
+    public static IdleActionResult LoopImmediately => new(0, TimeSpan.Zero);
+    public static IdleActionResult WaitForNextEvent => new(1, TimeSpan.Zero);
+    public static IdleActionResult WaitWithTimeout(TimeSpan timeSpan) => new(2, timeSpan);
 }
 
 internal sealed class Threadling : IDisposable
@@ -72,6 +83,7 @@ internal sealed class Threadling : IDisposable
     private void RunThread()
     {
         var idleActionResult = IdleActionResult.WaitForNextEvent;
+        var stopwatch = new Stopwatch();
         while (true)
         {
             var first = true;
@@ -80,10 +92,31 @@ internal sealed class Threadling : IDisposable
                 Action action;
                 try
                 {
-                    if (first && idleActionResult == IdleActionResult.WaitForNextEvent)
+                    if (first && idleActionResult.Kind == 1)
                         action = _sendToThread.Take();
-                    else if (!_sendToThread.TryTake(out action!))
-                        break;
+                    else
+                    {
+                        if (idleActionResult.Kind == 2)
+                        {
+                            TimeSpan elapsed;
+                            if (first)
+                            {
+                                stopwatch.Restart();
+                                elapsed = TimeSpan.Zero;
+                            }
+                            else
+                                elapsed = stopwatch.Elapsed;
+
+                            if (elapsed > idleActionResult.TimeSpan)
+                                break;
+
+                            var toWait = idleActionResult.TimeSpan - elapsed;
+                            if (!_sendToThread.TryTake(out action!, toWait))
+                                break;
+                        }
+                        else if (!_sendToThread.TryTake(out action!))
+                            break;
+                    }
                 }
                 catch
                 {

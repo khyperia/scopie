@@ -4,15 +4,6 @@ using System.Text;
 
 namespace Scopie;
 
-internal struct QHYCamMinMaxStepValue
-{
-    [MarshalAs(UnmanagedType.LPStr)]
-    public string name;
-    public double min;
-    public double max;
-    public double step;
-}
-
 internal static unsafe class LibQhy
 {
     private const CallingConvention CallConv = CallingConvention.StdCall;
@@ -79,7 +70,7 @@ internal static unsafe class LibQhy
     public static extern uint IsQHYCCDControlAvailable(IntPtr handle, ControlId controlId);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetQHYCCDControlName(IntPtr handle, ControlId controlId, [MarshalAs(UnmanagedType.LPStr)] StringBuilder IDname);
+    public static extern uint GetQHYCCDControlName(IntPtr handle, ControlId controlId, [MarshalAs(UnmanagedType.LPStr)] StringBuilder idName);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint SetQHYCCDParam(IntPtr handle, ControlId controlId, double value);
@@ -202,7 +193,7 @@ internal static unsafe class LibQhy
     public static extern uint GetQHYCCDCurrentROI(IntPtr handle, out uint startX, out uint startY, out uint sizeX, out uint sizeY);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetQHYCCDImageStabilizationGravity(IntPtr handle, out int GravityX, out int GravityY);
+    public static extern uint GetQHYCCDImageStabilizationGravity(IntPtr handle, out int gravityX, out int gravityY);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint SetQHYCCDFocusSetting(IntPtr h, uint focusCenterX, uint focusCenterY);
@@ -214,7 +205,7 @@ internal static unsafe class LibQhy
     public static extern uint GetQHYCCDFWVersion(IntPtr h, [Out] byte[] buf);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetQHYCCDFPGAVersion(IntPtr h, byte fpga_index, [Out] byte[] buf);
+    public static extern uint GetQHYCCDFPGAVersion(IntPtr h, byte fpgaIndex, [Out] byte[] buf);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint SetQHYCCDInterCamSerialParam(IntPtr h, uint opt);
@@ -289,16 +280,16 @@ internal static unsafe class LibQhy
     public static extern void SetQHYCCDGPSLedCal(IntPtr handle, uint pos, byte width);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern void SetQHYCCDGPSPOSA(IntPtr handle, byte is_slave, uint pos, byte width);
+    public static extern void SetQHYCCDGPSPOSA(IntPtr handle, byte isSlave, uint pos, byte width);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern void SetQHYCCDGPSPOSB(IntPtr handle, byte is_slave, uint pos, byte width);
+    public static extern void SetQHYCCDGPSPOSB(IntPtr handle, byte isSlave, uint pos, byte width);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint SetQHYCCDGPSMasterSlave(IntPtr handle, byte i);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern void SetQHYCCDGPSSlaveModeParameter(IntPtr handle, uint target_sec, uint target_us, uint deltaT_sec, uint deltaT_us, uint expTime);
+    public static extern void SetQHYCCDGPSSlaveModeParameter(IntPtr handle, uint targetSec, uint targetUs, uint deltaTSec, uint deltaTUs, uint expTime);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern void SetQHYCCDQuit();
@@ -333,8 +324,8 @@ internal static unsafe class LibQhy
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint GetQHYCCDReadMode(IntPtr h, out uint modeNumber);
 
-    [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetQHYCCDBeforeOpenParam(ref QHYCamMinMaxStepValue p, ControlId controlId);
+    // [DllImport("qhyccd", CallingConvention = CallConv)]
+    // public static extern uint GetQHYCCDBeforeOpenParam(ref QHYCamMinMaxStepValue p, ControlId controlId);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint EnableQHYCCDBurstMode(IntPtr h, bool i);
@@ -373,7 +364,7 @@ internal static unsafe class LibQhy
     public static extern uint EnableQHYCCDImageOSD(IntPtr h, uint i);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetQHYCCDPreciseExposureInfo(IntPtr h, out uint PixelPeriod_ps, out uint LinePeriod_ns, out uint FramePeriod_us, out uint ClocksPerLine, out uint LinesPerFrame, out uint ActualExposureTime, out byte isLongExposureMode);
+    public static extern uint GetQHYCCDPreciseExposureInfo(IntPtr h, out uint pixelPeriodPs, out uint linePeriodNs, out uint framePeriodUs, out uint clocksPerLine, out uint linesPerFrame, out uint actualExposureTime, out byte isLongExposureMode);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint GetQHYCCDRollingShutterEndOffset(IntPtr h, uint row, out double offset);
@@ -391,7 +382,7 @@ internal static unsafe class LibQhy
     // public static extern void RegisterPnpEventOut(void (*in_pnp_event_out_func)([MarshalAs(UnmanagedType.LPStr)] stringid));
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint resetDev([MarshalAs(UnmanagedType.LPStr)] string deviceID, uint readModeIndex, byte streamMode, IntPtr devHandle, out uint imageWidth, out uint imageHigh, uint bitDepth);
+    public static extern uint resetDev([MarshalAs(UnmanagedType.LPStr)] string deviceId, uint readModeIndex, byte streamMode, IntPtr devHandle, out uint imageWidth, out uint imageHigh, uint bitDepth);
 
     public delegate void DataEventFunc([MarshalAs(UnmanagedType.LPStr)] string id, byte* imgdata);
 
@@ -410,16 +401,16 @@ internal static unsafe class LibQhy
     public static extern uint PCIEClearDDR(IntPtr handle);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetReadModesNumber([MarshalAs(UnmanagedType.LPStr)] string deviceID, out uint numModes);
+    public static extern uint GetReadModesNumber([MarshalAs(UnmanagedType.LPStr)] string deviceId, out uint numModes);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint GetReadModeName([MarshalAs(UnmanagedType.LPStr)] string deviceID, uint modeIndex, [MarshalAs(UnmanagedType.LPStr)] StringBuilder modeName);
+    public static extern uint GetReadModeName([MarshalAs(UnmanagedType.LPStr)] string deviceId, uint modeIndex, [MarshalAs(UnmanagedType.LPStr)] StringBuilder modeName);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern void QHYCCDSensorPhaseReTrain(IntPtr handle);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern void QHYCCDReadInitConfigFlash(IntPtr handle, byte* configString_raw64);
+    public static extern void QHYCCDReadInitConfigFlash(IntPtr handle, byte* configStringRaw64);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern void QHYCCDEraseInitConfigFlash(IntPtr handle);
@@ -434,7 +425,7 @@ internal static unsafe class LibQhy
     public static extern void QHYCCDSetFlashInitPWM(IntPtr handle, byte pwm);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern void QHYCCDGetDebugDataD3(IntPtr handle, byte* debugData_raw64);
+    public static extern void QHYCCDGetDebugDataD3(IntPtr handle, byte* debugDataRaw64);
 
     // TODO: This is missing EXPORTFUNC
     [DllImport("qhyccd", CallingConvention = CallConv)]
@@ -459,7 +450,7 @@ internal static unsafe class LibQhy
     public static extern void QHYCCD_fpga_reset();
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
-    public static extern uint SetQHYCCDLoadCalibrationFrames(IntPtr handle, uint ImgW, uint ImgH, uint ImgBits, uint ImgChannel, [MarshalAs(UnmanagedType.LPStr)] string DarkFile, [MarshalAs(UnmanagedType.LPStr)] string FlatFile, [MarshalAs(UnmanagedType.LPStr)] string BiasFile);
+    public static extern uint SetQHYCCDLoadCalibrationFrames(IntPtr handle, uint imgW, uint imgH, uint imgBits, uint imgChannel, [MarshalAs(UnmanagedType.LPStr)] string darkFile, [MarshalAs(UnmanagedType.LPStr)] string flatFile, [MarshalAs(UnmanagedType.LPStr)] string biasFile);
 
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern uint SetQHYCCDCalibrationOnOff(IntPtr handle, bool onoff);
@@ -550,7 +541,7 @@ internal static unsafe class LibQhy
     public static extern uint QHYCCD_curveReadoutNoise(IntPtr handle, double gainV, out double readoutnoise);
 }
 
-internal enum ControlId : int
+internal enum ControlId
 {
 /*0*/
     ControlBrightness = 0, //!< image brightness
@@ -752,12 +743,13 @@ internal enum ControlId : int
 //TEST id name list
 /*1024*/
     ControlAutowhitebalance = 1024, //!<auto white balance  eg.CONTROL_TEST=1024
-    ///*1025*/ CONTROL_AUTOEXPOSURE,			//!<auto exposure
-    ///*1026*/ CONTROL_AUTOEXPTargetBrightness,//CONTROL_AUTOEXPmessureValue,
-    ///*1027*/ CONTROL_AUTOEXPSampleArea,//CONTROL_AUTOEXPmessureMethod,
-    ///*1028*/ CONTROL_AUTOEXPexpMaxMS,       //!<auto exposure max exp(ms)
-    ///*1029*/ CONTROL_AUTOEXPgainMax,        //!<auto exposure max gain
-/*1030*/ ControlImageStabilization, //!<image stabilization      
+    // /*1025*/ CONTROL_AUTOEXPOSURE,			//!<auto exposure
+    // /*1026*/ CONTROL_AUTOEXPTargetBrightness,//CONTROL_AUTOEXPmessureValue,
+    // /*1027*/ CONTROL_AUTOEXPSampleArea,//CONTROL_AUTOEXPmessureMethod,
+    // /*1028*/ CONTROL_AUTOEXPexpMaxMS,       //!<auto exposure max exp(ms)
+    // /*1029*/ CONTROL_AUTOEXPgainMax,        //!<auto exposure max gain
+/*1030*/
+    ControlImageStabilization, //!<image stabilization
 /*1031*/
     ControlGaiNdB, //!<uesed to test dBGain control  //CONTROL_dB_TO_GAIN
 /*1032*/
@@ -770,9 +762,9 @@ internal enum ControlId : int
 /*1035*/ //CONTROL_HDR_H_k,               //!<HDR H k
 /*1036*/ //CONTROL_HDR_H_b,               //!<HDR H b
 /*1035*/
-    ControlHdrLK, //!<HDR L k
+    ControlHdrLk, //!<HDR L k
 /*1036*/
-    ControlHdrLB, //!<HDR L b
+    ControlHdrLb, //!<HDR L b
 /*1037*/
     ControlHdrX, //,                //!<HDR X
 /*1038*/
