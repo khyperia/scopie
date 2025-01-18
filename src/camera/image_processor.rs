@@ -1,4 +1,4 @@
-use crate::{camera::interface::ROIImage, Result, UiThread};
+use crate::{alg, camera::interface::TimestampImage, Result, UiThread};
 use eframe::egui::{self, ColorImage};
 use std::{
     fs::create_dir_all,
@@ -8,14 +8,19 @@ use std::{
 };
 use time::macros::format_description;
 
+use super::interface::CpuTexture;
+
 pub struct ImageProcessor {
-    pub image: Option<ColorImage>,
+    pub image: Option<TimestampImage<ColorImage>>,
     pub save: u32,
     pub status: String,
 }
 
 impl ImageProcessor {
-    pub fn new(ui_thread: UiThread, recv: mpsc::Receiver<ROIImage>) -> Arc<Mutex<Self>> {
+    pub fn new(
+        ui_thread: UiThread,
+        recv: mpsc::Receiver<TimestampImage<CpuTexture<u16>>>,
+    ) -> Arc<Mutex<Self>> {
         let result = Arc::new(Mutex::new(Self {
             image: None,
             save: 0,
@@ -33,7 +38,7 @@ impl ImageProcessor {
     fn run_thread(
         me: Arc<Mutex<Self>>,
         ui_thread: UiThread,
-        recv: mpsc::Receiver<ROIImage>,
+        recv: mpsc::Receiver<TimestampImage<CpuTexture<u16>>>,
     ) -> Result<()> {
         for item in recv.iter() {
             let (save, setui) = {
@@ -45,15 +50,18 @@ impl ImageProcessor {
                 (save, me.image.is_none())
             };
             if setui {
-                let convert = Self::to_display(&item);
-                me.lock().unwrap().image = Some(convert);
+                me.lock().unwrap().image = Some(TimestampImage {
+                    image: Self::to_display(&item.image),
+                    time: item.time,
+                    duration: item.duration,
+                });
                 ui_thread.trigger();
             } else {
                 me.lock().unwrap().status = "Warning! UI can't keep up with new images!".into();
             }
             if save {
                 match Self::get_filename().and_then(|fname| {
-                    crate::write_png(&fname, &item.image)?;
+                    alg::write_png(&fname, &item.image)?;
                     Ok(fname)
                 }) {
                     Ok(fname) => {
@@ -69,11 +77,10 @@ impl ImageProcessor {
         Ok(())
     }
 
-    fn to_display(image: &ROIImage) -> egui::ColorImage {
+    fn to_display(image: &CpuTexture<u16>) -> egui::ColorImage {
         egui::ColorImage {
-            size: [image.image.size.0, image.image.size.1],
+            size: [image.size.0, image.size.1],
             pixels: image
-                .image
                 .data()
                 .iter()
                 .map(|v| egui::Color32::from_gray((v >> 8) as u8))

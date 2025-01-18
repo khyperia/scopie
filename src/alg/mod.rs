@@ -1,6 +1,6 @@
-use std::ops::Add;
-
+use crate::{camera::interface::CpuTexture, Result};
 use eframe::egui::{self, NumExt};
+use std::{fs::File, ops::Add, path::Path};
 
 // pub mod process;
 // mod starfinder;
@@ -70,10 +70,49 @@ pub fn clamp_aspect_ratio_vec(image_size: [usize; 2], to_clamp: egui::Vec2) -> e
     if to_clamp.x.at_least(1.0) / to_clamp.y.at_least(1.0)
         < image_size[0].at_least(1) as f32 / image_size[1].at_least(1) as f32
     {
-        egui::Vec2::new(to_clamp.x, to_clamp.x * image_size[1] as f32 / image_size[0] as f32)
+        egui::Vec2::new(
+            to_clamp.x,
+            to_clamp.x * image_size[1] as f32 / image_size[0] as f32,
+        )
     } else {
-        egui::Vec2::new(to_clamp.y * image_size[0] as f32 / image_size[1] as f32, to_clamp.y)
+        egui::Vec2::new(
+            to_clamp.y * image_size[0] as f32 / image_size[1] as f32,
+            to_clamp.y,
+        )
     }
+}
+
+pub fn read_png(path: impl AsRef<Path>) -> Result<CpuTexture<u16>> {
+    let mut decoder = png::Decoder::new(File::open(path)?);
+    decoder.set_transformations(png::Transformations::IDENTITY);
+    let mut reader = decoder.read_info()?;
+    let info = reader.info();
+    assert_eq!(info.bit_depth, png::BitDepth::Sixteen);
+    assert_eq!(info.color_type, png::ColorType::Grayscale);
+    let width = info.width;
+    let height = info.height;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    reader.next_frame(&mut buf)?;
+    let mut buf16 = vec![0; width as usize * height as usize];
+    for i in 0..buf16.len() {
+        buf16[i] = u16::from(buf[i * 2]) << 8 | u16::from(buf[i * 2 + 1]);
+    }
+    Ok(CpuTexture::new(buf16, (width as usize, height as usize)))
+}
+
+pub fn write_png(path: impl AsRef<Path>, img: &CpuTexture<u16>) -> Result<()> {
+    let mut encoder = png::Encoder::new(File::create(path)?, img.size.0 as u32, img.size.1 as u32);
+    encoder.set_color(png::ColorType::Grayscale);
+    encoder.set_depth(png::BitDepth::Sixteen);
+    let mut writer = encoder.write_header()?;
+    let mut output = vec![0; img.size.0 * img.size.1 * 2];
+    let data = img.data();
+    for i in 0..(img.size.0 * img.size.1) {
+        output[i * 2] = (data[i] >> 8) as u8;
+        output[i * 2 + 1] = (data[i]) as u8;
+    }
+    writer.write_image_data(&output)?;
+    Ok(())
 }
 
 pub fn median(seq: &mut [f64]) -> f64 {
@@ -114,15 +153,15 @@ pub fn mean_stdev(seq: impl IntoIterator<Item = f64>) -> (f64, f64) {
     let seq = seq.into_iter();
     let mut count = 0;
     let mut mean = 0.0;
-    let mut M2 = 0.0;
+    let mut m2 = 0.0;
     for item in seq {
         count += 1;
         let delta = item - mean;
         mean += delta / count as f64;
         let delta2 = item - mean;
-        M2 += delta * delta2;
+        m2 += delta * delta2;
     }
-    let variance = M2 / count as f64;
+    let variance = m2 / count as f64;
     (mean, variance.sqrt())
 }
 
@@ -138,7 +177,7 @@ pub fn f64_to_u16(mut value: f64) -> u16 {
     }
 }
 
-pub fn u16_to_f64(mut value: u16) -> f64 {
+pub fn u16_to_f64(value: u16) -> f64 {
     let max_value = f64::from(u16::max_value());
     value as f64 / max_value
 }

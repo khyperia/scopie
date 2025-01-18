@@ -32,7 +32,7 @@ impl MountDisplay {
         self.mount.update();
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, camera_image: &Option<TextureHandle>) -> Result<()> {
+    pub fn ui(&mut self, ui: &mut Ui, camera_image: Option<&TextureHandle>) -> Result<()> {
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| self.ui_controls(ui)).inner?;
             self.ui_image(ui, camera_image);
@@ -53,12 +53,12 @@ impl MountDisplay {
         ui.add_enabled_ui(enabled, |ui| {
             if ui.button("sync pos").clicked() {
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.sync_real(ra, dec)?;
+                    self.mount.sync(ra, dec)?;
                 }
             }
             if ui.button("slew").clicked() {
                 if let (Some(ra), Some(dec)) = (ra, dec) {
-                    self.mount.slew_real(ra, dec)?;
+                    self.mount.slew(ra, dec)?;
                 }
             }
             if ui.button("azaltslew").clicked() {
@@ -94,17 +94,10 @@ impl MountDisplay {
         mode(self, ui, TrackingMode::SiderealPec, "mode: SiderealPec")?;
 
         let data = &self.mount.data;
-        let (ra_real, dec_real) = data.ra_dec_real;
         ui.label(format!(
-            "RA/Dec real: {} {}",
-            ra_real.fmt_hours(),
-            dec_real.fmt_degrees()
-        ));
-        let (ra_mount, dec_mount) = data.ra_dec_mount;
-        ui.label(format!(
-            "RA/Dec mount: {} {}",
-            ra_mount.fmt_hours(),
-            dec_mount.fmt_degrees()
+            "RA/Dec: {} {}",
+            data.ra_dec.0.fmt_hours(),
+            data.ra_dec.1.fmt_degrees()
         ));
         let (az, alt) = data.az_alt;
         ui.label(format!(
@@ -177,7 +170,7 @@ impl MountDisplay {
         Ok(())
     }
 
-    pub fn ui_image(&mut self, ui: &mut Ui, image: &Option<TextureHandle>) {
+    pub fn ui_image(&mut self, ui: &mut Ui, image: Option<&TextureHandle>) {
         if let Some(image) = image {
             let size = ui.available_size();
             let size = alg::clamp_aspect_ratio_vec(image.size(), size);

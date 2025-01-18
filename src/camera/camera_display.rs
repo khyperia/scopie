@@ -2,6 +2,7 @@ use crate::{
     alg,
     camera::{
         image_processor::ImageProcessor,
+        interface::TimestampImage,
         qhycamera::{ControlId, EXPOSURE_FACTOR},
         thread::CameraAsync,
     },
@@ -19,13 +20,13 @@ use eframe::{
 use std::{
     collections::HashMap,
     sync::{mpsc, Arc, Mutex},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 pub struct CameraDisplay {
     camera: CameraAsync,
     image_processor: Arc<Mutex<ImageProcessor>>,
-    pub image: Option<TextureHandle>,
+    pub image: Option<TimestampImage<TextureHandle>>,
     transform: TSTransform,
     display_interesting: bool,
     roi_select: bool,
@@ -56,14 +57,31 @@ impl CameraDisplay {
         }
     }
 
-    fn set_image(&mut self, ctx: &egui::Context, color_image: ColorImage) {
+    fn set_image(&mut self, ctx: &egui::Context, color_image: TimestampImage<ColorImage>) {
         match &mut self.image {
             None => {
-                self.image =
-                    Some(ctx.load_texture("main image", color_image, egui::TextureOptions::NEAREST))
+                self.image = Some(TimestampImage {
+                    image: ctx.load_texture(
+                        "main image",
+                        color_image.image,
+                        egui::TextureOptions::NEAREST,
+                    ),
+                    time: color_image.time,
+                    duration: color_image.duration,
+                })
             }
             Some(image) => {
-                image.set(color_image, egui::TextureOptions::NEAREST);
+                image.image.set(
+                    color_image.image,
+                    egui::TextureOptions {
+                        magnification: egui::TextureFilter::Nearest,
+                        minification: egui::TextureFilter::Linear,
+                        wrap_mode: egui::TextureWrapMode::ClampToEdge,
+                        mipmap_mode: Some(egui::TextureFilter::Linear),
+                    },
+                );
+                image.time = color_image.time;
+                image.duration = color_image.duration;
             }
         }
     }
@@ -79,7 +97,7 @@ impl CameraDisplay {
 
     fn ui_image(&mut self, ui: &mut Ui) -> Result<()> {
         let image = if let Some(image) = &self.image {
-            image
+            &image.image
         } else {
             self.transform = TSTransform::default();
             return Ok(());
@@ -249,7 +267,7 @@ impl CameraDisplay {
     }
 
     fn ui_controls(&mut self, ui: &mut Ui) -> Result<()> {
-        ui.label(&self.camera.data.name);
+        ui.label(&self.camera.data.camera_id);
 
         {
             let mut running = self.camera.data.running;
@@ -278,7 +296,7 @@ impl CameraDisplay {
 
         ui.label(format!(
             "Last exposure: {:?}",
-            self.camera.data.exposure_duration
+            self.image.as_ref().map_or(Duration::ZERO, |i| i.duration),
         ));
         if !self.camera.data.cmd_status.is_empty() {
             ui.label(format!("Camera error: {}", self.camera.data.cmd_status));
@@ -297,7 +315,10 @@ impl CameraDisplay {
         // }
         // self.processor.status(status);
         if self.camera.data.running {
-            let exposure = Instant::now() - self.camera.data.exposure_start;
+            let exposure = self
+                .image
+                .as_ref()
+                .map_or(Duration::ZERO, |i| Instant::now() - i.time);
             ui.label(format!(
                 "Time since exposure start: {:.1}s",
                 exposure.as_secs_f64()

@@ -10,8 +10,7 @@ type MountCommand = Box<dyn FnOnce(&mut Mount) -> Result<()> + Send>;
 
 #[derive(Default, Clone, Debug)]
 pub struct MountData {
-    pub ra_dec_real: (Angle, Angle),
-    pub ra_dec_mount: (Angle, Angle),
+    pub ra_dec: (Angle, Angle),
     pub az_alt: (Angle, Angle),
     pub aligned: bool,
     pub tracking_mode: TrackingMode,
@@ -29,9 +28,12 @@ impl MountAsync {
     pub fn new(ui_thread: UiThread) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
         let (send_data, recv_data) = mpsc::channel();
-        spawn(move || match run(recv_cmd, send_data, ui_thread) {
-            Ok(()) => (),
-            Err(err) => panic!("Mount thread error: {}", err),
+        spawn(move || {
+            match run(recv_cmd, send_data, ui_thread) {
+                Ok(()) => (),
+                Err(err) => println!("Mount thread error: {}", err),
+            }
+            println!("mount thread quit");
         });
         Self {
             send: send_cmd,
@@ -53,17 +55,11 @@ impl MountAsync {
         }
     }
 
-    pub fn slew_real(&self, ra: Angle, dec: Angle) -> Result<()> {
-        self.send(move |mount| mount.slew_ra_dec_real(ra, dec))
+    pub fn slew(&self, ra: Angle, dec: Angle) -> Result<()> {
+        self.send(move |mount| mount.slew_ra_dec(ra, dec))
     }
-    pub fn sync_real(&self, ra: Angle, dec: Angle) -> Result<()> {
-        self.send(move |mount| mount.sync_ra_dec_real(ra, dec))
-    }
-    pub fn set_real_to_mount(&self, ra: Angle, dec: Angle) -> Result<()> {
-        self.send(move |mount| {
-            mount.set_real_to_mount(ra, dec);
-            Ok(())
-        })
+    pub fn sync(&self, ra: Angle, dec: Angle) -> Result<()> {
+        self.send(move |mount| mount.sync_ra_dec(ra, dec))
     }
     pub fn slew_azalt(&self, az: Angle, alt: Angle) -> Result<()> {
         self.send(move |mount| mount.slew_az_alt(az, alt))
@@ -130,16 +126,14 @@ fn run_update(
     send: &mpsc::Sender<MountData>,
     ui_thread: &UiThread,
 ) -> Result<bool> {
-    let ra_dec_mount = mount.get_ra_dec_mount()?;
-    let ra_dec_real = mount.mount_to_real(ra_dec_mount);
+    let ra_dec = mount.get_ra_dec()?;
     let az_alt = mount.get_az_alt()?;
     let aligned = mount.aligned()?;
     let tracking_mode = mount.tracking_mode()?;
     let location = mount.location()?;
     let time = mount.time()?;
     let send_result = send.send(MountData {
-        ra_dec_mount,
-        ra_dec_real,
+        ra_dec,
         az_alt,
         aligned,
         tracking_mode,

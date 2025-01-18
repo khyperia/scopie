@@ -278,34 +278,9 @@ static INTERESTING_VALUES: &[ControlId] = &[
     ControlId::ControlCooler,
 ];
 
-static CONSTANT_VALUES: &[ControlId] = &[
-    ControlId::ControlSt4port,
-    ControlId::CamBin1x1mode,
-    ControlId::CamBin2x2mode,
-    ControlId::CamBin3x3mode,
-    ControlId::CamBin4x4mode,
-    ControlId::CamBin6x6mode,
-    ControlId::CamBin8x8mode,
-    ControlId::Cam8bits,
-    ControlId::Cam16bits,
-    ControlId::Cam32bits,
-    ControlId::CamGps,
-    ControlId::ControlAmpv,
-    ControlId::ControlVcam,
-    ControlId::ControlDdr,
-    ControlId::DdrBufferCapacity,
-    ControlId::DdrBufferReadThreshold,
-    ControlId::CamSingleframemode,
-    ControlId::CamLivevideomode,
-];
-
 impl ControlId {
     pub fn is_interesting(id: ControlId) -> bool {
         INTERESTING_VALUES.iter().any(|&x| x == id)
-    }
-
-    pub fn is_constant(id: ControlId) -> bool {
-        CONSTANT_VALUES.iter().any(|&x| x == id)
     }
 
     pub fn values() -> &'static [ControlId] {
@@ -495,4 +470,14 @@ extern "system" {
 
     pub fn GetQHYCCDNumberOfReadModes(handle: QHYCCD, numModes: *mut u32) -> u32;
     pub fn GetQHYCCDReadModeName(handle: QHYCCD, modeNumber: u32, name: *mut u8) -> u32;
+
+    pub fn GetQHYCCDFWVersion(handle: QHYCCD, buf: *mut u8) -> u32;
+    pub fn GetQHYCCDFPGAVersion(handle: QHYCCD, fpga_index: u8, buf: *mut u8) -> u32;
+    pub fn GetQHYCCDSDKVersion(
+        year: *mut u32,
+        month: *mut u32,
+        day: *mut u32,
+        subday: *mut u32,
+    ) -> u32;
+
 }

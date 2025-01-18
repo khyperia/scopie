@@ -1,6 +1,6 @@
 use crate::{
-    alg::Rect,
-    camera::{self, qhycamera::ControlId},
+    alg::{self, Rect},
+    camera::{self, interface::TimestampImage, qhycamera::ControlId},
     Result, UiThread,
 };
 use anyhow::anyhow;
@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::interface::ROIImage;
+use super::interface::CpuTexture;
 
 enum CameraCommand {
     SetControl(ControlId, f64),
@@ -23,13 +23,10 @@ enum CameraCommand {
 #[derive(Clone, Debug)]
 pub struct CameraData {
     pub controls: Vec<camera::interface::ControlValue>,
-    pub name: String,
+    pub camera_id: String,
     pub cmd_status: String,
     pub running: bool,
     pub is_live: bool,
-    pub exposure_start: Instant,
-    pub exposure_duration: Duration,
-    pub effective_area: Option<Rect<usize>>,
     pub current_roi: Option<Rect<usize>>,
 }
 
@@ -40,27 +37,28 @@ pub struct CameraAsync {
 }
 
 impl CameraAsync {
-    pub fn new(send_image: mpsc::Sender<ROIImage>, ui_thread: UiThread) -> Self {
+    pub fn new(
+        send_image: mpsc::Sender<TimestampImage<CpuTexture<u16>>>,
+        ui_thread: UiThread,
+    ) -> Self {
         let (send_cmd, recv_cmd) = mpsc::channel();
         let (send_result, recv_result) = mpsc::channel();
-        spawn(
-            move || match run(recv_cmd, send_image, send_result, ui_thread) {
+        spawn(move || {
+            match run(recv_cmd, send_image, send_result, ui_thread) {
                 Ok(()) => (),
                 Err(err) => println!("Camera thread error: {:?}", err),
-            },
-        );
+            }
+            println!("camera thread quit");
+        });
         Self {
             send: send_cmd,
             recv: recv_result,
             data: CameraData {
                 controls: Vec::new(),
-                name: String::new(),
+                camera_id: String::new(),
                 cmd_status: String::new(),
                 running: false,
                 is_live: false,
-                exposure_start: Instant::now(),
-                exposure_duration: Duration::from_secs(0),
-                effective_area: None,
                 current_roi: None,
             },
         }
@@ -102,28 +100,38 @@ impl CameraAsync {
 
 fn run(
     recv: mpsc::Receiver<CameraCommand>,
-    send_image: mpsc::Sender<ROIImage>,
+    send_image: mpsc::Sender<TimestampImage<CpuTexture<u16>>>,
     send_camera: mpsc::Sender<CameraData>,
     ui_thread: UiThread,
 ) -> Result<()> {
     {
-        if let Ok(img) = crate::read_png("telescope.2019-11-21.19-39-54.png") {
+        if let Ok(img) = alg::read_png("telescope.2019-11-21.19-39-54.png") {
             send_image
                 .send(img.into())
                 .map_err(|_| anyhow!("unable to send initial test image"))?;
         }
     }
 
-    let mut camera = Some(camera::interface::autoconnect(false)?);
+    let mut camera = camera::interface::autoconnect()?;
     let mut running = false;
-    let mut exposure_duration = Duration::default();
     let mut cmd_status = String::new();
-    let mut exposure_start = Instant::now();
+    const UPDATE_RATE: Duration = Duration::from_millis(1);
+    const IDLE_RATE: Duration = Duration::from_millis(10);
+    let mut next_data_update = Instant::now();
+    let mut next_idle_period = Instant::now() + IDLE_RATE;
     loop {
         let mut had_cmd = false;
         let mut had_bad_cmd = false;
+
+        let deadline = next_idle_period;
         loop {
-            match recv.try_recv() {
+            let now = Instant::now();
+            let duration = if deadline < now {
+                Duration::ZERO
+            } else {
+                deadline - now
+            };
+            match recv.recv_timeout(duration) {
                 Ok(cmd) => match run_command(&mut camera, cmd, &mut running) {
                     Ok(()) => had_cmd = true,
                     Err(err) => {
@@ -131,75 +139,66 @@ fn run(
                         cmd_status = format!("{}", err);
                     }
                 },
-                Err(mpsc::TryRecvError::Empty) => break,
-                Err(mpsc::TryRecvError::Disconnected) => return Ok(()),
+                Err(mpsc::RecvTimeoutError::Timeout) => break,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
             }
         }
         if had_cmd && !had_bad_cmd {
             cmd_status.clear();
         }
 
-        let camera = camera.as_mut().unwrap();
-
-        let values = camera.controls().iter().map(|c| c.to_value()).collect();
-
-        let data = CameraData {
-            controls: values,
-            name: camera.name().to_string(),
-            cmd_status: cmd_status.clone(),
-            running,
-            is_live: camera.use_live(),
-            exposure_start,
-            exposure_duration,
-            effective_area: Some(camera.effective_area()),
-            current_roi: Some(camera.current_roi()),
-        };
-
-        match send_camera.send(data) {
-            Ok(()) => (),
-            Err(_) => return Ok(()),
+        let now = Instant::now();
+        next_idle_period += IDLE_RATE;
+        if next_idle_period < now {
+            next_idle_period = now;
         }
-        ui_thread.trigger();
+
+        if now > next_data_update {
+            next_data_update += UPDATE_RATE;
+            if now > next_data_update {
+                next_data_update = now + UPDATE_RATE;
+            }
+
+            let values = camera.controls().iter().map(|c| c.to_value()).collect();
+
+            let data = CameraData {
+                controls: values,
+                camera_id: camera.camera_id().to_string(),
+                cmd_status: cmd_status.clone(),
+                running,
+                is_live: camera.use_live(),
+                current_roi: Some(camera.current_roi()),
+            };
+
+            match send_camera.send(data) {
+                Ok(()) => (),
+                Err(_) => return Ok(()),
+            }
+            ui_thread.trigger();
+        }
+
         if running {
             if camera.use_live() {
                 camera.try_start_live()?;
-                loop {
-                    match camera.get_live() {
-                        Some(frame) => {
-                            send_image.send(frame)?;
-                            break;
-                        }
-                        None => {
-                            let limit = Duration::from_millis(10);
-                            if exposure_duration > limit || Instant::now() - exposure_start > limit
-                            {
-                                std::thread::sleep(Duration::from_millis(1));
-                            }
-                        }
-                    }
+                if let Some(frame) = camera.get_live() {
+                    send_image.send(frame)?;
                 }
             } else {
                 let single = camera.exp_single()?;
                 send_image.send(single)?;
             }
-            let new_exposure_start = Instant::now();
-            exposure_duration = new_exposure_start - exposure_start;
-            exposure_start = new_exposure_start;
-        } else {
-            std::thread::sleep(Duration::from_millis(1));
         }
     }
 }
 
 fn run_command(
-    camera: &mut Option<camera::interface::Camera>,
+    camera: &mut camera::interface::Camera,
     cmd: CameraCommand,
     running: &mut bool,
 ) -> Result<()> {
     match cmd {
         CameraCommand::SetControl(id, val) => {
-            let camera = camera.as_mut().unwrap();
-            camera.try_stop_live()?;
+            // camera.try_stop_live()?;
             for control in camera.controls() {
                 if control.id() == id {
                     control.set(val)?;
@@ -217,23 +216,17 @@ fn run_command(
             }
         }
         CameraCommand::ToggleLive => {
-            if let Some(camera) = camera {
-                camera.try_stop_live()?;
-            }
-            let info = camera
-                .take()
-                .map(|camera| (camera.info().clone(), camera.use_live()));
-            if let Some((info, old_use_live)) = info {
-                *camera = Some(info.open(!old_use_live)?);
-            }
+            camera.try_stop_live()?;
+            let camera_id = camera.camera_id().to_string();
+            let use_live = !camera.use_live();
+            camera.dispose()?;
+            *camera = camera::interface::Camera::open(camera_id, use_live)?;
         }
         CameraCommand::SetROI(roi) => {
-            if let Some(ref mut camera) = camera {
-                camera.try_stop_live()?;
-                match roi {
-                    Some(roi) => camera.set_roi(roi)?,
-                    None => camera.unset_roi()?,
-                }
+            // camera.try_stop_live()?;
+            match roi {
+                Some(roi) => camera.set_roi(roi)?,
+                None => camera.unset_roi()?,
             }
         }
     }

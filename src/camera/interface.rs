@@ -8,7 +8,8 @@ use std::{
     error::Error,
     ffi::{CStr, CString},
     fmt, str,
-    sync::Once, time::Instant,
+    sync::Once,
+    time::{Duration, Instant},
 };
 
 #[derive(Debug)]
@@ -61,21 +62,18 @@ impl<T> CpuTexture<T> {
 }
 
 #[derive(Debug)]
-pub struct ROIImage {
-    pub image: CpuTexture<u16>,
-    // the ROI, i.e. bounds of image
-    pub location: Rect<usize>,
-    // the original sensor size
-    pub original: Rect<usize>,
+pub struct TimestampImage<T> {
+    pub image: T,
+    pub time: Instant,
+    pub duration: Duration,
 }
 
-impl From<CpuTexture<u16>> for ROIImage {
-    fn from(image: CpuTexture<u16>) -> ROIImage {
-        let original = Rect::new(0, 0, image.size.0, image.size.1);
-        ROIImage {
+impl From<CpuTexture<u16>> for TimestampImage<CpuTexture<u16>> {
+    fn from(image: CpuTexture<u16>) -> TimestampImage<CpuTexture<u16>> {
+        TimestampImage::<CpuTexture<u16>> {
             image,
-            location: original.clone(),
-            original,
+            time: Instant::now(),
+            duration: Duration::ZERO,
         }
     }
 }
@@ -84,64 +82,37 @@ static INIT_QHYCCD_RESOURCE: Once = Once::new();
 
 fn init_qhyccd_resource() {
     INIT_QHYCCD_RESOURCE.call_once(|| unsafe {
-        check(qhy::InitQHYCCDResource()).expect("Failed to init QHY resources")
+        check(qhy::InitQHYCCDResource()).expect("Failed to init QHY resources");
     })
 }
 
-pub fn autoconnect(live: bool) -> Result<Camera> {
+pub fn autoconnect() -> Result<Camera> {
     init_qhyccd_resource();
     let mut best = None;
-    for id in 0..Camera::num_cameras() {
-        let info = CameraInfo::new(id)?;
-        let is163 = info.name.contains("163");
+    for index in 0..Camera::num_cameras() {
+        let camera_id = Camera::camera_id_from_index(index)?;
+        let is163 = camera_id.contains("163");
         if best.is_none() || is163 {
-            best = Some(info);
+            best = Some(camera_id);
             if is163 {
                 break;
             }
         }
     }
-    if let Some(best) = best {
-        Ok(best.open(live)?)
+    if let Some(camera_id) = best {
+        let live = !camera_id.contains("163");
+        Camera::open(camera_id, live)
     } else {
         Err(anyhow!("No QHY cameras found"))
     }
 }
 
-#[derive(Clone)]
-pub struct CameraInfo {
-    name: String,
-}
-
-impl CameraInfo {
-    pub fn new(id: u32) -> Result<CameraInfo> {
-        init_qhyccd_resource();
-        let result = unsafe {
-            let mut data = vec![0; 512];
-            check(qhy::GetQHYCCDId(id, data.as_mut_ptr()))?;
-            let name = str::from_utf8(&data[..data.iter().position(|&c| c == 0).unwrap()])
-                .unwrap()
-                .to_string();
-            CameraInfo { name }
-        };
-        Ok(result)
-    }
-
-    pub fn open(self, live: bool) -> Result<Camera> {
-        Camera::open(self, live)
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-}
-
 pub struct Camera {
     handle: QHYCCD,
-    info: CameraInfo,
+    camera_id: String,
     controls: Vec<Control>,
     use_live: bool,
-    is_live_running: bool,
+    is_live_running: Option<Instant>,
     effective_area: Rect<usize>,
     current_roi: Rect<usize>,
     qhyccd_mem_length_u16: usize,
@@ -153,12 +124,62 @@ impl Camera {
         unsafe { qhy::ScanQHYCCD() }
     }
 
-    fn open(info: CameraInfo, use_live: bool) -> Result<Camera> {
+    pub fn camera_id_from_index(index: u32) -> Result<String> {
+        init_qhyccd_resource();
+        let result = unsafe {
+            let mut data = vec![0; 512];
+            check(qhy::GetQHYCCDId(index, data.as_mut_ptr()))?;
+            CStr::from_ptr(&data[0] as *const u8 as *const i8)
+                .to_string_lossy()
+                .to_string()
+        };
+        Ok(result)
+    }
+
+    pub fn open(camera_id: String, use_live: bool) -> Result<Camera> {
         unsafe {
-            let cstring = CString::new(&info.name as &str)?;
+            let cstring = CString::new(&camera_id as &str)?;
             let handle = qhy::OpenQHYCCD(cstring.as_ptr());
             if handle.is_null() {
                 return Err(anyhow!("OpenQHYCCD returned null"));
+            }
+
+            let mut year = 0;
+            let mut month = 0;
+            let mut day = 0;
+            let mut subday = 0;
+            check(qhy::GetQHYCCDSDKVersion(
+                &mut year,
+                &mut month,
+                &mut day,
+                &mut subday,
+            ))?;
+            println!("SDK version: {year}-{month}-{day}-{subday}");
+
+            let mut fwv = [0; 32];
+            check(qhy::GetQHYCCDFWVersion(handle, &mut fwv[0]))?;
+            if (fwv[0] >> 4) <= 9 {
+                println!(
+                    "FW version (winusb): {}-{}-{}",
+                    (fwv[0] >> 4) + 0x10,
+                    fwv[0] & !0xf0,
+                    fwv[1]
+                );
+            } else {
+                println!(
+                    "FW version (cyusb): {}-{}-{}",
+                    fwv[0] >> 4,
+                    fwv[0] & !0xf0,
+                    fwv[1]
+                );
+            }
+            for fpga_index in 0..=3 {
+                let mut ver = [0; 32];
+                let ok = qhy::GetQHYCCDFPGAVersion(handle, fpga_index, &mut ver[0]) as i32;
+                println!(
+                    "FPGA version ({fpga_index} ret={ok}): {}-{}-{}-{}",
+                    ver[0], ver[1], ver[2], ver[3]
+                );
             }
 
             check(qhy::SetQHYCCDStreamMode(
@@ -227,10 +248,10 @@ impl Camera {
 
             Ok(Camera {
                 handle,
-                info,
+                camera_id,
                 controls,
                 use_live,
-                is_live_running: false,
+                is_live_running: None,
                 effective_area: current_roi.clone(),
                 current_roi,
                 qhyccd_mem_length_u16: len_u16,
@@ -238,24 +259,16 @@ impl Camera {
         }
     }
 
-    pub fn info(&self) -> &CameraInfo {
-        &self.info
+    pub fn camera_id(&self) -> &str {
+        &self.camera_id
     }
 
     pub fn use_live(&self) -> bool {
         self.use_live
     }
 
-    pub fn effective_area(&self) -> Rect<usize> {
-        self.effective_area.clone()
-    }
-
     pub fn current_roi(&self) -> Rect<usize> {
         self.current_roi.clone()
-    }
-
-    pub fn name(&self) -> &str {
-        &self.info().name()
     }
 
     pub fn set_roi(&mut self, roi: Rect<usize>) -> Result<()> {
@@ -285,15 +298,9 @@ impl Camera {
     }
 
     fn get_controls(handle: QHYCCD) -> Vec<Control> {
-        const BANNED: [ControlId; 3] = [
-            ControlId::ControlCfwport,
-            ControlId::ControlCfwslotsnum,
-            ControlId::ControlDdr,
-        ];
         ControlId::values()
             .iter()
             .cloned()
-            .filter(|&id| !BANNED.iter().any(|&x| id == x))
             .filter(|&id| unsafe { qhy::IsQHYCCDControlAvailable(handle, id) } == 0)
             .map(|id| Control::new(handle, id))
             .collect::<Vec<_>>()
@@ -303,15 +310,13 @@ impl Camera {
         &self.controls
     }
 
-    pub fn exp_single(&self) -> Result<ROIImage> {
-        let time_a = Instant::now();
+    pub fn exp_single(&self) -> Result<TimestampImage<CpuTexture<u16>>> {
+        let start = Instant::now();
         let single = unsafe { qhy::ExpQHYCCDSingleFrame(self.handle) };
         // QHYCCD_READ_DIRECTLY
         if single != 0x2001 {
             check(single)?;
         }
-        let time_b = Instant::now();
-        println!("expose = {:?}", time_b - time_a);
 
         // GetQHYCCDExposureRemaining seems to be unreliable, so just block
         let mut width = 0;
@@ -333,46 +338,41 @@ impl Camera {
         assert_eq!(channels, 1);
         assert_eq!(width as usize, self.current_roi.width);
         assert_eq!(height as usize, self.current_roi.height);
-        let time_c = Instant::now();
-        println!("get = {:?}", time_c - time_b);
-        let image = ROIImage {
+        let end = Instant::now();
+        let image = TimestampImage::<CpuTexture<u16>> {
             image: CpuTexture::new(data, (width as usize, height as usize)),
-            location: self.current_roi.clone(),
-            original: self.effective_area.clone(),
+            time: end,
+            duration: end - start,
         };
-        unsafe {
-            check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?;
-        }
-        let time_d = Instant::now();
-        println!("cancel = {:?}", time_d - time_c);
-        println!("total = {:?}", time_d - time_a);
+        // unsafe {
+        //     check(qhy::CancelQHYCCDExposingAndReadout(self.handle))?;
+        // }
         Ok(image)
     }
 
     pub fn try_start_live(&mut self) -> Result<()> {
-        if !self.is_live_running {
+        if self.is_live_running.is_none() {
             unsafe { check(qhy::BeginQHYCCDLive(self.handle))? }
-            self.is_live_running = true;
+            self.is_live_running = Some(Instant::now());
         }
         Ok(())
     }
 
     pub fn try_stop_live(&mut self) -> Result<()> {
-        if self.is_live_running {
+        if self.is_live_running.is_some() {
             unsafe { check(qhy::StopQHYCCDLive(self.handle))? }
-            self.is_live_running = false;
+            self.is_live_running = None;
         }
         Ok(())
     }
 
-    pub fn get_live(&self) -> Option<ROIImage> {
+    pub fn get_live(&mut self) -> Option<TimestampImage<CpuTexture<u16>>> {
         unsafe {
             let mut width = 0;
             let mut height = 0;
             let mut bpp = 0;
             let mut channels = 0;
             let mut data = vec![0; self.qhyccd_mem_length_u16];
-            let now = Instant::now();
             let res = qhy::GetQHYCCDLiveFrame(
                 self.handle,
                 &mut width,
@@ -382,28 +382,38 @@ impl Camera {
                 data.as_mut_ptr() as _,
             );
             if res != 0 {
-                println!("get_live fail {:?}", Instant::now() - now);
                 // function will fail if image isn't ready yet
                 None
             } else {
-                println!("get_live got image {:?}", Instant::now() - now);
                 assert_eq!(bpp, 16);
                 assert_eq!(channels, 1);
                 assert_eq!(width as usize, self.current_roi.width);
                 assert_eq!(height as usize, self.current_roi.height);
-                Some(ROIImage {
+                let now = Instant::now();
+                let duration = self.is_live_running.map_or(Duration::ZERO, |o| now - o);
+                self.is_live_running = Some(now);
+                Some(TimestampImage {
                     image: CpuTexture::new(data, (width as usize, height as usize)),
-                    location: self.current_roi.clone(),
-                    original: self.effective_area.clone(),
+                    time: now,
+                    duration,
                 })
             }
         }
+    }
+
+    pub fn dispose(&mut self) -> Result<()> {
+        if self.handle != std::ptr::null_mut() {
+            let res = check(unsafe { qhy::CloseQHYCCD(self.handle) });
+            self.handle = std::ptr::null_mut();
+            return res;
+        }
+        Ok(())
     }
 }
 
 impl Drop for Camera {
     fn drop(&mut self) {
-        check(unsafe { qhy::CloseQHYCCD(self.handle) }).expect("Failed to close QHY camera in Drop")
+        self.dispose().expect("Failed to close QHY camera in Drop")
     }
 }
 
@@ -413,7 +423,6 @@ pub struct Control {
     min: f64,
     max: f64,
     step: f64,
-    constant_value: f64,
     readonly: bool,
     interesting: bool,
 }
@@ -427,21 +436,15 @@ impl Control {
             let res = qhy::GetQHYCCDParamMinMaxStep(handle, control, &mut min, &mut max, &mut step);
             let readonly = res != 0;
             let interesting = ControlId::is_interesting(control);
-            let constant = ControlId::is_constant(control);
-            let mut res = Self {
+            Self {
                 handle,
                 control,
                 min,
                 max,
                 step,
-                constant_value: std::f64::NAN,
                 readonly,
                 interesting,
-            };
-            if constant {
-                res.constant_value = res.get();
             }
-            res
         }
     }
 
@@ -450,9 +453,6 @@ impl Control {
     }
 
     pub fn get(&self) -> f64 {
-        if self.constant_value.is_finite() {
-            return self.constant_value;
-        }
         unsafe { qhy::GetQHYCCDParam(self.handle, self.control) }
     }
 

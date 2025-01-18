@@ -114,7 +114,7 @@ pub fn autoconnect() -> Result<Mount> {
             Ok(ok) => ok,
             Err(_) => continue,
         };
-        match m.get_ra_dec_mount() {
+        match m.get_ra_dec() {
             Ok(_) => (),
             Err(_) => continue,
         };
@@ -126,7 +126,6 @@ pub fn autoconnect() -> Result<Mount> {
 
 pub struct Mount {
     port: Box<dyn serialport::SerialPort>,
-    radec_offset: (Angle, Angle),
 }
 
 impl Mount {
@@ -141,7 +140,6 @@ impl Mount {
     pub fn new(path: String) -> Result<Mount> {
         Ok(Mount {
             port: serialport::new(path, 9600).timeout(Duration::from_secs(3)).open()?,
-            radec_offset: (Angle::from_0to1(0.0), Angle::from_0to1(0.0)),
         })
     }
 
@@ -171,26 +169,7 @@ impl Mount {
         Ok(())
     }
 
-    fn real_to_mount(&self, ra_dec: (Angle, Angle)) -> (Angle, Angle) {
-        (
-            ra_dec.0 + self.radec_offset.0,
-            ra_dec.1 + self.radec_offset.1,
-        )
-    }
-
-    pub fn mount_to_real(&self, ra_dec: (Angle, Angle)) -> (Angle, Angle) {
-        (
-            ra_dec.0 - self.radec_offset.0,
-            ra_dec.1 - self.radec_offset.1,
-        )
-    }
-
-    pub fn set_real_to_mount(&mut self, ra: Angle, dec: Angle) {
-        self.radec_offset.0 = ra;
-        self.radec_offset.1 = dec;
-    }
-
-    pub fn get_ra_dec_mount(&mut self) -> Result<(Angle, Angle)> {
+    pub fn get_ra_dec(&mut self) -> Result<(Angle, Angle)> {
         self.write([b'e'])?;
         let mut response = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         self.read(&mut response)?;
@@ -205,8 +184,7 @@ impl Mount {
         Ok(result)
     }
 
-    pub fn sync_ra_dec_real(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let (ra, dec) = self.real_to_mount((ra, dec));
+    pub fn sync_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
         let ra = ra.u32();
         let dec = dec.u32();
         let msg = format!("s{:08X},{:08X}", ra, dec);
@@ -214,8 +192,7 @@ impl Mount {
         Ok(())
     }
 
-    pub fn slew_ra_dec_real(&mut self, ra: Angle, dec: Angle) -> Result<()> {
-        let (ra, dec) = self.real_to_mount((ra, dec));
+    pub fn slew_ra_dec(&mut self, ra: Angle, dec: Angle) -> Result<()> {
         let ra = ra.u32();
         let dec = dec.u32();
         let msg = format!("r{:08X},{:08X}", ra, dec);
