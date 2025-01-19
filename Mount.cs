@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Media;
 using static Scopie.ExceptionReporter;
 
 namespace Scopie;
@@ -45,6 +46,9 @@ internal sealed class Mount : IDisposable
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly CancellationToken _ct;
     private readonly byte[] _hash = new byte[1];
+    private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
+    private readonly StackPanel _cameraButtons = new();
+    private Camera? _currentlyDisplaying;
 
     public Mount(string portName)
     {
@@ -93,6 +97,12 @@ internal sealed class Mount : IDisposable
 
         SlewButtons(stackPanel);
 
+        RefreshCameraButtons();
+        Camera.AllCamerasChanged += RefreshCameraButtons;
+        stackPanel.Children.Add(_cameraButtons);
+
+        _ = new Platesolver(stackPanel, () => _currentlyDisplaying?.DeviceImage);
+
         await UpdateStatus();
 
         Try(UpdateStatusLoop());
@@ -100,7 +110,15 @@ internal sealed class Mount : IDisposable
         return new TabItem
         {
             Header = "Mount",
-            Content = stackPanel
+            Content = new StackPanel()
+            {
+                Orientation = Orientation.Horizontal,
+                Children =
+                {
+                    stackPanel,
+                    _image,
+                }
+            }
         };
 
         StackPanel DoubleAngleInput(string buttonName, Func<Angle, Angle, Task> onSet)
@@ -210,8 +228,31 @@ internal sealed class Mount : IDisposable
         stackPanel.Children.Add(decMinus);
     }
 
+    private void RefreshCameraButtons()
+    {
+        _cameraButtons.Children.Clear();
+        foreach (var camera in Camera.AllCameras)
+        {
+            var button = new Button { Content = $"view {camera.CameraId.Id}" };
+            button.Click += (_, _) =>
+            {
+                if (_currentlyDisplaying != null)
+                    _currentlyDisplaying.NewBitmap -= NewBitmap;
+                _currentlyDisplaying = camera;
+                _currentlyDisplaying.NewBitmap += NewBitmap;
+                if (_currentlyDisplaying.Bitmap is { } bitmap)
+                    NewBitmap(bitmap);
+            };
+        }
+    }
+
+    private void NewBitmap(IImage bitmap) => _image.Source = bitmap;
+
     public void Dispose()
     {
+        Camera.AllCamerasChanged -= RefreshCameraButtons;
+        if (_currentlyDisplaying != null)
+            _currentlyDisplaying.NewBitmap -= NewBitmap;
         _cancellationTokenSource.Cancel();
         _cancellationTokenSource.Dispose();
         using var guard = _lockie.LockSync();
@@ -375,10 +416,10 @@ internal readonly partial struct Angle(double value)
 {
     private const double MaxUint = (double)uint.MaxValue + 1;
     public static Angle FromUint(uint angle) => new(angle / MaxUint);
-    public uint Uint => (uint)(Math.Floor(value) * MaxUint);
+    public uint Uint => (uint)((value - Math.Floor(value)) * MaxUint);
 
     private double Degrees => value * 360.0;
-    private static Angle FromDegrees(double value) => new(value / 360.0);
+    public static Angle FromDegrees(double value) => new(value / 360.0);
     private static Angle FromHours(double value) => new(value / 24.0);
     private double Hours => value * 24.0;
 

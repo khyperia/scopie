@@ -20,7 +20,6 @@ internal sealed class MainTab
         _connectButtons = new StackPanel();
         stackPanel.Children.Add(_connectButtons);
 
-        Camera.Init();
         Scan();
 
         tabs.Items.Add(new TabItem
@@ -39,8 +38,8 @@ internal sealed class MainTab
             var button = new Button { Content = "Connect to " + camera.Model };
             button.Click += (_, _) =>
             {
-                var c = new Camera();
-                Try(Add(c, c.Init(camera)));
+                var c = new Camera(camera);
+                Try(Add(c, c.Init()));
             };
 
             _connectButtons.Children.Add(button);

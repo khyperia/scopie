@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Runtime.CompilerServices;
+using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -7,41 +8,119 @@ using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using WatneyAstrometry.Core.Image;
 using static Scopie.ExceptionReporter;
 using static Scopie.LibQhy;
+using IImage = Avalonia.Media.IImage;
 
 namespace Scopie;
 
 public record struct ScanResult(string Id, string Model);
 
-internal abstract record DeviceImage(uint Width, uint Height);
-
-internal sealed record DeviceImage<T>(T[] Data, uint Width, uint Height) : DeviceImage(Width, Height);
-
-internal sealed class Camera : IDisposable
+internal abstract record DeviceImage(uint Width, uint Height) : WatneyAstrometry.Core.Image.IImage
 {
+    public void Dispose()
+    {
+    }
+
+    public abstract Stream PixelDataStream { get; }
+    public abstract long PixelDataStreamOffset { get; }
+    public abstract long PixelDataStreamLength { get; }
+    public abstract Metadata Metadata { get; }
+}
+
+internal sealed record DeviceImage<T>(T[] Data, uint Width, uint Height) : DeviceImage(Width, Height) where T : unmanaged
+{
+    public override Stream PixelDataStream
+    {
+        get
+        {
+            if (typeof(T) == typeof(ushort))
+            {
+                // Watney expects big endian
+                var us = (ushort[])(object)Data;
+                var tmp = new byte[Data.Length * 2];
+                for (var i = 0; i < Data.Length; i++)
+                {
+                    var idx = i * 2;
+                    tmp[idx] = (byte)(us[i] >> 8);
+                    tmp[idx + 1] = (byte)us[i];
+                }
+
+                return new MemoryStream(tmp, false);
+            }
+
+            if (typeof(T) == typeof(byte))
+                return new MemoryStream((byte[])(object)Data, false);
+
+            throw new Exception("Unsupported datatype " + typeof(T));
+        }
+    }
+
+    public override long PixelDataStreamOffset => 0;
+
+    public override long PixelDataStreamLength
+    {
+        get
+        {
+            unsafe
+            {
+                return Data.Length * sizeof(T);
+            }
+        }
+    }
+
+    public override Metadata Metadata
+    {
+        get
+        {
+            int sizeofT;
+            unsafe
+            {
+                sizeofT = sizeof(T);
+            }
+
+            return new Metadata
+            {
+                BitsPerPixel = sizeofT * 8,
+                ImageWidth = (int)Width,
+                ImageHeight = (int)Height,
+            };
+        }
+    }
+}
+
+internal sealed class Camera(ScanResult cameraId) : IDisposable
+{
+    public static readonly List<Camera> AllCameras = [];
+    public static event Action? AllCamerasChanged;
+
+    public ScanResult CameraId => cameraId;
     private readonly Threadling _threadling = new(null);
     private readonly List<CameraControl> _cameraControls = [];
     private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
     private readonly StackPanel _controlsStackPanel = new();
-    private DeviceImage? _deviceImage;
+    public DeviceImage? DeviceImage { get; private set; }
     private IntPtr _qhyHandle;
     private byte[]? _imgBuffer;
     private bool _exposing;
     private bool _save;
     private bool _sortStretch;
 
-    public static void Init()
+    public event Action<IImage>? NewBitmap;
+    public IImage? Bitmap => _image.Source;
+
+    static Camera()
     {
         Check(InitQHYCCDResource());
     }
 
-    public static void DeInit()
+    public void Dispose()
     {
-        Check(ReleaseQHYCCDResource());
+        AllCameras.Remove(this);
+        _threadling.Dispose();
+        AllCamerasChanged?.Invoke();
     }
-
-    public void Dispose() => _threadling.Dispose();
 
     public static List<ScanResult> Scan()
     {
@@ -62,9 +141,9 @@ internal sealed class Camera : IDisposable
         return result;
     }
 
-    public async Task<TabItem> Init(ScanResult camera)
+    public async Task<TabItem> Init()
     {
-        await _threadling.Do(() => InitCamera(camera));
+        await _threadling.Do(() => InitCamera(cameraId));
 
         var (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel) = await _threadling.Do(() =>
         {
@@ -96,7 +175,7 @@ internal sealed class Camera : IDisposable
         });
 
         var stackPanel = new StackPanel();
-        stackPanel.Children.Add(new Label { Content = camera.Id });
+        stackPanel.Children.Add(new Label { Content = cameraId.Id });
         stackPanel.Children.Add(new Label { Content = $"sdk version: {await _threadling.Do(GetSdkVersion)}" });
         stackPanel.Children.Add(new Label { Content = $"firmware version: {await _threadling.Do(() => GetFirmwareVersion(_qhyHandle))}" });
         stackPanel.Children.Add(new Label { Content = $"fpga version: {await _threadling.Do(() => GetFpgaVersion(_qhyHandle))}" });
@@ -113,6 +192,9 @@ internal sealed class Camera : IDisposable
             _sortStretch = v;
             RefreshImage();
         }));
+
+        _ = new Platesolver(stackPanel, () => DeviceImage);
+
         stackPanel.Children.Add(_controlsStackPanel);
 
         var horiz = new StackPanel { Orientation = Orientation.Horizontal };
@@ -121,9 +203,12 @@ internal sealed class Camera : IDisposable
 
         _threadling.IdleAction = IdleAction;
 
+        AllCameras.Add(this);
+        AllCamerasChanged?.Invoke();
+
         return new TabItem
         {
-            Header = camera.Id,
+            Header = cameraId.Id,
             Content = horiz
         };
     }
@@ -231,7 +316,9 @@ internal sealed class Camera : IDisposable
         else if (_debugLoad)
         {
             _debugLoad = false;
-            var image = ImageIO.Load("telescope.2019-11-21.19-39-54.png");
+
+            string DebugFile([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "telescope.2019-11-21.19-39-54.png");
+            var image = ImageIO.Load(DebugFile());
             Dispatcher.UIThread.Post(() => SetImage(image));
         }
 
@@ -284,9 +371,7 @@ internal sealed class Camera : IDisposable
 
     private void SetImage(DeviceImage deviceImage)
     {
-        if (_image.Source is IDisposable disposable)
-            disposable.Dispose();
-        _deviceImage = deviceImage;
+        DeviceImage = deviceImage;
         RefreshImage();
     }
 
@@ -324,7 +409,7 @@ internal sealed class Camera : IDisposable
 
     private void RefreshImage()
     {
-        if (_deviceImage == null)
+        if (DeviceImage == null)
             return;
         if (_sortStretch)
         {
@@ -332,14 +417,23 @@ internal sealed class Camera : IDisposable
 
             async Task DoSortStretch()
             {
-                var img = _deviceImage;
+                var img = DeviceImage;
+                // TODO: Bounded queue here
                 var result = await Task.Run(() => ImageProcessor.SortStretch(img));
-                if (img == _deviceImage)
-                    _image.Source = ToBitmap(result);
+                if (img == DeviceImage)
+                    OnNewBitmap(ToBitmap(result));
             }
         }
         else
-            _image.Source = ToBitmap(_deviceImage);
+            OnNewBitmap(ToBitmap(DeviceImage));
+    }
+
+    private void OnNewBitmap(Bitmap bitmap)
+    {
+        if (_image.Source is IDisposable disposable)
+            disposable.Dispose();
+        _image.Source = bitmap;
+        NewBitmap?.Invoke(bitmap);
     }
 
     private static Bitmap ToBitmap(DeviceImage image)
