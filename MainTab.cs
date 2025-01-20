@@ -38,8 +38,15 @@ internal sealed class MainTab
             var button = new Button { Content = "Connect to " + camera.Model };
             button.Click += (_, _) =>
             {
-                var c = new Camera(camera);
-                Try(Add(c, c.Init()));
+                try
+                {
+                    var c = new Camera(camera);
+                    Try(Add(c, c.Init()));
+                }
+                catch (Exception e)
+                {
+                    Report(e);
+                }
             };
 
             _connectButtons.Children.Add(button);
@@ -54,8 +61,15 @@ internal sealed class MainTab
             var button = new Button { Content = "Connect mount port " + port };
             button.Click += (_, _) =>
             {
-                var mount = new Mount(port);
-                Try(Add(mount, mount.Init()));
+                try
+                {
+                    var mount = new Mount(port);
+                    Try(Add(mount, mount.Init()));
+                }
+                catch (Exception e)
+                {
+                    Report(e);
+                }
             };
 
             _connectButtons.Children.Add(button);

@@ -37,7 +37,7 @@ public class Program : Application
 
     private static Window MakeWindow()
     {
-        var window = new Window();
+        var window = new Window { Title = "Scopie" };
         ExceptionReporter.SetWindow(window);
         window.Closing += (_, _) => ExceptionReporter.SetWindow(null);
         var tabs = new TabControl();

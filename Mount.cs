@@ -49,6 +49,7 @@ internal sealed class Mount : IDisposable
     private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
     private readonly StackPanel _cameraButtons = new();
     private Camera? _currentlyDisplaying;
+    private Angle? _lastLongitude;
 
     public Mount(string portName)
     {
@@ -68,6 +69,10 @@ internal sealed class Mount : IDisposable
         var aligned = new Label();
 
         var stackPanel = new StackPanel();
+        stackPanel.Children.Add(new Label { Content = $"Hand control version {await HandControlVersion()}" });
+        stackPanel.Children.Add(new Label { Content = $"RA motor version {await MotorVersion(false)}" });
+        stackPanel.Children.Add(new Label { Content = $"Dec motor version {await MotorVersion(true)}" });
+        stackPanel.Children.Add(new Label { Content = $"Model {await Model()}" });
         stackPanel.Children.Add(getRaDec);
         stackPanel.Children.Add(getAzAlt);
         stackPanel.Children.Add(trackingMode);
@@ -77,6 +82,7 @@ internal sealed class Mount : IDisposable
         stackPanel.Children.Add(DoubleAngleInput("slew", SlewRaDec));
         stackPanel.Children.Add(DoubleAngleInput("slew az/alt", SlewAzAlt));
         stackPanel.Children.Add(DoubleAngleInput("sync ra/dec", SyncRaDec));
+        stackPanel.Children.Add(DoubleAngleInput("reset ra/dec", (ra, dec) => Task.WhenAll(ResetRa(ra), ResetDec(dec))));
         var cancel = new Button { Content = "cancel slew" };
         cancel.Click += (_, _) => Try(CancelSlew());
         stackPanel.Children.Add(cancel);
@@ -88,6 +94,7 @@ internal sealed class Mount : IDisposable
                 if (radio.IsChecked ?? false)
                     Try(SetTrackingMode(mode));
             };
+            stackPanel.Children.Add(radio);
         }
 
         stackPanel.Children.Add(DoubleAngleInput("location", SetLocation));
@@ -110,7 +117,7 @@ internal sealed class Mount : IDisposable
         return new TabItem
         {
             Header = "Mount",
-            Content = new StackPanel()
+            Content = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 Children =
@@ -126,6 +133,7 @@ internal sealed class Mount : IDisposable
             var first = new TextBox();
             var second = new TextBox();
             var button = new Button { Content = buttonName };
+            // TODO: If angl,angl is pasted into textbox, put it into both
             first.TextChanged += TextChanged;
             second.TextChanged += TextChanged;
             button.Click += (_, _) =>
@@ -158,9 +166,10 @@ internal sealed class Mount : IDisposable
             var (az, alt) = await GetAzAlt();
             getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
             trackingMode.Content = $"tracking mode: {await TrackingMode()}";
-            aligned.Content = $"aligned: {await Aligned()}";
+            aligned.Content = $"aligned: {await Aligned()}, goto in progress: {await GotoInProgress()}, pointing state: {await PointingState()}";
             var (lat, lon) = await Location();
-            location.Content = $"location: {lat.FormatDegrees()} {lon.FormatDegrees()}";
+            _lastLongitude = lon;
+            location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
             time.Content = $"time: {await Time()}";
         }
 
@@ -195,6 +204,8 @@ internal sealed class Mount : IDisposable
             slewSpeed = Math.Max(slewSpeed - 1, 1);
             slewSpeedLabel.Content = $"slew speed: {slewSpeed}";
         };
+        // TODO: These do not register left click, since the event is already handled
+        // Can subscribe to event and still get called if handled
         raPlus.PointerPressed += (_, _) => Try(FixedSlewRa(slewSpeed));
         raPlus.PointerReleased += (_, _) => Try(FixedSlewRa(0));
         raMinus.PointerPressed += (_, _) => Try(FixedSlewRa(-slewSpeed));
@@ -224,7 +235,6 @@ internal sealed class Mount : IDisposable
                 raPlus,
             }
         });
-        stackPanel.Children.Add(raMinus);
         stackPanel.Children.Add(decMinus);
     }
 
@@ -255,7 +265,8 @@ internal sealed class Mount : IDisposable
             _currentlyDisplaying.NewBitmap -= NewBitmap;
         _cancellationTokenSource.Cancel();
         _cancellationTokenSource.Dispose();
-        using var guard = _lockie.LockSync();
+        // do NOT `using` guard, because we're disposing it
+        var guard = _lockie.LockSync();
         SerialPort port = guard;
         if (port.IsOpen)
             port.Close();
@@ -284,7 +295,7 @@ internal sealed class Mount : IDisposable
         await Write(port, data);
         var result = new byte[responseLength];
         await Read(port, result);
-        return data;
+        return result;
     }
 
     private async Task<(Angle, Angle)> GetAngleCommand(char command)
@@ -302,7 +313,7 @@ internal sealed class Mount : IDisposable
     {
         var str = $"{command}{first.Uint:X8},{second.Uint:X8}";
         var bytes = Encoding.UTF8.GetBytes(str);
-        if (bytes.Length != 17)
+        if (bytes.Length != 18)
             throw new Exception($"Internal error in SendAngleCommand ({bytes.Length}): {bytes}");
         return Interact(bytes, 0);
     }
@@ -311,13 +322,32 @@ internal sealed class Mount : IDisposable
 
     private Task SyncRaDec(Angle ra, Angle dec) => SendAngleCommand('s', ra, dec);
 
+    // TODO: This sets local RA (i.e. park position is 0), not actual RA
+    // Setting ResetRa(0) ResetDec(90) tells the mount it is currently in park position
+    // Setting ResetRa(x) ResetDec(y) tells the mount it is currently pointing here
+    private Task ResetRa(Angle ra)
+    {
+        // if (_lastLongitude is not { } lastLongitude)
+        //     throw new Exception("Longitude not fetched from mount");
+        // var localSiderealTime = LocalSiderealTime(DateTime.UtcNow, lastLongitude);
+        // ra += localSiderealTime; // TODO: Plus or minus?
+        ra.To3Byte(out var high, out var med, out var low);
+        return Interact([(byte)'P', 4, 16, 4, high, med, low, 0], 0);
+    }
+
+    private Task ResetDec(Angle dec)
+    {
+        dec.To3Byte(out var high, out var med, out var low);
+        return Interact([(byte)'P', 4, 17, 4, high, med, low, 0], 0);
+    }
+
     private Task SlewRaDec(Angle ra, Angle dec) => SendAngleCommand('r', ra, dec);
 
     private Task<(Angle ra, Angle dec)> GetAzAlt() => GetAngleCommand('z');
 
     // note: This assumes the telescope's az axis is straight up.
     // This is NOT what is reported in GetAzAlt
-    private Task SlewAzAlt(Angle ra, Angle dec) => SendAngleCommand('s', ra, dec);
+    private Task SlewAzAlt(Angle ra, Angle dec) => SendAngleCommand('b', ra, dec);
 
     private Task CancelSlew() => Interact([(byte)'M'], 0);
 
@@ -393,6 +423,18 @@ internal sealed class Mount : IDisposable
         return result[0] != 0;
     }
 
+    private async Task<char> GotoInProgress()
+    {
+        var result = await Interact([(byte)'L'], 1);
+        return (char)result[0];
+    }
+
+    private async Task<char> PointingState()
+    {
+        var result = await Interact([(byte)'p'], 1);
+        return (char)result[0];
+    }
+
     private Task<byte[]> FixedSlewCommand(byte one, byte two, byte three, byte rate) => Interact([(byte)'P', one, two, three, rate, 0, 0, 0], 0);
 
     private Task FixedSlewRa(int speed) => speed > 0
@@ -402,6 +444,47 @@ internal sealed class Mount : IDisposable
     private Task FixedSlewDec(int speed) => speed > 0
         ? FixedSlewCommand(2, 17, 36, (byte)speed)
         : FixedSlewCommand(2, 17, 37, (byte)-speed);
+
+    private async Task<string> HandControlVersion()
+    {
+        var r = Encoding.UTF8.GetString(await Interact([(byte)'V'], 6));
+        var v = Convert.ToUInt32(r, 16);
+        return $"{(v >> 16) & 0xff}.{(v >> 8) & 0xff}.{v & 0xff}";
+    }
+
+    private async Task<string> MotorVersion(bool dec)
+    {
+        var r = await Interact([(byte)'P', 1, dec ? (byte)17 : (byte)16, 254, 0, 0, 0, 2], 2);
+        return $"{r[0]}.{r[1]}";
+    }
+
+    private async Task<byte> Model()
+    {
+        return (await Interact([(byte)'m'], 1))[0];
+    }
+
+    private static double GreenwichSiderealTime(DateTime utcNow)
+    {
+        const int daysPer100Years = 36524;
+        const long ticksPerDay = 864000000000L;
+        // 12 hours ahead of specified epoch, because the algorithm expects the julian date to end in 0.5, not 0.0,
+        // so do the subtraction from 12 hours ahead then add 0.5 days
+        var epoch = new DateTime(2000, 1, 2, 0, 0, 0);
+        var tickDiff = utcNow.Ticks - epoch.Ticks;
+        var wholeDays = Math.DivRem(tickDiff, ticksPerDay, out var remainder);
+        var julianOffsetFromEpoch = wholeDays + 0.5;
+        var centuries = tickDiff / (double)(ticksPerDay * daysPer100Years);
+        var result = 6.697374558 +
+                     0.06570982439425051 * julianOffsetFromEpoch +
+                     24.0 / ticksPerDay * 1.002737909 * remainder +
+                     0.000025862 * (centuries * centuries);
+        return Mod(result, 24);
+    }
+
+    private static Angle LocalSiderealTime(DateTime utcNow, Angle longitude) =>
+        Angle.FromHours(Mod(GreenwichSiderealTime(utcNow) + longitude.Degrees / 15, 24));
+
+    private static double Mod(double x, double y) => x >= 0 ? x % y : x % y + Math.Abs(y);
 }
 
 internal enum TrackingMode
@@ -414,13 +497,15 @@ internal enum TrackingMode
 
 internal readonly partial struct Angle(double value)
 {
+    private double Value => value;
+
     private const double MaxUint = (double)uint.MaxValue + 1;
     public static Angle FromUint(uint angle) => new(angle / MaxUint);
     public uint Uint => (uint)((value - Math.Floor(value)) * MaxUint);
 
-    private double Degrees => value * 360.0;
+    public double Degrees => value * 360.0;
     public static Angle FromDegrees(double value) => new(value / 360.0);
-    private static Angle FromHours(double value) => new(value / 24.0);
+    public static Angle FromHours(double value) => new(value / 24.0);
     private double Hours => value * 24.0;
 
     public (bool, uint, uint, uint, double) Dms => ValueToXms(Degrees);
@@ -447,6 +532,8 @@ internal readonly partial struct Angle(double value)
 
     private static double MergeXms(bool isNegative, double degrees, double minutes, double seconds, double remainderSeconds) =>
         (isNegative ? -1.0 : 1.0) * (degrees + minutes / 60.0 + (seconds + remainderSeconds) / (60.0 * 60.0));
+
+    public static Angle operator +(Angle left, Angle right) => new(left.Value + right.Value);
 
     public string FormatDegrees()
     {
@@ -481,9 +568,9 @@ internal readonly partial struct Angle(double value)
         var groups = thing.Groups;
         var isNegative = groups["sign"] is { Success: true, Value: "-" };
         var isHours = groups["unit"] is { Success: true, Value: "h" or "H" };
-        var degrees = V(groups["degrees"]);
-        var minutes = V(groups["degrees"]);
-        var seconds = V(groups["degrees"]);
+        var degrees = double.Parse(groups["degrees"].Value);
+        var minutes = V(groups["minutes"]);
+        var seconds = V(groups["seconds"]);
 
         angle = isHours
             ? FromHms(isNegative, degrees, minutes, seconds, 0.0)
@@ -492,6 +579,14 @@ internal readonly partial struct Angle(double value)
         return true;
 
         double V(Group group) => group.Success ? double.Parse(group.Value) : 0.0;
+    }
+
+    public void To3Byte(out byte high, out byte med, out byte low)
+    {
+        var i = (uint)((value - Math.Floor(value)) * 0x1_00_00_00);
+        high = (byte)(i >> 16);
+        med = (byte)(i >> 8);
+        low = (byte)i;
     }
 }
 
@@ -502,7 +597,7 @@ internal readonly struct MountTime(byte hour, byte minute, byte second, byte mon
         get
         {
             var now = DateTimeOffset.Now;
-            return new MountTime((byte)now.Hour, (byte)now.Minute, (byte)now.Second, (byte)now.Month, (byte)now.Day, (byte)now.Year, (sbyte)now.Offset.Hours, false);
+            return new MountTime((byte)now.Hour, (byte)now.Minute, (byte)now.Second, (byte)now.Month, (byte)now.Day, (byte)(now.Year - 2000), (sbyte)now.Offset.Hours, false);
         }
     }
 
