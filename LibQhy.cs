@@ -427,7 +427,7 @@ internal static unsafe class LibQhy
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern void QHYCCDGetDebugDataD3(IntPtr handle, byte* debugDataRaw64);
 
-    // TODO: This is missing EXPORTFUNC
+    // This is missing EXPORTFUNC
     [DllImport("qhyccd", CallingConvention = CallConv)]
     public static extern void QHYCCDGetDebugControlID(ControlId controlId, bool hasValue, bool isSetValue, double value);
 

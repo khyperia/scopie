@@ -1,4 +1,4 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Avalonia;
 using Avalonia.Controls;
@@ -100,12 +100,28 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
     private readonly List<CameraControl> _cameraControls = [];
     private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
     private readonly StackPanel _controlsStackPanel = new();
-    public DeviceImage? DeviceImage { get; private set; }
+    private readonly ImageProcessor _imageProcessor = new();
     private IntPtr _qhyHandle;
     private byte[]? _imgBuffer;
     private bool _exposing;
     private bool _save;
-    private bool _sortStretch;
+
+    private ImageProcessor.Settings _imageProcessorSettings = new(null, false);
+
+    private ImageProcessor.Settings ImageProcessorSettings
+    {
+        get => _imageProcessorSettings;
+        set
+        {
+            if (_imageProcessorSettings != value)
+            {
+                _imageProcessorSettings = value;
+                Try(RefreshImage(value));
+            }
+        }
+    }
+
+    public DeviceImage? DeviceImage => _imageProcessorSettings.Input;
 
     public event Action<IImage>? NewBitmap;
     public IImage? Bitmap => _image.Source;
@@ -187,13 +203,9 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         stackPanel.Children.Add(new Label { Content = fastReadoutStatus });
         stackPanel.Children.Add(ToggleThreadling("Exposing", v => _exposing = v));
         stackPanel.Children.Add(Toggle("Save", v => _save = v));
-        stackPanel.Children.Add(Toggle("Sort stretch", v =>
-        {
-            _sortStretch = v;
-            RefreshImage();
-        }));
+        stackPanel.Children.Add(Toggle("Sort stretch", v => ImageProcessorSettings = ImageProcessorSettings with { SortStretch = v }));
 
-        _ = new Platesolver(stackPanel, () => DeviceImage);
+        _ = new Platesolver(stackPanel, () => _imageProcessorSettings.Input);
 
         stackPanel.Children.Add(_controlsStackPanel);
 
@@ -311,15 +323,19 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
             var image = ExposeSingle();
             if (_save)
                 Try(Task.Run(() => ImageIO.Save(image)));
-            Dispatcher.UIThread.Post(() => SetImage(image));
+            Dispatcher.UIThread.Post(() => ImageProcessorSettings = ImageProcessorSettings with { Input = image });
         }
         else if (_debugLoad)
         {
             _debugLoad = false;
 
             string DebugFile([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "telescope.2019-11-21.19-39-54.png");
-            var image = ImageIO.Load(DebugFile());
-            Dispatcher.UIThread.Post(() => SetImage(image));
+            var debugFile = DebugFile();
+            if (File.Exists(debugFile))
+            {
+                var image = ImageIO.Load(debugFile);
+                Dispatcher.UIThread.Post(() => ImageProcessorSettings = ImageProcessorSettings with { Input = image });
+            }
         }
 
         List<CameraControlValue> values = new(_cameraControls.Count);
@@ -369,12 +385,6 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         return true;
     }
 
-    private void SetImage(DeviceImage deviceImage)
-    {
-        DeviceImage = deviceImage;
-        RefreshImage();
-    }
-
     private DeviceImage ExposeSingle()
     {
         var expResult = ExpQHYCCDSingleFrame(_qhyHandle);
@@ -407,25 +417,15 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         throw new Exception($"Only 8 and 16bpp images supported: bpp={bpp}");
     }
 
-    private void RefreshImage()
+    private async Task RefreshImage(ImageProcessor.Settings settings)
     {
-        if (DeviceImage == null)
-            return;
-        if (_sortStretch)
+        try
         {
-            Try(DoSortStretch());
-
-            async Task DoSortStretch()
-            {
-                var img = DeviceImage;
-                // TODO: Bounded queue here
-                var result = await Task.Run(() => ImageProcessor.SortStretch(img));
-                if (img == DeviceImage)
-                    OnNewBitmap(ToBitmap(result));
-            }
+            OnNewBitmap(ToBitmap(await _imageProcessor.Process(settings)));
         }
-        else
-            OnNewBitmap(ToBitmap(DeviceImage));
+        catch (OperationCanceledException)
+        {
+        }
     }
 
     private void OnNewBitmap(Bitmap bitmap)

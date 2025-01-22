@@ -30,6 +30,7 @@ public class Program : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = MakeWindow();
+            ExceptionReporter.SetLifetime(desktop);
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -2,6 +2,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -100,7 +101,7 @@ internal sealed class Mount : IDisposable
             var first = new TextBox();
             var second = new TextBox();
             var button = new Button { Content = buttonName };
-            // TODO: If angl,angl is pasted into textbox, put it into both
+            var reentrant = false;
             first.TextChanged += TextChanged;
             second.TextChanged += TextChanged;
             button.Click += (_, _) =>
@@ -122,7 +123,30 @@ internal sealed class Mount : IDisposable
 
             void TextChanged(object? sender, TextChangedEventArgs e)
             {
-                button.IsEnabled = Angle.TryParse(first.Text, out _) && Angle.TryParse(second.Text, out _);
+                if (reentrant)
+                    return;
+                try
+                {
+                    reentrant = true;
+                    var firstText = first.Text;
+                    if (firstText != null)
+                    {
+                        var idx = firstText.IndexOf(',');
+                        if (idx != -1)
+                        {
+                            first.Text = firstText[..idx];
+                            second.Text = firstText[(idx + 1)..];
+                            if (first.IsFocused)
+                                second.Focus();
+                        }
+                    }
+
+                    button.IsEnabled = Angle.TryParse(first.Text, out _) && Angle.TryParse(second.Text, out _);
+                }
+                finally
+                {
+                    reentrant = false;
+                }
             }
         }
 
@@ -180,18 +204,16 @@ internal sealed class Mount : IDisposable
             slewSpeed = Math.Max(slewSpeed - 1, 1);
             slewSpeedLabel.Content = $"slew speed: {slewSpeed}";
         };
-        // TODO: These do not register left click, since the event is already handled
-        // Can subscribe to event and still get called if handled
-        raPlus.PointerPressed += (_, _) => Try(FixedSlewRa(slewSpeed));
-        raPlus.PointerReleased += (_, _) => Try(FixedSlewRa(0));
-        raMinus.PointerPressed += (_, _) => Try(FixedSlewRa(-slewSpeed));
-        raMinus.PointerReleased += (_, _) => Try(FixedSlewRa(0));
-        decPlus.PointerPressed += (_, _) => Try(FixedSlewDec(slewSpeed));
-        decPlus.PointerReleased += (_, _) => Try(FixedSlewDec(0));
-        decMinus.PointerPressed += (_, _) => Try(FixedSlewDec(-slewSpeed));
-        decMinus.PointerReleased += (_, _) => Try(FixedSlewDec(0));
+        raPlus.AddHandler(InputElement.PointerPressedEvent, (_, _) => Try(FixedSlewRa(slewSpeed)), handledEventsToo: true);
+        raPlus.AddHandler(InputElement.PointerReleasedEvent, (_, _) => Try(FixedSlewRa(0)), handledEventsToo: true);
+        raMinus.AddHandler(InputElement.PointerPressedEvent, (_, _) => Try(FixedSlewRa(-slewSpeed)), handledEventsToo: true);
+        raMinus.AddHandler(InputElement.PointerReleasedEvent, (_, _) => Try(FixedSlewRa(0)), handledEventsToo: true);
+        decPlus.AddHandler(InputElement.PointerPressedEvent, (_, _) => Try(FixedSlewDec(slewSpeed)), handledEventsToo: true);
+        decPlus.AddHandler(InputElement.PointerReleasedEvent, (_, _) => Try(FixedSlewDec(0)), handledEventsToo: true);
+        decMinus.AddHandler(InputElement.PointerPressedEvent, (_, _) => Try(FixedSlewDec(-slewSpeed)), handledEventsToo: true);
+        decMinus.AddHandler(InputElement.PointerReleasedEvent, (_, _) => Try(FixedSlewDec(0)), handledEventsToo: true);
 
-        stackPanel.Children.Add(new StackPanel()
+        stackPanel.Children.Add(new StackPanel
         {
             Orientation = Orientation.Horizontal,
             Children =
