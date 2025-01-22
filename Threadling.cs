@@ -21,13 +21,15 @@ internal struct IdleActionResult
 
 internal sealed class Threadling : IDisposable
 {
+    private readonly Thread _thread;
     private readonly BlockingCollection<Action> _sendToThread = new();
     private Func<IdleActionResult>? _idleAction;
 
     public Threadling(Func<IdleActionResult>? idleAction)
     {
         _idleAction = idleAction;
-        new Thread(RunThread).Start();
+        _thread = new Thread(RunThread);
+        _thread.Start();
     }
 
     public Func<IdleActionResult>? IdleAction
@@ -47,6 +49,18 @@ internal sealed class Threadling : IDisposable
 
     public Task<T> Do<T>(Func<T> action)
     {
+        if (_thread == Thread.CurrentThread)
+        {
+            try
+            {
+                return Task.FromResult(action());
+            }
+            catch (Exception e)
+            {
+                return Task.FromException<T>(e);
+            }
+        }
+
         TaskCompletionSource<T> tcs = new();
         _sendToThread.Add(() =>
         {
@@ -64,6 +78,19 @@ internal sealed class Threadling : IDisposable
 
     public Task Do(Action action)
     {
+        if (_thread == Thread.CurrentThread)
+        {
+            try
+            {
+                action();
+                return Task.CompletedTask;
+            }
+            catch (Exception e)
+            {
+                return Task.FromException<int>(e);
+            }
+        }
+
         TaskCompletionSource<int> tcs = new();
         _sendToThread.Add(() =>
         {

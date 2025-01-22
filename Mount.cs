@@ -4,59 +4,26 @@ using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using static Scopie.ExceptionReporter;
 
 namespace Scopie;
 
-internal readonly struct Lockie<T> : IDisposable
-{
-    private readonly T _value;
-    private readonly SemaphoreSlim _semaphore = new(1, 1);
-
-    public Lockie(T value)
-    {
-        _value = value;
-    }
-
-    public readonly struct LockGuard(T value, SemaphoreSlim semaphore) : IDisposable
-    {
-        public void Dispose() => semaphore.Release();
-        private T Value => value;
-        public static implicit operator T(LockGuard guard) => guard.Value;
-    }
-
-    public async Task<LockGuard> Lock()
-    {
-        await _semaphore.WaitAsync();
-        return new LockGuard(_value, _semaphore);
-    }
-
-    public LockGuard LockSync()
-    {
-        _semaphore.Wait();
-        return new LockGuard(_value, _semaphore);
-    }
-
-    public void Dispose() => _semaphore.Dispose();
-}
-
 internal sealed class Mount : IDisposable
 {
-    private readonly Lockie<SerialPort> _lockie;
-    private readonly CancellationTokenSource _cancellationTokenSource = new();
-    private readonly CancellationToken _ct;
-    private readonly byte[] _hash = new byte[1];
+    private readonly SerialPort _port;
     private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
     private readonly StackPanel _cameraButtons = new();
+    private Threadling? _threadling;
     private Camera? _currentlyDisplaying;
     private Angle? _lastLongitude;
 
     public Mount(string portName)
     {
-        _ct = _cancellationTokenSource.Token;
-        var port = new SerialPort(portName);
-        port.Open();
-        _lockie = new Lockie<SerialPort>(port);
+        _port = new SerialPort(portName);
+        _port.ReadTimeout = 5000;
+        _port.WriteTimeout = 5000;
+        _port.Open();
     }
 
     public async Task<TabItem> Init()
@@ -110,9 +77,9 @@ internal sealed class Mount : IDisposable
 
         _ = new Platesolver(stackPanel, () => _currentlyDisplaying?.DeviceImage);
 
-        await UpdateStatus();
+        UpdateStatus();
 
-        Try(UpdateStatusLoop());
+        _threadling = new Threadling(UpdateStatus);
 
         return new TabItem
         {
@@ -159,27 +126,36 @@ internal sealed class Mount : IDisposable
             }
         }
 
-        async Task UpdateStatus()
+        IdleActionResult UpdateStatus()
         {
-            var (ra, dec) = await GetRaDec();
-            getRaDec.Content = $"ra/dec: {ra.FormatHours()} {dec.FormatDegrees()}";
-            var (az, alt) = await GetAzAlt();
-            getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
-            trackingMode.Content = $"tracking mode: {await TrackingMode()}";
-            aligned.Content = $"aligned: {await Aligned()}, goto in progress: {await GotoInProgress()}, pointing state: {await PointingState()}";
-            var (lat, lon) = await Location();
-            _lastLongitude = lon;
-            location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
-            time.Content = $"time: {await Time()}";
-        }
-
-        async Task UpdateStatusLoop()
-        {
-            while (!_ct.IsCancellationRequested)
+            T Get<T>(Task<T> t)
             {
-                await Task.Delay(TimeSpan.FromSeconds(1), _ct);
-                await UpdateStatus();
+                if (!t.IsCompleted)
+                    throw new Exception("Should be sync result!");
+                return t.Result;
             }
+
+            var (ra, dec) = Get(GetRaDec());
+            var (az, alt) = Get(GetAzAlt());
+            var mode = Get(TrackingMode());
+            var a = Get(Aligned());
+            var gotoInProgress = Get(GotoInProgress());
+            var pointingState = Get(PointingState());
+            var (lat, lon) = Get(Location());
+            var mountTime = Get(Time());
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                getRaDec.Content = $"ra/dec: {ra.FormatHours()} {dec.FormatDegrees()}";
+                getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
+                trackingMode.Content = $"tracking mode: {mode}";
+                aligned.Content = $"aligned: {a}, goto in progress: {gotoInProgress}, pointing state: {pointingState}";
+                _lastLongitude = lon;
+                location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
+                time.Content = $"time: {mountTime}";
+            });
+
+            return IdleActionResult.WaitWithTimeout(TimeSpan.FromSeconds(1));
         }
     }
 
@@ -263,39 +239,51 @@ internal sealed class Mount : IDisposable
         Camera.AllCamerasChanged -= RefreshCameraButtons;
         if (_currentlyDisplaying != null)
             _currentlyDisplaying.NewBitmap -= NewBitmap;
-        _cancellationTokenSource.Cancel();
-        _cancellationTokenSource.Dispose();
-        // do NOT `using` guard, because we're disposing it
-        var guard = _lockie.LockSync();
-        SerialPort port = guard;
-        if (port.IsOpen)
-            port.Close();
-        port.Dispose();
-        _lockie.Dispose();
+        if (_threadling != null)
+        {
+            _threadling.Do(() =>
+            {
+                if (_port.IsOpen)
+                    _port.Close();
+                _port.Dispose();
+            });
+            _threadling.Dispose();
+        }
+        else
+        {
+            if (_port.IsOpen)
+                _port.Close();
+            _port.Dispose();
+        }
     }
 
-    private async Task Read(SerialPort port, byte[] data)
+    private Task<byte[]> Interact(byte[] data, int responseLength)
     {
-        await port.BaseStream.ReadExactlyAsync(data, _ct);
-        await port.BaseStream.ReadExactlyAsync(_hash, _ct);
-        if (_hash[0] != '#')
-            throw new Exception("Mount reply didn't end with '#'");
-    }
+        if (_threadling == null)
+        {
+            try
+            {
+                return Task.FromResult(Func());
+            }
+            catch (Exception e)
+            {
+                return Task.FromException<byte[]>(e);
+            }
+        }
 
-    private async Task Write(SerialPort port, byte[] data)
-    {
-        await port.BaseStream.WriteAsync(data, _ct);
-        await port.BaseStream.FlushAsync(_ct);
-    }
+        return _threadling.Do((Func<byte[]>)Func);
 
-    private async Task<byte[]> Interact(byte[] data, int responseLength)
-    {
-        using var guard = await _lockie.Lock();
-        SerialPort port = guard;
-        await Write(port, data);
-        var result = new byte[responseLength];
-        await Read(port, result);
-        return result;
+        byte[] Func()
+        {
+            _port.Write(data, 0, data.Length);
+            var result = new byte[responseLength];
+            var index = 0;
+            while (index <= responseLength)
+                index += _port.Read(result, index, responseLength - index);
+            if (_port.ReadByte() != '#')
+                throw new Exception("Mount reply didn't end with '#'");
+            return result;
+        }
     }
 
     private async Task<(Angle, Angle)> GetAngleCommand(char command)
