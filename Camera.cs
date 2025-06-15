@@ -4,7 +4,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -98,7 +97,7 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
     public ScanResult CameraId => cameraId;
     private readonly Threadling _threadling = new(null);
     private readonly List<CameraControl> _cameraControls = [];
-    private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
+    private readonly CroppableImage _image = new();
     private readonly StackPanel _controlsStackPanel = new();
     private readonly ImageProcessor _imageProcessor = new();
     private IntPtr _qhyHandle;
@@ -124,7 +123,7 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
     public DeviceImage? DeviceImage => _imageProcessorSettings.Input;
 
     public event Action<IImage>? NewBitmap;
-    public IImage? Bitmap => _image.Source;
+    public IImage? Bitmap => _image.Bitmap;
 
     static Camera()
     {
@@ -204,6 +203,7 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         stackPanel.Children.Add(ToggleThreadling("Exposing", v => _exposing = v));
         stackPanel.Children.Add(Toggle("Save", v => _save = v));
         stackPanel.Children.Add(Toggle("Sort stretch", v => ImageProcessorSettings = ImageProcessorSettings with { SortStretch = v }));
+        stackPanel.Children.Add(Button("Reset crop", () => _image.ResetCrop()));
 
         _ = new Platesolver(stackPanel, () => _imageProcessorSettings.Input);
 
@@ -244,6 +244,13 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
             if (result.IsChecked is { } isChecked)
                 Try(_threadling.Do(() => threadedCheckedChange(isChecked)));
         };
+        return result;
+    }
+
+    private static Button Button(string name, Action click)
+    {
+        var result = new Button { Content = name };
+        result.Click += (_, _) => click();
         return result;
     }
 
@@ -430,9 +437,7 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
 
     private void OnNewBitmap(Bitmap bitmap)
     {
-        if (_image.Source is IDisposable disposable)
-            disposable.Dispose();
-        _image.Source = bitmap;
+        _image.Bitmap = bitmap;
         NewBitmap?.Invoke(bitmap);
     }
 
