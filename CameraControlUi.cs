@@ -1,88 +1,10 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Media.Imaging;
-using Avalonia.Threading;
 
 namespace Scopie;
 
-internal class CameraTab
-{
-    public static async Task<TabItem> Create(CameraUiBag cameraUiBag)
-    {
-        var croppableImage = BitmapDisplay.Create(cameraUiBag.BitmapProcessor);
-        var cameraControlUi = await CameraControlUi.Create(cameraUiBag, croppableImage);
-
-        return new TabItem
-        {
-            Header = cameraUiBag.Camera.CameraId.Id,
-            Content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Children =
-                {
-                    new ScrollViewer { Content = cameraControlUi },
-                    croppableImage,
-                }
-            }
-        };
-    }
-}
-
-internal class CameraUiBag : IDisposable
-{
-    public static readonly List<CameraUiBag> AllCameras = [];
-    public static event Action? AllCamerasChanged;
-
-    public readonly Camera Camera;
-    public readonly ImageProcessor ImageProcessor;
-    public readonly ImageToBitmapProcessor BitmapProcessor;
-
-    public CameraUiBag(ScanResult cameraId)
-    {
-        Camera = new Camera(cameraId);
-        ImageProcessor = new ImageProcessor(Camera);
-        BitmapProcessor = new ImageToBitmapProcessor(ImageProcessor);
-
-        AllCameras.Add(this);
-        AllCamerasChanged?.Invoke();
-    }
-
-    public Task Init() => Camera.Init();
-
-    public void Dispose()
-    {
-        BitmapProcessor.Dispose();
-        ImageProcessor.Dispose();
-        Camera.Dispose();
-
-        AllCameras.Remove(this);
-        AllCamerasChanged?.Invoke();
-    }
-}
-
-internal static class BitmapDisplay
-{
-    public static CroppableImage Create(PushEnumerable<Bitmap> bitmapStream)
-    {
-        CroppableImage image = new();
-        image.AttachedToLogicalTree += (_, _) =>
-        {
-            image.Bitmap = bitmapStream.Current;
-            bitmapStream.MoveNext += MoveNext;
-        };
-        image.DetachedFromLogicalTree += (_, _) => { bitmapStream.MoveNext -= MoveNext; };
-
-        return image;
-
-        void MoveNext(Bitmap bitmap)
-        {
-            Dispatcher.UIThread.Invoke(() => image.Bitmap = bitmap);
-        }
-    }
-}
-
-internal class CameraControlUi(Camera camera)
+internal sealed class CameraControlUi(Camera camera)
 {
     private readonly StackPanel _controlsStackPanel = new();
     private List<CameraControlValue> _cameraControls = [];

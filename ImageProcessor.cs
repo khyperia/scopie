@@ -1,11 +1,8 @@
-﻿using Avalonia;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
-using static Scopie.ExceptionReporter;
+﻿using static Scopie.ExceptionReporter;
 
 namespace Scopie;
 
-internal class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, DeviceImage>(input)
+internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, DeviceImage>(input)
 {
     private bool _sortStretch;
 
@@ -74,40 +71,5 @@ internal class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushProcesso
         for (var i = 0; i < copy.Length; i++)
             copy[indices[i]] = (byte)(i * mul);
         return new DeviceImage<byte>(copy, deviceImage.Width, deviceImage.Height);
-    }
-}
-
-internal class ImageToBitmapProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, Bitmap>(input)
-{
-    protected override void Process(DeviceImage item)
-    {
-        Push(ToBitmap(item));
-    }
-
-    private static Bitmap ToBitmap(DeviceImage image)
-    {
-        switch (image)
-        {
-            case DeviceImage<ushort> gray16:
-                unsafe
-                {
-                    fixed (ushort* data = gray16.Data)
-                    {
-                        return new Bitmap(PixelFormats.Gray16, AlphaFormat.Opaque, (nint)data, new PixelSize((int)image.Width, (int)image.Height), new Vector(96, 96), (int)image.Width * 2);
-                    }
-                }
-
-            case DeviceImage<byte> gray8:
-                unsafe
-                {
-                    fixed (byte* data = gray8.Data)
-                    {
-                        return new Bitmap(PixelFormats.Gray8, AlphaFormat.Opaque, (nint)data, new PixelSize((int)image.Width, (int)image.Height), new Vector(96, 96), (int)image.Width);
-                    }
-                }
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(image), image, "image must be DeviceImage<ushort> or DeviceImage<byte>");
-        }
     }
 }
