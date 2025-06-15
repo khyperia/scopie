@@ -40,8 +40,14 @@ internal sealed class MainTab
             {
                 try
                 {
-                    var c = new Camera(camera);
-                    Try(Add(c, c.Init()));
+                    var c = new CameraUiBag(camera);
+                    Try(Add(c, Do(c)));
+
+                    static async Task<TabItem> Do(CameraUiBag c)
+                    {
+                        await c.Init();
+                        return await CameraTab.Create(c);
+                    }
                 }
                 catch (Exception e)
                 {

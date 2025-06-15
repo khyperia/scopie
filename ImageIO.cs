@@ -69,6 +69,8 @@ internal static class ImageIO
     private static FileStream CreateFile()
     {
         var desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+        if (string.IsNullOrEmpty(desktop))
+            desktop = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var now = DateTime.Now;
         var folder = Path.Combine(desktop, $"{now.Year}_{now.Month}_{now.Day}");
         Directory.CreateDirectory(folder);

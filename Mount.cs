@@ -4,7 +4,6 @@ using System.Text.RegularExpressions;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Threading;
 using static Scopie.ExceptionReporter;
 
@@ -13,10 +12,10 @@ namespace Scopie;
 internal sealed class Mount : IDisposable
 {
     private readonly SerialPort _port;
-    private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
     private readonly StackPanel _cameraButtons = new();
+    private readonly StackPanel _horizontalStackPanel = new();
     private Threadling? _threadling;
-    private Camera? _currentlyDisplaying;
+    private CameraUiBag? _currentlyDisplaying;
     private Angle? _lastLongitude;
 
     public Mount(string portName)
@@ -73,27 +72,22 @@ internal sealed class Mount : IDisposable
         SlewButtons(stackPanel);
 
         RefreshCameraButtons();
-        Camera.AllCamerasChanged += RefreshCameraButtons;
+        CameraUiBag.AllCamerasChanged += RefreshCameraButtons;
         stackPanel.Children.Add(_cameraButtons);
 
-        _ = new Platesolver(stackPanel, () => _currentlyDisplaying?.DeviceImage);
+        _ = new Platesolver(stackPanel, () => _currentlyDisplaying?.Camera.Current);
 
         UpdateStatus();
 
         _threadling = new Threadling(UpdateStatus);
 
+        _horizontalStackPanel.Children.Clear();
+        _horizontalStackPanel.Children.Add(stackPanel);
+
         return new TabItem
         {
             Header = "Mount",
-            Content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Children =
-                {
-                    stackPanel,
-                    _image,
-                }
-            }
+            Content = _horizontalStackPanel,
         };
 
         StackPanel DoubleAngleInput(string buttonName, Func<Angle, Angle, Task> onSet)
@@ -239,28 +233,21 @@ internal sealed class Mount : IDisposable
     private void RefreshCameraButtons()
     {
         _cameraButtons.Children.Clear();
-        foreach (var camera in Camera.AllCameras)
+        foreach (var camera in CameraUiBag.AllCameras)
         {
-            var button = new Button { Content = $"view {camera.CameraId.Id}" };
+            var button = new Button { Content = $"view {camera.Camera.CameraId.Id}" };
             button.Click += (_, _) =>
             {
-                if (_currentlyDisplaying != null)
-                    _currentlyDisplaying.NewBitmap -= NewBitmap;
+                _horizontalStackPanel.Children.RemoveRange(1, _horizontalStackPanel.Children.Count - 1);
+                _horizontalStackPanel.Children.Add(BitmapDisplay.Create(camera.BitmapProcessor));
                 _currentlyDisplaying = camera;
-                _currentlyDisplaying.NewBitmap += NewBitmap;
-                if (_currentlyDisplaying.Bitmap is { } bitmap)
-                    NewBitmap(bitmap);
             };
         }
     }
 
-    private void NewBitmap(IImage bitmap) => _image.Source = bitmap;
-
     public void Dispose()
     {
-        Camera.AllCamerasChanged -= RefreshCameraButtons;
-        if (_currentlyDisplaying != null)
-            _currentlyDisplaying.NewBitmap -= NewBitmap;
+        CameraUiBag.AllCamerasChanged -= RefreshCameraButtons;
         if (_threadling != null)
         {
             _threadling.Do(() =>

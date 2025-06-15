@@ -1,107 +1,113 @@
-﻿namespace Scopie;
+﻿using Avalonia;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
+using static Scopie.ExceptionReporter;
 
-internal class ImageProcessor : IDisposable
+namespace Scopie;
+
+internal class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, DeviceImage>(input)
 {
-    private readonly List<CancellationTokenSource> _cancellationTokenSources = [];
-    private Settings _mostRecentSettings;
+    private bool _sortStretch;
 
-    public readonly record struct Settings(DeviceImage? Input, bool SortStretch);
-
-    public async Task<DeviceImage> Process(Settings settings)
+    public bool SortStretch
     {
-        _mostRecentSettings = settings;
-        var result = await ProcessInternal(settings);
-        // TODO: This is wrong (we want old results if this is the most up to date result)
-        if (_mostRecentSettings == settings)
-            return result;
-        throw new OperationCanceledException();
-    }
-
-    private Task<DeviceImage> ProcessInternal(Settings settings)
-    {
-        if (settings.Input == null)
-            throw new Exception("Cannot process null image");
-
-        if (settings.SortStretch)
-            return ThreadedProcess(settings);
-
-        return Task.FromResult(settings.Input);
-    }
-
-    private void Cancel()
-    {
-        foreach (var cts in _cancellationTokenSources)
+        get => _sortStretch;
+        set
         {
-            cts.Cancel();
-            cts.Dispose();
+            if (_sortStretch != value)
+            {
+                _sortStretch = value;
+                if (Input.Current is { } current)
+                    Process(current);
+            }
         }
-
-        _cancellationTokenSources.Clear();
     }
 
-    public void Dispose() => Cancel();
-
-    private Task<DeviceImage> ThreadedProcess(Settings settings)
+    protected override void Process(DeviceImage image)
     {
-        Cancel();
-        var source = new CancellationTokenSource();
-        _cancellationTokenSources.Add(source);
-        var ct = source.Token;
-        return Task.Run(() =>
+        if (!SortStretch)
         {
-            if (settings.SortStretch)
-                return SortStretch(settings.Input, ct);
-            throw new Exception("Bad threaded process");
-        }, ct);
+            Push(image);
+        }
+        else
+        {
+            // TODO: Out of order execution here
+            Try(Task.Run(() => Push(DoSortStretch(image))));
+        }
     }
 
-    public static DeviceImage SortStretch(DeviceImage deviceImage, CancellationToken ct)
+    private static DeviceImage DoSortStretch(DeviceImage deviceImage)
     {
         return deviceImage switch
         {
-            DeviceImage<ushort> deviceImage16 => SortStretch(deviceImage16, ct),
-            DeviceImage<byte> deviceImage8 => SortStretch(deviceImage8, ct),
+            DeviceImage<ushort> deviceImage16 => DoSortStretch(deviceImage16),
+            DeviceImage<byte> deviceImage8 => DoSortStretch(deviceImage8),
             _ => deviceImage
         };
     }
 
-    private static DeviceImage<ushort> SortStretch(DeviceImage<ushort> deviceImage, CancellationToken ct)
+    private static DeviceImage<ushort> DoSortStretch(DeviceImage<ushort> deviceImage)
     {
-        ct.ThrowIfCancellationRequested();
         var buf = deviceImage.Data;
         var copy = new ushort[buf.Length];
         Array.Copy(buf, copy, buf.Length);
-        ct.ThrowIfCancellationRequested();
         var indices = new int[buf.Length];
         for (var i = 0; i < indices.Length; i++)
             indices[i] = i;
-        ct.ThrowIfCancellationRequested();
         Array.Sort(copy, indices);
-        ct.ThrowIfCancellationRequested();
         var mul = (float)ushort.MaxValue / buf.Length;
         for (var i = 0; i < copy.Length; i++)
             copy[indices[i]] = (ushort)(i * mul);
-        ct.ThrowIfCancellationRequested();
         return new DeviceImage<ushort>(copy, deviceImage.Width, deviceImage.Height);
     }
 
-    private static DeviceImage<byte> SortStretch(DeviceImage<byte> deviceImage, CancellationToken ct)
+    private static DeviceImage<byte> DoSortStretch(DeviceImage<byte> deviceImage)
     {
-        ct.ThrowIfCancellationRequested();
         var buf = deviceImage.Data;
         var copy = new byte[buf.Length];
         Array.Copy(buf, copy, buf.Length);
-        ct.ThrowIfCancellationRequested();
         var indices = new int[buf.Length];
         for (var i = 0; i < indices.Length; i++)
             indices[i] = i;
-        ct.ThrowIfCancellationRequested();
         Array.Sort(copy, indices);
-        ct.ThrowIfCancellationRequested();
         var mul = (float)byte.MaxValue / buf.Length;
         for (var i = 0; i < copy.Length; i++)
             copy[indices[i]] = (byte)(i * mul);
-        ct.ThrowIfCancellationRequested();
         return new DeviceImage<byte>(copy, deviceImage.Width, deviceImage.Height);
+    }
+}
+
+internal class ImageToBitmapProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, Bitmap>(input)
+{
+    protected override void Process(DeviceImage item)
+    {
+        Push(ToBitmap(item));
+    }
+
+    private static Bitmap ToBitmap(DeviceImage image)
+    {
+        switch (image)
+        {
+            case DeviceImage<ushort> gray16:
+                unsafe
+                {
+                    fixed (ushort* data = gray16.Data)
+                    {
+                        return new Bitmap(PixelFormats.Gray16, AlphaFormat.Opaque, (nint)data, new PixelSize((int)image.Width, (int)image.Height), new Vector(96, 96), (int)image.Width * 2);
+                    }
+                }
+
+            case DeviceImage<byte> gray8:
+                unsafe
+                {
+                    fixed (byte* data = gray8.Data)
+                    {
+                        return new Bitmap(PixelFormats.Gray8, AlphaFormat.Opaque, (nint)data, new PixelSize((int)image.Width, (int)image.Height), new Vector(96, 96), (int)image.Width);
+                    }
+                }
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(image), image, "image must be DeviceImage<ushort> or DeviceImage<byte>");
+        }
     }
 }

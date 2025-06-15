@@ -63,6 +63,8 @@ internal readonly struct CameraControl
 
 internal readonly struct CameraControlValue(CameraControl cameraControl)
 {
+    public CameraControl CameraControl => cameraControl;
+    
     private readonly double _value = cameraControl.Value;
 
     public override string ToString() => cameraControl.ToString(_value);

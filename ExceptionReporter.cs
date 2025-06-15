@@ -5,7 +5,7 @@ using Avalonia.Threading;
 
 namespace Scopie;
 
-public static class ExceptionReporter
+internal static class ExceptionReporter
 {
     private static IClassicDesktopStyleApplicationLifetime? _lifetime;
     private static Window? _mainWindow;

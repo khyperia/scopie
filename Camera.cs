@@ -1,22 +1,15 @@
 using System.Runtime.CompilerServices;
 using System.Text;
-using Avalonia;
-using Avalonia.Controls;
-using Avalonia.Input;
-using Avalonia.Layout;
-using Avalonia.Media.Imaging;
-using Avalonia.Platform;
 using Avalonia.Threading;
 using WatneyAstrometry.Core.Image;
 using static Scopie.ExceptionReporter;
 using static Scopie.LibQhy;
-using IImage = Avalonia.Media.IImage;
 
 namespace Scopie;
 
-public record struct ScanResult(string Id, string Model);
+internal record struct ScanResult(string Id, string Model);
 
-internal abstract record DeviceImage(uint Width, uint Height) : WatneyAstrometry.Core.Image.IImage
+internal abstract record DeviceImage(uint Width, uint Height) : IImage
 {
     public void Dispose()
     {
@@ -89,52 +82,36 @@ internal sealed record DeviceImage<T>(T[] Data, uint Width, uint Height) : Devic
     }
 }
 
-internal sealed class Camera(ScanResult cameraId) : IDisposable
+internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>, IDisposable
 {
-    public static readonly List<Camera> AllCameras = [];
-    public static event Action? AllCamerasChanged;
-
     public ScanResult CameraId => cameraId;
     private readonly Threadling _threadling = new(null);
     private readonly List<CameraControl> _cameraControls = [];
-    private readonly CroppableImage _image = new();
-    private readonly StackPanel _controlsStackPanel = new();
-    private readonly ImageProcessor _imageProcessor = new();
     private IntPtr _qhyHandle;
     private byte[]? _imgBuffer;
     private bool _exposing;
     private bool _save;
 
-    private ImageProcessor.Settings _imageProcessorSettings = new(null, false);
-
-    private ImageProcessor.Settings ImageProcessorSettings
-    {
-        get => _imageProcessorSettings;
-        set
-        {
-            if (_imageProcessorSettings != value)
-            {
-                _imageProcessorSettings = value;
-                Try(RefreshImage(value));
-            }
-        }
-    }
-
-    public DeviceImage? DeviceImage => _imageProcessorSettings.Input;
-
-    public event Action<IImage>? NewBitmap;
-    public IImage? Bitmap => _image.Bitmap;
+    public event Action<List<CameraControlValue>>? OnControlsUpdated;
 
     static Camera()
     {
         Check(InitQHYCCDResource());
     }
 
+    public bool Exposing
+    {
+        set => _threadling.Do(() => _exposing = value);
+    }
+
+    public bool Save
+    {
+        set => _save = value;
+    }
+
     public void Dispose()
     {
-        AllCameras.Remove(this);
         _threadling.Dispose();
-        AllCamerasChanged?.Invoke();
     }
 
     public static List<ScanResult> Scan()
@@ -156,102 +133,56 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         return result;
     }
 
-    public async Task<TabItem> Init()
+    public async Task Init()
     {
         await _threadling.Do(() => InitCamera(cameraId));
+        _threadling.IdleAction = IdleAction;
+    }
 
-        var (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel) = await _threadling.Do(() =>
-        {
-            Check(GetQHYCCDChipInfo(_qhyHandle, out var chipWidth, out var chipHeight, out var imageWidth, out var imageHeight, out var pixelWidth, out var pixelHeight, out var bitsPerPixel));
-            return (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel);
-        });
-        var (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY) = await _threadling.Do(() =>
-        {
-            Check(GetQHYCCDEffectiveArea(_qhyHandle, out var effectiveStartX, out var effectiveStartY, out var effectiveSizeX, out var effectiveSizeY));
-            return (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY);
-        });
+    public Task<(double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel)> GetChipInfoAsync()
+    {
+        return _threadling.Do(GetChipInfo);
+    }
 
-        var fastReadoutStatus = await _threadling.Do(() =>
-        {
-            var canFastReadout = IsQHYCCDControlAvailable(_qhyHandle, ControlId.ControlSpeed) == 0;
-            if (canFastReadout)
-            {
-                Check(GetQHYCCDParamMinMaxStep(_qhyHandle, ControlId.ControlSpeed, out var min, out var max, out var step));
-                return $"camera supports fast readout at speeds: {min}-{max} (step={step})";
-            }
+    private (double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel) GetChipInfo()
+    {
+        Check(GetQHYCCDChipInfo(_qhyHandle, out var chipWidth, out var chipHeight, out var imageWidth, out var imageHeight, out var pixelWidth, out var pixelHeight, out var bitsPerPixel));
+        return (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel);
+    }
 
-            Check(GetQHYCCDNumberOfReadModes(_qhyHandle, out var modes));
-            StringBuilder sb = new(256);
-            return string.Join(" - ", Enumerable.Range(0, (int)modes).Select(i =>
+    public Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync()
+    {
+        return _threadling.Do(GetEffectiveArea);
+    }
+
+    private (uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY) GetEffectiveArea()
+    {
+        Check(GetQHYCCDEffectiveArea(_qhyHandle, out var effectiveStartX, out var effectiveStartY, out var effectiveSizeX, out var effectiveSizeY));
+        return (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY);
+    }
+
+    public Task<string> GetFastReadoutStatusAsync()
+    {
+        return _threadling.Do(GetFastReadoutStatus);
+    }
+
+    private string GetFastReadoutStatus()
+    {
+        var canFastReadout = IsQHYCCDControlAvailable(_qhyHandle, ControlId.ControlSpeed) == 0;
+        if (canFastReadout)
+        {
+            Check(GetQHYCCDParamMinMaxStep(_qhyHandle, ControlId.ControlSpeed, out var min, out var max, out var step));
+            return $"camera supports fast readout at speeds: {min}-{max} (step={step})";
+        }
+
+        Check(GetQHYCCDNumberOfReadModes(_qhyHandle, out var modes));
+        StringBuilder sb = new(256);
+        return string.Join(" - ", Enumerable.Range(0, (int)modes)
+            .Select(i =>
             {
                 Check(GetQHYCCDReadModeName(_qhyHandle, (uint)i, sb));
                 return $"camera read mode {i} = {sb}";
             }));
-        });
-
-        var stackPanel = new StackPanel();
-        stackPanel.Children.Add(new Label { Content = cameraId.Id });
-        stackPanel.Children.Add(new Label { Content = $"sdk version: {await _threadling.Do(GetSdkVersion)}" });
-        stackPanel.Children.Add(new Label { Content = $"firmware version: {await _threadling.Do(() => GetFirmwareVersion(_qhyHandle))}" });
-        stackPanel.Children.Add(new Label { Content = $"fpga version: {await _threadling.Do(() => GetFpgaVersion(_qhyHandle))}" });
-        stackPanel.Children.Add(new Label { Content = $"chip size: {chipWidth} - {chipHeight}" });
-        stackPanel.Children.Add(new Label { Content = $"image size: {imageWidth} - {imageHeight}" });
-        stackPanel.Children.Add(new Label { Content = $"pixel size: {pixelWidth} - {pixelHeight}" });
-        stackPanel.Children.Add(new Label { Content = $"bits/pixel: {bitsPerPixel}" });
-        stackPanel.Children.Add(new Label { Content = $"effective area: x={effectiveStartX} y={effectiveStartY} w={effectiveSizeX} h={effectiveSizeY}" });
-        stackPanel.Children.Add(new Label { Content = fastReadoutStatus });
-        stackPanel.Children.Add(ToggleThreadling("Exposing", v => _exposing = v));
-        stackPanel.Children.Add(Toggle("Save", v => _save = v));
-        stackPanel.Children.Add(Toggle("Sort stretch", v => ImageProcessorSettings = ImageProcessorSettings with { SortStretch = v }));
-        stackPanel.Children.Add(Button("Reset crop", () => _image.ResetCrop()));
-
-        _ = new Platesolver(stackPanel, () => _imageProcessorSettings.Input);
-
-        stackPanel.Children.Add(_controlsStackPanel);
-
-        var horiz = new StackPanel { Orientation = Orientation.Horizontal };
-        horiz.Children.Add(new ScrollViewer { Content = stackPanel });
-        horiz.Children.Add(_image);
-
-        _threadling.IdleAction = IdleAction;
-
-        AllCameras.Add(this);
-        AllCamerasChanged?.Invoke();
-
-        return new TabItem
-        {
-            Header = cameraId.Id,
-            Content = horiz
-        };
-    }
-
-    private static ToggleSwitch Toggle(string name, Action<bool> checkedChange)
-    {
-        var result = new ToggleSwitch { OnContent = name, OffContent = name };
-        result.IsCheckedChanged += (_, _) =>
-        {
-            if (result.IsChecked is { } isChecked)
-                checkedChange(isChecked);
-        };
-        return result;
-    }
-
-    private ToggleSwitch ToggleThreadling(string name, Action<bool> threadedCheckedChange)
-    {
-        var result = new ToggleSwitch { OnContent = name, OffContent = name };
-        result.IsCheckedChanged += (_, _) =>
-        {
-            if (result.IsChecked is { } isChecked)
-                Try(_threadling.Do(() => threadedCheckedChange(isChecked)));
-        };
-        return result;
-    }
-
-    private static Button Button(string name, Action click)
-    {
-        var result = new Button { Content = name };
-        result.Click += (_, _) => click();
-        return result;
     }
 
     private void InitCamera(ScanResult camera)
@@ -285,10 +216,20 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
                 _cameraControls.Add(control);
     }
 
+    public Task<string> GetSdkVersionAsync()
+    {
+        return _threadling.Do(GetSdkVersion);
+    }
+
     private static string GetSdkVersion()
     {
         Check(GetQHYCCDSDKVersion(out var year, out var month, out var day, out var subday));
         return $"{year}-{month}-{day}-{subday}";
+    }
+
+    public Task<string> GetFirmwareVersionAsync()
+    {
+        return _threadling.Do(() => GetFirmwareVersion(_qhyHandle));
     }
 
     private static string GetFirmwareVersion(IntPtr handle)
@@ -299,6 +240,11 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         // taken from nina and the qhyccd pdf
         var version = ver < 9 ? Convert.ToString(ver + 16) + "-" + Convert.ToString(versionBuf[0] & -241) + "-" + Convert.ToString(versionBuf[1]) : Convert.ToString(ver) + "-" + Convert.ToString(versionBuf[0] & -241) + "-" + Convert.ToString(versionBuf[1]);
         return version;
+    }
+
+    public Task<string> GetFpgaVersionAsync()
+    {
+        return _threadling.Do(() => GetFpgaVersion(_qhyHandle));
     }
 
     private static string GetFpgaVersion(IntPtr handle)
@@ -330,7 +276,7 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
             var image = ExposeSingle();
             if (_save)
                 Try(Task.Run(() => ImageIO.Save(image)));
-            Dispatcher.UIThread.Post(() => ImageProcessorSettings = ImageProcessorSettings with { Input = image });
+            Push(image);
         }
         else if (_debugLoad)
         {
@@ -341,55 +287,16 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
             if (File.Exists(debugFile))
             {
                 var image = ImageIO.Load(debugFile);
-                Dispatcher.UIThread.Post(() => ImageProcessorSettings = ImageProcessorSettings with { Input = image });
+                Push(image);
             }
         }
 
         List<CameraControlValue> values = new(_cameraControls.Count);
         foreach (var control in _cameraControls)
             values.Add(new CameraControlValue(control));
-        Dispatcher.UIThread.Post(() => SetControls(values));
+        Dispatcher.UIThread.Post(() => OnControlsUpdated?.Invoke(values));
 
         return _exposing ? IdleActionResult.LoopImmediately : IdleActionResult.WaitWithTimeout(TimeSpan.FromSeconds(1));
-    }
-
-    private void SetControls(List<CameraControlValue> controls)
-    {
-        if (_controlsStackPanel.Children.Count > controls.Count)
-            _controlsStackPanel.Children.RemoveRange(controls.Count, _controlsStackPanel.Children.Count - controls.Count);
-
-        while (_controlsStackPanel.Children.Count < controls.Count)
-        {
-            var index = _controlsStackPanel.Children.Count;
-            var horiz = new StackPanel { Orientation = Orientation.Horizontal };
-            horiz.Children.Add(new Label());
-            var textBox = new TextBox();
-            textBox.KeyDown += (_, args) =>
-            {
-                if (textBox.IsFocused && args.Key == Key.Enter && TrySetControl(index, textBox.Text))
-                    textBox.Text = "";
-            };
-            horiz.Children.Add(textBox);
-            _controlsStackPanel.Children.Add(horiz);
-        }
-
-        for (var i = 0; i < controls.Count; i++)
-        {
-            var horiz = (StackPanel)_controlsStackPanel.Children[i];
-            var label = (Label)horiz.Children[0];
-            label.Content = controls[i].ToString();
-        }
-    }
-
-    private bool TrySetControl(int controlIndex, string? text)
-    {
-        if (!double.TryParse(text, out var v))
-            return false;
-        if (controlIndex >= _cameraControls.Count)
-            return false;
-        var c = _cameraControls[controlIndex];
-        Try(_threadling.Do(() => c.Value = v));
-        return true;
     }
 
     private DeviceImage ExposeSingle()
@@ -424,47 +331,8 @@ internal sealed class Camera(ScanResult cameraId) : IDisposable
         throw new Exception($"Only 8 and 16bpp images supported: bpp={bpp}");
     }
 
-    private async Task RefreshImage(ImageProcessor.Settings settings)
+    public void SetControl(CameraControl control, double value)
     {
-        try
-        {
-            OnNewBitmap(ToBitmap(await _imageProcessor.Process(settings)));
-        }
-        catch (OperationCanceledException)
-        {
-        }
-    }
-
-    private void OnNewBitmap(Bitmap bitmap)
-    {
-        _image.Bitmap = bitmap;
-        NewBitmap?.Invoke(bitmap);
-    }
-
-    private static Bitmap ToBitmap(DeviceImage image)
-    {
-        switch (image)
-        {
-            case DeviceImage<ushort> gray16:
-                unsafe
-                {
-                    fixed (ushort* data = gray16.Data)
-                    {
-                        return new Bitmap(PixelFormats.Gray16, AlphaFormat.Opaque, (nint)data, new PixelSize((int)image.Width, (int)image.Height), new Vector(96, 96), (int)image.Width * 2);
-                    }
-                }
-
-            case DeviceImage<byte> gray8:
-                unsafe
-                {
-                    fixed (byte* data = gray8.Data)
-                    {
-                        return new Bitmap(PixelFormats.Gray8, AlphaFormat.Opaque, (nint)data, new PixelSize((int)image.Width, (int)image.Height), new Vector(96, 96), (int)image.Width);
-                    }
-                }
-
-            default:
-                throw new ArgumentOutOfRangeException(nameof(image), image, "image must be DeviceImage<ushort> or DeviceImage<byte>");
-        }
+        Try(_threadling.Do(() => { control.Value = value; }));
     }
 }

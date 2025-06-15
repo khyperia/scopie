@@ -7,7 +7,7 @@ using Avalonia.Media.Imaging;
 
 namespace Scopie;
 
-public class CroppableImage : Panel
+internal class CroppableImage : Panel
 {
     private static readonly IBrush Outline = Brush.Parse("#ff0000");
     private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
