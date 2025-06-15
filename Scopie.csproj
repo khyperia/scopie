@@ -8,11 +8,11 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Avalonia" Version="11.2.5"/>
-        <PackageReference Include="Avalonia.Desktop" Version="11.2.5"/>
-        <PackageReference Include="Avalonia.Themes.Fluent" Version="11.2.5"/>
-        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.7"/>
-        <PackageReference Include="System.IO.Ports" Version="9.0.2"/>
+        <PackageReference Include="Avalonia" Version="11.3.1" />
+        <PackageReference Include="Avalonia.Desktop" Version="11.3.1" />
+        <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.1" />
+        <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
+        <PackageReference Include="System.IO.Ports" Version="9.0.6" />
         <PackageReference Include="WatneyAstrometry.Core" Version="1.2.3"/>
     </ItemGroup>
 
