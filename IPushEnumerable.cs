@@ -38,7 +38,7 @@ internal abstract class PushProcessor<TIn, TOut> : PushEnumerable<TOut>, IDispos
 
     private void Run(TIn current) => Process(current);
 
-    public void Dispose() => _input.MoveNext -= Process;
+    public virtual void Dispose() => _input.MoveNext -= Process;
 
     protected abstract void Process(TIn item);
 }

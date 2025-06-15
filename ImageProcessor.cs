@@ -4,7 +4,12 @@ namespace Scopie;
 
 internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, DeviceImage>(input)
 {
+    private readonly SemaphoreSlim _semaphore = new(4);
+
     private bool _sortStretch;
+
+    private ulong _currentPushResult;
+    private ulong _currentProcessing;
 
     public bool SortStretch
     {
@@ -20,16 +25,53 @@ internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushP
         }
     }
 
+    public override void Dispose()
+    {
+        base.Dispose();
+        _semaphore.Dispose();
+    }
+
     protected override void Process(DeviceImage image)
     {
+        var currentId = Interlocked.Add(ref _currentProcessing, 1);
         if (!SortStretch)
         {
-            Push(image);
+            TryPush(currentId, image);
         }
         else
         {
-            // TODO: Out of order execution here
-            Try(Task.Run(() => Push(DoSortStretch(image))));
+            Try(Task.Run(() => Process(currentId, image)));
+        }
+    }
+
+    private async Task Process(ulong currentId, DeviceImage input)
+    {
+        await _semaphore.WaitAsync().ConfigureAwait(false);
+
+        try
+        {
+            lock (this)
+                if (currentId <= _currentPushResult)
+                    return;
+
+            var result = DoSortStretch(input);
+            TryPush(currentId, result);
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    private void TryPush(ulong version, DeviceImage result)
+    {
+        lock (this)
+        {
+            if (version > _currentPushResult)
+            {
+                _currentPushResult = version;
+                Push(result);
+            }
         }
     }
 
