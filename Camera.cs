@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text;
+using Avalonia;
 using Avalonia.Threading;
 using static Scopie.ExceptionReporter;
 using static Scopie.LibQhy;
@@ -191,6 +192,28 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
         }
 
         return version;
+    }
+
+    public Task HardwareCrop(PixelRect rect)
+    {
+        return _threadling.Do(() =>
+        {
+            Check(GetQHYCCDCurrentROI(_qhyHandle, out var oldStartX, out var oldStartY, out var oldSizeX, out var oldSizeY));
+            Console.WriteLine($"Changing crop from {oldStartX},{oldStartY}-{oldSizeX},{oldSizeY} to {oldStartX + (uint)rect.X},{oldStartY + (uint)rect.Y}-{(uint)rect.Width},{(uint)rect.Height}");
+            if (rect.X < 0 || rect.Y < 0 || rect.Width <= 0 || rect.Height <= 0 || (uint)rect.X + rect.Width > oldSizeX || (uint)rect.Y + rect.Height > oldSizeY)
+                throw new Exception("Invalid new hardware crop size");
+            Check(SetQHYCCDResolution(_qhyHandle, oldStartX + (uint)rect.X, oldStartY + (uint)rect.Y, (uint)rect.Width, (uint)rect.Height));
+        });
+    }
+
+    public Task ResetHardwareCrop()
+    {
+        return _threadling.Do(() =>
+        {
+            var chipInfo = GetChipInfo();
+            Console.WriteLine($"Resetting crop to {chipInfo.imageWidth},{chipInfo.imageHeight}");
+            Check(SetQHYCCDResolution(_qhyHandle, 0, 0, chipInfo.imageWidth, chipInfo.imageHeight));
+        });
     }
 
     private static bool _debugLoad = true;

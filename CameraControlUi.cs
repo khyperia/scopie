@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
+using static Scopie.ExceptionReporter;
 
 namespace Scopie;
 
@@ -32,7 +33,12 @@ internal sealed class CameraControlUi(Camera camera)
         stackPanel.Children.Add(Toggle("Exposing", v => camera.Exposing = v));
         stackPanel.Children.Add(Toggle("Save", v => camera.Save = v));
         stackPanel.Children.Add(Toggle("Sort stretch", v => cameraUiBag.ImageProcessor.SortStretch = v));
-        stackPanel.Children.Add(Button("Reset crop", () => croppableImage.ResetCrop()));
+        stackPanel.Children.Add(Button("Reset crop", () =>
+        {
+            croppableImage.ResetCrop();
+            Try(cameraUiBag.Camera.ResetHardwareCrop());
+        }));
+        stackPanel.Children.Add(Button("Hardware crop", () => Try(cameraUiBag.Camera.HardwareCrop(croppableImage.CurrentCrop))));
 
         var self = new CameraControlUi(camera);
 

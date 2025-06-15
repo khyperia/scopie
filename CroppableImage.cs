@@ -41,6 +41,8 @@ internal sealed class CroppableImage : Panel
         }
     }
 
+    public PixelRect CurrentCrop => _croppedBitmap.SourceRect;
+
     protected override Size MeasureOverride(Size availableSize)
     {
         _image.Measure(availableSize);
