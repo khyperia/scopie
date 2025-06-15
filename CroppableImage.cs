@@ -9,7 +9,7 @@ namespace Scopie;
 
 public class CroppableImage : Panel
 {
-    private static readonly IBrush Outline = Brush.Parse("#ffffff");
+    private static readonly IBrush Outline = Brush.Parse("#ff0000");
     private readonly Image _image = new() { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.Both };
     private readonly CroppedBitmap _croppedBitmap = new();
     private readonly Rectangle _rectangle = new();
@@ -29,9 +29,15 @@ public class CroppableImage : Panel
         get => _croppedBitmap.Source;
         set
         {
-            if (_croppedBitmap.Source is IDisposable disposable)
-                disposable.Dispose();
+            if (_croppedBitmap.Source is { } oldSource)
+            {
+                if (value == null || oldSource.Size != value.Size)
+                    ResetCropInternal();
+                if (oldSource is IDisposable disposable)
+                    disposable.Dispose();
+            }
             _croppedBitmap.Source = value;
+            _image.Source = _croppedBitmap;
         }
     }
 
@@ -49,6 +55,7 @@ public class CroppableImage : Panel
         {
             _rectangle.Arrange(DragRect);
             _rectangle.Stroke = Outline;
+            _rectangle.StrokeThickness = 1;
         }
         else
         {
@@ -59,6 +66,12 @@ public class CroppableImage : Panel
     }
 
     public void ResetCrop()
+    {
+        ResetCropInternal();
+        _image.Source = _croppedBitmap;
+    }
+
+    private void ResetCropInternal()
     {
         _croppedBitmap.SourceRect = new PixelRect(0, 0, 0, 0);
     }
@@ -78,7 +91,7 @@ public class CroppableImage : Panel
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         _pressed = _current = e.GetPosition(this);
-        InvalidateVisual();
+        InvalidateArrange();
         base.OnPointerPressed(e);
     }
 
@@ -86,10 +99,14 @@ public class CroppableImage : Panel
     {
         if (_pressed.HasValue)
         {
-            var bitmapSize = _croppedBitmap.Source?.Size ?? new Size(1, 1);
-            var rect = DragRect / new Vector(_image.Width, _image.Height) * new Vector(bitmapSize.Width, bitmapSize.Height);
-            var pix = new PixelRect((int)Math.Round(rect.X), (int)Math.Round(rect.Y), (int)Math.Round(rect.Width), (int)Math.Round(rect.Height));
+            var bitmapSize = _croppedBitmap.Size;
+            var currentDisplaySize = _image.Bounds.Size;
+            var rect = DragRect / new Vector(currentDisplaySize.Width, currentDisplaySize.Height) * new Vector(bitmapSize.Width, bitmapSize.Height);
+            var currentPos = _croppedBitmap.SourceRect.Position;
+            var pix = new PixelRect((int)Math.Round(rect.X) + currentPos.X, (int)Math.Round(rect.Y) + currentPos.Y, (int)Math.Round(rect.Width), (int)Math.Round(rect.Height));
             _croppedBitmap.SourceRect = pix;
+            _image.Source = _croppedBitmap;
+            InvalidateArrange();
         }
         _pressed = null;
         base.OnPointerReleased(e);
@@ -101,7 +118,8 @@ public class CroppableImage : Panel
         if (_current != position)
         {
             _current = position;
-            InvalidateVisual();
+            if (_pressed.HasValue)
+                InvalidateArrange();
         }
         base.OnPointerMoved(e);
     }
