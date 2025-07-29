@@ -1,4 +1,5 @@
 ﻿using System.IO.Ports;
+using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using static Scopie.ExceptionReporter;
 
@@ -33,14 +34,42 @@ internal sealed class MainTab
     {
         var cameras = Camera.Scan();
         _connectButtons.Children.Clear();
+
+        string DebugFile([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "telescope.2019-11-21.19-39-54.png");
+        var debugFile = DebugFile();
+        if (File.Exists(debugFile))
+        {
+            var image = ImageIO.Load(debugFile);
+            AddCameraButton("debug camera", () => new DebugCamera(image));
+        }
+
         foreach (var camera in cameras)
         {
-            var button = new Button { Content = "Connect to " + camera.Model };
+            AddCameraButton(camera.Model, () => new Camera(camera));
+        }
+
+        if (cameras.Count == 0)
+            _connectButtons.Children.Add(new Label { Content = "No cameras found" });
+
+        var ports = SerialPort.GetPortNames();
+        foreach (var port in ports)
+        {
+            AddMountButton(port);
+        }
+
+        if (ports.Length == 0)
+            _connectButtons.Children.Add(new Label { Content = "No serial ports found" });
+
+        return;
+
+        void AddCameraButton(string model, Func<ICamera> create)
+        {
+            var button = new Button { Content = "Connect to " + model };
             button.Click += (_, _) =>
             {
                 try
                 {
-                    var c = new CameraUiBag(camera);
+                    var c = new CameraUiBag(create());
                     Try(Add(c, Do(c)));
 
                     static async Task<TabItem> Do(CameraUiBag c)
@@ -58,11 +87,7 @@ internal sealed class MainTab
             _connectButtons.Children.Add(button);
         }
 
-        if (cameras.Count == 0)
-            _connectButtons.Children.Add(new Label { Content = "No cameras found" });
-
-        var ports = SerialPort.GetPortNames();
-        foreach (var port in ports)
+        void AddMountButton(string port)
         {
             var button = new Button { Content = "Connect mount port " + port };
             button.Click += (_, _) =>
@@ -80,11 +105,6 @@ internal sealed class MainTab
 
             _connectButtons.Children.Add(button);
         }
-
-        if (ports.Length == 0)
-            _connectButtons.Children.Add(new Label { Content = "No serial ports found" });
-
-        return;
 
         async Task Add(IDisposable disposable, Task<TabItem> task)
         {

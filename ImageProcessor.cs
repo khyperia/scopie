@@ -4,7 +4,7 @@ namespace Scopie;
 
 internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushProcessor<DeviceImage, DeviceImage>(input)
 {
-    private readonly SemaphoreSlim _semaphore = new(4);
+    private readonly SemaphoreSlim _semaphore = new(Math.Max(Environment.ProcessorCount - 1, 1));
 
     private bool _sortStretch;
 
@@ -51,8 +51,18 @@ internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushP
         try
         {
             lock (this)
+            {
+                var currentProcessing = Interlocked.Read(ref _currentProcessing);
+                if (currentId + 1 < currentProcessing)
+                {
+                    Console.WriteLine($"Skip image process push before process (newer image in queue): {currentId} + 1 < {currentProcessing}");
+                }
                 if (currentId <= _currentPushResult)
+                {
+                    Console.WriteLine($"Skip image process push before process (newer result pushed out): {currentId} <= {_currentPushResult}");
                     return;
+                }
+            }
 
             var result = DoSortStretch(input);
             TryPush(currentId, result);
@@ -71,6 +81,10 @@ internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushP
             {
                 _currentPushResult = version;
                 Push(result);
+            }
+            else
+            {
+                Console.WriteLine($"Skip image process push after process: {version} > {_currentPushResult}");
             }
         }
     }

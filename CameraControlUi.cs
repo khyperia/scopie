@@ -5,14 +5,14 @@ using static Scopie.ExceptionReporter;
 
 namespace Scopie;
 
-internal sealed class CameraControlUi(Camera camera)
+internal sealed class CameraControlUi(ICamera camera)
 {
     private readonly StackPanel _controlsStackPanel = new();
     private List<CameraControlValue> _cameraControls = [];
 
-    public static async Task<StackPanel> Create(CameraUiBag cameraUiBag, CroppableImage croppableImage)
+    public static async Task<StackPanel> Create(ICamera camera, ImageProcessor imageProcessor, CroppableImage croppableImage)
     {
-        var camera = cameraUiBag.Camera;
+        var self = new CameraControlUi(camera);
 
         var (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel) = await camera.GetChipInfoAsync();
         var (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY) = await camera.GetEffectiveAreaAsync();
@@ -31,16 +31,19 @@ internal sealed class CameraControlUi(Camera camera)
         stackPanel.Children.Add(new Label { Content = $"effective area: x={effectiveStartX} y={effectiveStartY} w={effectiveSizeX} h={effectiveSizeY}" });
         stackPanel.Children.Add(new Label { Content = fastReadoutStatus });
         stackPanel.Children.Add(Toggle("Exposing", v => camera.Exposing = v));
-        stackPanel.Children.Add(Toggle("Save", v => camera.Save = v));
-        stackPanel.Children.Add(Toggle("Sort stretch", v => cameraUiBag.ImageProcessor.SortStretch = v));
+        if (camera is DebugCamera debugCamera)
+        {
+            stackPanel.Children.Add(Button("Debug expose", () => debugCamera.Push(1)));
+            stackPanel.Children.Add(Button("Debug 100 expose", () => debugCamera.Push(100)));
+        }
+        stackPanel.Children.Add(Toggle("Save", self.SetSave));
+        stackPanel.Children.Add(Toggle("Sort stretch", v => imageProcessor.SortStretch = v));
         stackPanel.Children.Add(Button("Reset crop", () =>
         {
             croppableImage.ResetCrop();
-            Try(cameraUiBag.Camera.ResetHardwareCrop());
+            Try(camera.ResetHardwareCrop());
         }));
-        stackPanel.Children.Add(Button("Hardware crop", () => Try(cameraUiBag.Camera.HardwareCrop(croppableImage.CurrentCrop))));
-
-        var self = new CameraControlUi(camera);
+        stackPanel.Children.Add(Button("Hardware crop", () => Try(camera.HardwareCrop(croppableImage.CurrentCrop))));
 
         stackPanel.AttachedToLogicalTree += (_, _) => camera.OnControlsUpdated += self.OnControlsUpdated;
         stackPanel.DetachedFromLogicalTree += (_, _) => camera.OnControlsUpdated -= self.OnControlsUpdated;
@@ -113,5 +116,21 @@ internal sealed class CameraControlUi(Camera camera)
         var c = _cameraControls[controlIndex];
         camera.SetControl(c.CameraControl, v);
         return true;
+    }
+
+    private void SetSave(bool value)
+    {
+        camera.MoveNext -= OnCameraImage;
+        if (value)
+        {
+            camera.MoveNext += OnCameraImage;
+            if (camera.Current is { } current)
+                OnCameraImage(current);
+        }
+    }
+
+    private void OnCameraImage(DeviceImage image)
+    {
+        Try(Task.Run(() => ImageIO.Save(image)));
     }
 }

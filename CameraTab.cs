@@ -8,7 +8,7 @@ internal static class CameraTab
     public static async Task<TabItem> Create(CameraUiBag cameraUiBag)
     {
         var croppableImage = BitmapDisplay.Create(cameraUiBag.BitmapProcessor);
-        var cameraControlUi = await CameraControlUi.Create(cameraUiBag, croppableImage);
+        var cameraControlUi = await CameraControlUi.Create(cameraUiBag.Camera, cameraUiBag.ImageProcessor, croppableImage);
 
         return new TabItem
         {

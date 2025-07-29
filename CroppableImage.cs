@@ -38,6 +38,7 @@ internal sealed class CroppableImage : Panel
             }
             _croppedBitmap.Source = value;
             _image.Source = _croppedBitmap;
+            _image.InvalidateMeasure(); // dunno why needed
         }
     }
 

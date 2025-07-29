@@ -9,7 +9,24 @@ namespace Scopie;
 
 internal record struct ScanResult(string Id, string Model);
 
-internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>, IDisposable
+interface ICamera : IPushEnumerable<DeviceImage>, IDisposable
+{
+    ScanResult CameraId { get; }
+    event Action<List<CameraControlValue>>? OnControlsUpdated;
+    bool Exposing { set; }
+    Task Init();
+    Task<(double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel)> GetChipInfoAsync();
+    Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync();
+    Task<string> GetFastReadoutStatusAsync();
+    Task<string> GetSdkVersionAsync();
+    Task<string> GetFirmwareVersionAsync();
+    Task<string> GetFpgaVersionAsync();
+    Task HardwareCrop(PixelRect rect);
+    Task ResetHardwareCrop();
+    void SetControl(CameraControl control, double value);
+}
+
+internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>, ICamera
 {
     public ScanResult CameraId => cameraId;
     private readonly Threadling _threadling = new(null);
@@ -17,7 +34,6 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
     private IntPtr _qhyHandle;
     private byte[]? _imgBuffer;
     private bool _exposing;
-    private bool _save;
 
     public event Action<List<CameraControlValue>>? OnControlsUpdated;
 
@@ -29,11 +45,6 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
     public bool Exposing
     {
         set => _threadling.Do(() => _exposing = value);
-    }
-
-    public bool Save
-    {
-        set => _save = value;
     }
 
     public void Dispose()
@@ -216,28 +227,12 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
         });
     }
 
-    private static bool _debugLoad = true;
-
     private IdleActionResult IdleAction()
     {
         if (_exposing)
         {
             var image = ExposeSingle();
-            if (_save)
-                Try(Task.Run(() => ImageIO.Save(image)));
             Push(image);
-        }
-        else if (_debugLoad)
-        {
-            _debugLoad = false;
-
-            string DebugFile([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "telescope.2019-11-21.19-39-54.png");
-            var debugFile = DebugFile();
-            if (File.Exists(debugFile))
-            {
-                var image = ImageIO.Load(debugFile);
-                Push(image);
-            }
         }
 
         List<CameraControlValue> values = new(_cameraControls.Count);
