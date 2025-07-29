@@ -17,8 +17,6 @@ internal sealed class CameraControlUi(ICamera camera)
         var (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel) = await camera.GetChipInfoAsync();
         var (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY) = await camera.GetEffectiveAreaAsync();
 
-        var fastReadoutStatus = await camera.GetFastReadoutStatusAsync();
-
         var stackPanel = new StackPanel();
         stackPanel.Children.Add(new Label { Content = camera.CameraId.Id });
         stackPanel.Children.Add(new Label { Content = $"sdk version: {await camera.GetSdkVersionAsync()}" });
@@ -29,7 +27,7 @@ internal sealed class CameraControlUi(ICamera camera)
         stackPanel.Children.Add(new Label { Content = $"pixel size: {pixelWidth} - {pixelHeight}" });
         stackPanel.Children.Add(new Label { Content = $"bits/pixel: {bitsPerPixel}" });
         stackPanel.Children.Add(new Label { Content = $"effective area: x={effectiveStartX} y={effectiveStartY} w={effectiveSizeX} h={effectiveSizeY}" });
-        stackPanel.Children.Add(new Label { Content = fastReadoutStatus });
+        stackPanel.Children.Add(new Label { Content = await camera.GetFastReadoutStatusAsync() });
         stackPanel.Children.Add(Toggle("Exposing", v => camera.Exposing = v));
         if (camera is DebugCamera debugCamera)
         {

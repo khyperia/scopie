@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text;
 using Avalonia;
 using Avalonia.Threading;
@@ -9,7 +8,7 @@ namespace Scopie;
 
 internal record struct ScanResult(string Id, string Model);
 
-interface ICamera : IPushEnumerable<DeviceImage>, IDisposable
+internal interface ICamera : IPushEnumerable<DeviceImage>, IDisposable
 {
     ScanResult CameraId { get; }
     event Action<List<CameraControlValue>>? OnControlsUpdated;

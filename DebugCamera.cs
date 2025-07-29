@@ -28,7 +28,7 @@ internal sealed class DebugCamera(DeviceImage debugImage) : PushEnumerable<Devic
 
     public Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync()
     {
-        return Task.FromResult((0u, 0u, 10u, 10u));
+        return Task.FromResult((0u, 0u, debugImage.Width, debugImage.Height));
     }
 
     public Task<string> GetFastReadoutStatusAsync()
