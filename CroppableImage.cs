@@ -56,7 +56,9 @@ internal sealed class CroppableImage : Panel
         _image.Arrange(new Rect(new Point(0, 0), finalSize));
         if (_pressed.HasValue)
         {
-            _rectangle.Arrange(DragRect);
+            var bounds = _image.Bounds;
+            var rect = DragRect;
+            _rectangle.Arrange(new Rect(rect.Position + bounds.Position, rect.Size));
             _rectangle.Stroke = Outline;
             _rectangle.StrokeThickness = 1;
         }
@@ -77,6 +79,7 @@ internal sealed class CroppableImage : Panel
     private void ResetCropInternal()
     {
         _croppedBitmap.SourceRect = new PixelRect(0, 0, 0, 0);
+        _image.InvalidateArrange(); // idk why needed
     }
 
     private Rect DragRect
@@ -93,7 +96,7 @@ internal sealed class CroppableImage : Panel
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        _pressed = _current = e.GetPosition(this);
+        _pressed = _current = e.GetPosition(_image);
         InvalidateArrange();
         base.OnPointerPressed(e);
     }
@@ -110,6 +113,7 @@ internal sealed class CroppableImage : Panel
             _croppedBitmap.SourceRect = pix;
             _image.Source = _croppedBitmap;
             InvalidateArrange();
+            _image.InvalidateArrange(); // idk why needed
         }
         _pressed = null;
         base.OnPointerReleased(e);
@@ -117,7 +121,7 @@ internal sealed class CroppableImage : Panel
 
     protected override void OnPointerMoved(PointerEventArgs e)
     {
-        var position = e.GetPosition(this);
+        var position = e.GetPosition(_image);
         if (_current != position)
         {
             _current = position;

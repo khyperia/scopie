@@ -1,5 +1,4 @@
 using Avalonia.Controls;
-using Avalonia.Layout;
 
 namespace Scopie;
 
@@ -13,12 +12,12 @@ internal static class CameraTab
         return new TabItem
         {
             Header = cameraUiBag.Camera.CameraId.Id,
-            Content = new StackPanel
+            Content = new DockPanel
             {
-                Orientation = Orientation.Horizontal,
+                LastChildFill = true,
                 Children =
                 {
-                    new ScrollViewer { Content = cameraControlUi },
+                    new ScrollViewer { Content = cameraControlUi, [DockPanel.DockProperty] = Dock.Left },
                     croppableImage,
                 }
             }
