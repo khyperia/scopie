@@ -71,15 +71,31 @@ internal sealed class Mount : IDisposable
         }));
         stackPanel.Children.Add(Button("cancel slew", () => Try(CancelSlew())));
         stackPanel.Children.Add(Button("park", () => Try(SlewAzAlt(new Angle(0), Angle.FromDegrees(90)))));
+        Action<TrackingMode>? trackingModeChanged = null;
         foreach (var mode in Enum.GetValues<TrackingMode>())
         {
+            var listen = true;
             var radio = new RadioButton { GroupName = nameof(Scopie.TrackingMode), Content = $"tracking mode {mode}", IsChecked = initialTrackingMode == mode };
             radio.IsCheckedChanged += (_, _) =>
             {
-                if (radio.IsChecked ?? false)
+                if (listen && (radio.IsChecked ?? false))
                     Try(SetTrackingMode(mode));
             };
             stackPanel.Children.Add(radio);
+            trackingModeChanged += m =>
+            {
+                listen = false;
+                try
+                {
+                    var should = m == mode;
+                    if (should != (radio.IsChecked ?? false))
+                        radio.IsChecked = should;
+                }
+                finally
+                {
+                    listen = true;
+                }
+            };
         }
 
         stackPanel.Children.Add(DoubleAngleInput("location", SetLocation));
@@ -197,6 +213,7 @@ internal sealed class Mount : IDisposable
                 getRaDecOffset.Content = $"ra/dec: {(ra - _slewOffset.ra).FormatHours()} {(dec - _slewOffset.dec).FormatDegrees()} (offset)";
                 getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
                 trackingMode.Content = $"tracking mode: {mode}";
+                trackingModeChanged?.Invoke(mode);
                 _lastPointingState = pointingState;
                 aligned.Content = $"aligned: {a}, goto in progress: {gotoInProgress}, pointing state: {pointingState}";
                 location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
