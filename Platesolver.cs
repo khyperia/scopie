@@ -16,6 +16,8 @@ internal sealed class Platesolver
     private readonly StackPanel _copy;
     private (Angle ra, Angle dec)? _coords;
 
+    public (Angle ra, Angle dec)? LatestSolve => _coords;
+
     public Platesolver(StackPanel stackPanel, Func<DeviceImage?> getDeviceImage)
     {
         var platesolve = new Button { Content = "Platesolve" };

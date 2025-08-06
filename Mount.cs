@@ -1,4 +1,5 @@
-﻿using System.IO.Ports;
+﻿using System.Globalization;
+using System.IO.Ports;
 using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
@@ -14,11 +15,11 @@ internal sealed class Mount : IDisposable
 {
     private readonly SerialPort _port;
     private readonly StackPanel _cameraButtons = new();
-    private readonly StackPanel _horizontalStackPanel = new();
+    private readonly DockPanel _dockPanel = new();
     private Threadling? _threadling;
     private CameraUiBag? _currentlyDisplaying;
-    private Angle _lastLongitude;
     private char _lastPointingState;
+    private (Angle ra, Angle dec) _slewOffset;
 
     public Mount(string portName)
     {
@@ -31,11 +32,17 @@ internal sealed class Mount : IDisposable
     public async Task<TabItem> Init()
     {
         var getRaDec = new Label();
+        var getRaDecOffset = new Label();
         var getAzAlt = new Label();
         var trackingMode = new Label();
         var location = new Label();
         var time = new Label();
         var aligned = new Label();
+        var tentativeNewPlatesolveOffset = new Label();
+        var platesolvePositionToTrueMountPosition = new Label();
+        var slewOffset = new Label();
+
+        SetSlewOffset(new Angle(0), new Angle(0));
 
         var stackPanel = new StackPanel();
         stackPanel.Children.Add(new Label { Content = $"Hand control version {await HandControlVersion()}" });
@@ -44,17 +51,24 @@ internal sealed class Mount : IDisposable
         stackPanel.Children.Add(new Label { Content = $"Model {await Model()}" });
         await SetTime(MountTime.Now);
         var initialTrackingMode = await TrackingMode();
-        _lastLongitude = (await Location()).lon;
         _lastPointingState = await PointingState();
         stackPanel.Children.Add(getRaDec);
+        stackPanel.Children.Add(getRaDecOffset);
+        stackPanel.Children.Add(platesolvePositionToTrueMountPosition);
         stackPanel.Children.Add(getAzAlt);
         stackPanel.Children.Add(trackingMode);
         stackPanel.Children.Add(location);
         stackPanel.Children.Add(time);
         stackPanel.Children.Add(aligned);
+        stackPanel.Children.Add(slewOffset);
         stackPanel.Children.Add(DoubleAngleInput("slew", SlewRaDec));
         stackPanel.Children.Add(DoubleAngleInput("slew az/alt", SlewAzAlt));
         stackPanel.Children.Add(DoubleAngleInput("sync ra/dec", SyncRaDec));
+        stackPanel.Children.Add(DoubleAngleInput("set slew offset", (ra, dec) =>
+        {
+            SetSlewOffset(ra, dec);
+            return Task.CompletedTask;
+        }));
         stackPanel.Children.Add(Button("cancel slew", () => Try(CancelSlew())));
         stackPanel.Children.Add(Button("park", () => Try(SlewAzAlt(new Angle(0), Angle.FromDegrees(90)))));
         foreach (var mode in Enum.GetValues<TrackingMode>())
@@ -79,20 +93,31 @@ internal sealed class Mount : IDisposable
         CameraUiBag.AllCamerasChanged += RefreshCameraButtons;
         stackPanel.Children.Add(_cameraButtons);
 
-        _ = new Platesolver(stackPanel, () => _currentlyDisplaying?.Camera.Current);
+        var platesolver = new Platesolver(stackPanel, () => _currentlyDisplaying?.Camera.Current);
+
+        stackPanel.Children.Add(tentativeNewPlatesolveOffset);
+        stackPanel.Children.Add(Button("use platesolve as slew offset", () => Try(PlatesolveToSlewOffset())));
 
         UpdateStatus();
 
         _threadling = new Threadling(UpdateStatus);
 
-        _horizontalStackPanel.Children.Clear();
-        _horizontalStackPanel.Children.Add(stackPanel);
+        _dockPanel.LastChildFill = true;
+        _dockPanel.Children.Clear();
+        stackPanel[DockPanel.DockProperty] = Dock.Left;
+        _dockPanel.Children.Add(stackPanel);
 
         return new TabItem
         {
             Header = "Mount",
-            Content = _horizontalStackPanel,
+            Content = _dockPanel,
         };
+
+        void SetSlewOffset(Angle ra, Angle dec)
+        {
+            _slewOffset = (ra, dec);
+            slewOffset.Content = $"slew offset: {ra.FormatHours()} {dec.FormatDegrees()}";
+        }
 
         StackPanel DoubleAngleInput(string buttonName, Func<Angle, Angle, Task> onSet)
         {
@@ -169,16 +194,36 @@ internal sealed class Mount : IDisposable
             Dispatcher.UIThread.Post(() =>
             {
                 getRaDec.Content = $"ra/dec: {ra.FormatHours()} {dec.FormatDegrees()}";
+                getRaDecOffset.Content = $"ra/dec: {(ra - _slewOffset.ra).FormatHours()} {(dec - _slewOffset.dec).FormatDegrees()} (offset)";
                 getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
                 trackingMode.Content = $"tracking mode: {mode}";
                 _lastPointingState = pointingState;
                 aligned.Content = $"aligned: {a}, goto in progress: {gotoInProgress}, pointing state: {pointingState}";
-                _lastLongitude = lon;
                 location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
                 time.Content = $"time: {mountTime}";
+                if (platesolver.LatestSolve is { ra: var platesolveRa, dec: var platesolveDec })
+                {
+                    var raOffWithSlewOff = (ra - _slewOffset.ra - platesolveRa).Wrapped180;
+                    var decOffWithSlewOff = (dec - _slewOffset.dec - platesolveDec).Wrapped180;
+                    platesolvePositionToTrueMountPosition.Content = $"platesolve offset: {raOffWithSlewOff.FormatHours()} {decOffWithSlewOff.FormatDegrees()}";
+                    var raOff = (ra - platesolveRa).Wrapped180;
+                    var decOff = (dec - platesolveDec).Wrapped180;
+                    tentativeNewPlatesolveOffset.Content = $"tentative new platesolve offset: {raOff.FormatHours()} {decOff.FormatDegrees()}";
+                }
             });
 
             return IdleActionResult.WaitWithTimeout(TimeSpan.FromSeconds(1));
+        }
+
+        async Task PlatesolveToSlewOffset()
+        {
+            if (platesolver.LatestSolve is { ra: var platesolveRa, dec: var platesolveDec })
+            {
+                var (ra, dec) = await GetRaDec();
+                var raOff = (ra - platesolveRa).Wrapped180;
+                var decOff = (dec - platesolveDec).Wrapped180;
+                SetSlewOffset(raOff, decOff);
+            }
         }
     }
 
@@ -240,13 +285,12 @@ internal sealed class Mount : IDisposable
         _cameraButtons.Children.Clear();
         foreach (var camera in CameraUiBag.AllCameras)
         {
-            var button = new Button { Content = $"view {camera.Camera.CameraId.Id}" };
-            button.Click += (_, _) =>
+            _cameraButtons.Children.Add(Button($"view {camera.Camera.CameraId.Id}", () =>
             {
-                _horizontalStackPanel.Children.RemoveRange(1, _horizontalStackPanel.Children.Count - 1);
-                _horizontalStackPanel.Children.Add(BitmapDisplay.Create(camera.BitmapProcessor));
+                _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
+                _dockPanel.Children.Add(BitmapDisplay.Create(camera.BitmapProcessor));
                 _currentlyDisplaying = camera;
-            };
+            }));
         }
     }
 
@@ -327,12 +371,6 @@ internal sealed class Mount : IDisposable
     /*
     // TODO: Haven't figured out how to math out an RA/Dec to a raw motor position.
     // Have to take into account pointing state (east/west), etc.
-    private Task ResetRa(Angle ra)
-    {
-        var localSiderealTime = LocalSiderealTime(DateTime.UtcNow, _lastLongitude);
-        var localRa = ra + localSiderealTime; // TODO: Plus or minus?
-        return ResetLocalRa(localRa);
-    }
 
     // Note: the P,4,16,4 command sets local RA (i.e. park position is 0), not actual RA
     // Setting ResetRa(0) ResetDec(90) tells the mount it is currently in park position
@@ -352,7 +390,7 @@ internal sealed class Mount : IDisposable
     }
     */
 
-    private Task SlewRaDec(Angle ra, Angle dec) => SendAngleCommand('r', ra, dec);
+    private Task SlewRaDec(Angle ra, Angle dec) => SendAngleCommand('r', ra + _slewOffset.ra, dec + _slewOffset.dec);
 
     private Task<(Angle ra, Angle dec)> GetAzAlt() => GetAngleCommand('z');
 
@@ -509,9 +547,9 @@ internal sealed class Mount : IDisposable
 
     private static Angle LocalSiderealTime(DateTime utcNow, Angle longitude) =>
         Angle.FromHours(Mod(GreenwichSiderealTime(utcNow) + longitude.Degrees / 15, 24));
-    */
 
     private static double Mod(double x, double y) => x >= 0 ? x % y : x % y + Math.Abs(y);
+    */
 }
 
 internal enum TrackingMode
@@ -529,6 +567,8 @@ internal readonly partial struct Angle(double value)
     private const double MaxUint = (double)uint.MaxValue + 1;
     public static Angle FromUint(uint angle) => new(angle / MaxUint);
     public uint Uint => (uint)((value - Math.Floor(value)) * MaxUint);
+    public Angle Wrapped => new(value - Math.Floor(value));
+    public Angle Wrapped180 => new(value - Math.Round(value));
 
     public double Degrees => value * 360.0;
     public static Angle FromDegrees(double value) => new(value / 360.0);
@@ -561,6 +601,7 @@ internal readonly partial struct Angle(double value)
         (isNegative ? -1.0 : 1.0) * (degrees + minutes / 60.0 + (seconds + remainderSeconds) / (60.0 * 60.0));
 
     public static Angle operator +(Angle left, Angle right) => new(left.Value + right.Value);
+    public static Angle operator -(Angle left, Angle right) => new(left.Value - right.Value);
 
     public string FormatDegrees()
     {
@@ -595,7 +636,7 @@ internal readonly partial struct Angle(double value)
         var groups = thing.Groups;
         var isNegative = groups["sign"] is { Success: true, Value: "-" };
         var isHours = groups["unit"] is { Success: true, Value: "h" or "H" };
-        var degrees = double.Parse(groups["degrees"].Value);
+        var degrees = double.Parse(groups["degrees"].Value, CultureInfo.InvariantCulture);
         var minutes = V(groups["minutes"]);
         var seconds = V(groups["seconds"]);
 
@@ -605,7 +646,7 @@ internal readonly partial struct Angle(double value)
 
         return true;
 
-        double V(Group group) => group.Success ? double.Parse(group.Value) : 0.0;
+        double V(Group group) => group.Success ? double.Parse(group.Value, CultureInfo.InvariantCulture) : 0.0;
     }
 
     public void To3Byte(out byte high, out byte med, out byte low)
