@@ -287,7 +287,7 @@ internal sealed class Mount : IDisposable
             _port.Write(data, 0, data.Length);
             var result = new byte[responseLength];
             var index = 0;
-            while (index <= responseLength)
+            while (index < responseLength)
                 index += _port.Read(result, index, responseLength - index);
             if (_port.ReadByte() != '#')
                 throw new Exception("Mount reply didn't end with '#'");
