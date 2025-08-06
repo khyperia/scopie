@@ -98,7 +98,7 @@ internal static class ImageIO
             {
                 return new FileStream(Path.Combine(folder, $"{baseFilename}.{i}.png"), FileMode.CreateNew, FileAccess.Write);
             }
-            catch (IOException e)
+            catch (IOException)
             {
             }
         }

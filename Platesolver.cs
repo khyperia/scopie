@@ -23,7 +23,7 @@ internal sealed class Platesolver
         {
             var image = getDeviceImage();
             if (image != null)
-                Try(Platesolve(image));
+                Try(PlatesolveWrapper(platesolve, image));
         };
         stackPanel.Children.Add(platesolve);
         _results = new Label { Content = "[platesolve results]", IsVisible = false };
@@ -71,6 +71,19 @@ internal sealed class Platesolver
             }
 
             return null;
+        }
+    }
+
+    private async Task PlatesolveWrapper(Button button, DeviceImage image)
+    {
+        button.IsEnabled = false;
+        try
+        {
+            await Platesolve(image);
+        }
+        finally
+        {
+            button.IsEnabled = true;
         }
     }
 

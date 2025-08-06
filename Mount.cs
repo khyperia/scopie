@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using static Scopie.ExceptionReporter;
+using static Scopie.Ext;
 
 namespace Scopie;
 
@@ -16,7 +17,8 @@ internal sealed class Mount : IDisposable
     private readonly StackPanel _horizontalStackPanel = new();
     private Threadling? _threadling;
     private CameraUiBag? _currentlyDisplaying;
-    private Angle? _lastLongitude;
+    private Angle _lastLongitude;
+    private char _lastPointingState;
 
     public Mount(string portName)
     {
@@ -40,6 +42,10 @@ internal sealed class Mount : IDisposable
         stackPanel.Children.Add(new Label { Content = $"RA motor version {await MotorVersion(false)}" });
         stackPanel.Children.Add(new Label { Content = $"Dec motor version {await MotorVersion(true)}" });
         stackPanel.Children.Add(new Label { Content = $"Model {await Model()}" });
+        await SetTime(MountTime.Now);
+        var initialTrackingMode = await TrackingMode();
+        _lastLongitude = (await Location()).lon;
+        _lastPointingState = await PointingState();
         stackPanel.Children.Add(getRaDec);
         stackPanel.Children.Add(getAzAlt);
         stackPanel.Children.Add(trackingMode);
@@ -49,13 +55,11 @@ internal sealed class Mount : IDisposable
         stackPanel.Children.Add(DoubleAngleInput("slew", SlewRaDec));
         stackPanel.Children.Add(DoubleAngleInput("slew az/alt", SlewAzAlt));
         stackPanel.Children.Add(DoubleAngleInput("sync ra/dec", SyncRaDec));
-        stackPanel.Children.Add(DoubleAngleInput("reset ra/dec", (ra, dec) => Task.WhenAll(ResetRa(ra), ResetDec(dec))));
-        var cancel = new Button { Content = "cancel slew" };
-        cancel.Click += (_, _) => Try(CancelSlew());
-        stackPanel.Children.Add(cancel);
+        stackPanel.Children.Add(Button("cancel slew", () => Try(CancelSlew())));
+        stackPanel.Children.Add(Button("park", () => Try(SlewAzAlt(new Angle(0), Angle.FromDegrees(90)))));
         foreach (var mode in Enum.GetValues<TrackingMode>())
         {
-            var radio = new RadioButton { GroupName = nameof(Scopie.TrackingMode), Content = $"tracking mode {mode}" };
+            var radio = new RadioButton { GroupName = nameof(Scopie.TrackingMode), Content = $"tracking mode {mode}", IsChecked = initialTrackingMode == mode };
             radio.IsCheckedChanged += (_, _) =>
             {
                 if (radio.IsChecked ?? false)
@@ -167,6 +171,7 @@ internal sealed class Mount : IDisposable
                 getRaDec.Content = $"ra/dec: {ra.FormatHours()} {dec.FormatDegrees()}";
                 getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
                 trackingMode.Content = $"tracking mode: {mode}";
+                _lastPointingState = pointingState;
                 aligned.Content = $"aligned: {a}, goto in progress: {gotoInProgress}, pointing state: {pointingState}";
                 _lastLongitude = lon;
                 location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
@@ -319,24 +324,33 @@ internal sealed class Mount : IDisposable
 
     private Task SyncRaDec(Angle ra, Angle dec) => SendAngleCommand('s', ra, dec);
 
-    // TODO: This sets local RA (i.e. park position is 0), not actual RA
-    // Setting ResetRa(0) ResetDec(90) tells the mount it is currently in park position
-    // Setting ResetRa(x) ResetDec(y) tells the mount it is currently pointing here
+    /*
+    // TODO: Haven't figured out how to math out an RA/Dec to a raw motor position.
+    // Have to take into account pointing state (east/west), etc.
     private Task ResetRa(Angle ra)
     {
-        // if (_lastLongitude is not { } lastLongitude)
-        //     throw new Exception("Longitude not fetched from mount");
-        // var localSiderealTime = LocalSiderealTime(DateTime.UtcNow, lastLongitude);
-        // ra += localSiderealTime; // TODO: Plus or minus?
-        ra.To3Byte(out var high, out var med, out var low);
+        var localSiderealTime = LocalSiderealTime(DateTime.UtcNow, _lastLongitude);
+        var localRa = ra + localSiderealTime; // TODO: Plus or minus?
+        return ResetLocalRa(localRa);
+    }
+
+    // Note: the P,4,16,4 command sets local RA (i.e. park position is 0), not actual RA
+    // Setting ResetRa(0) ResetDec(90) tells the mount it is currently in park position
+    // Setting ResetRa(x) ResetDec(y) tells the mount it is currently pointing here
+    // Setting ResetDec to a value >90 means pointing state west, <90 is pointing state east (or something like that)
+    // Note: Tracking mode must be off for this to function
+    private Task ResetRawMotorPositionRa(Angle localRa)
+    {
+        localRa.To3Byte(out var high, out var med, out var low);
         return Interact([(byte)'P', 4, 16, 4, high, med, low, 0], 0);
     }
 
-    private Task ResetDec(Angle dec)
+    private Task ResetRawMotorPositionDec(Angle dec)
     {
         dec.To3Byte(out var high, out var med, out var low);
         return Interact([(byte)'P', 4, 17, 4, high, med, low, 0], 0);
     }
+    */
 
     private Task SlewRaDec(Angle ra, Angle dec) => SendAngleCommand('r', ra, dec);
 
@@ -344,7 +358,7 @@ internal sealed class Mount : IDisposable
 
     // note: This assumes the telescope's az axis is straight up.
     // This is NOT what is reported in GetAzAlt
-    private Task SlewAzAlt(Angle ra, Angle dec) => SendAngleCommand('b', ra, dec);
+    private Task SlewAzAlt(Angle az, Angle alt) => SendAngleCommand('b', az, alt);
 
     private Task CancelSlew() => Interact([(byte)'M'], 0);
 
@@ -432,15 +446,29 @@ internal sealed class Mount : IDisposable
         return (char)result[0];
     }
 
-    private Task<byte[]> FixedSlewCommand(byte one, byte two, byte three, byte rate) => Interact([(byte)'P', one, two, three, rate, 0, 0, 0], 0);
+    private Task FixedSlewCommand(bool ra, int speed)
+    {
+        // These slew in the actual physical motor direction, not the true direction (flips with east/west pointing state).
+        // When in West, dec is inverted. Ra is always inverted. I think.
+        if (ra || _lastPointingState == 'W')
+            speed = -speed;
 
-    private Task FixedSlewRa(int speed) => speed > 0
-        ? FixedSlewCommand(2, 16, 36, (byte)speed)
-        : FixedSlewCommand(2, 16, 37, (byte)-speed);
+        var axis = ra ? (byte)16 : (byte)17;
 
-    private Task FixedSlewDec(int speed) => speed > 0
-        ? FixedSlewCommand(2, 17, 36, (byte)speed)
-        : FixedSlewCommand(2, 17, 37, (byte)-speed);
+        byte three;
+        if (speed < 0)
+        {
+            three = 37;
+            speed = -speed;
+        }
+        else
+            three = 36;
+
+        return Interact([(byte)'P', 2, axis, three, (byte)speed, 0, 0, 0], 0);
+    }
+
+    private Task FixedSlewRa(int speed) => FixedSlewCommand(true, speed);
+    private Task FixedSlewDec(int speed) => FixedSlewCommand(false, speed);
 
     private async Task<string> HandControlVersion()
     {
@@ -460,6 +488,7 @@ internal sealed class Mount : IDisposable
         return (await Interact([(byte)'m'], 1))[0];
     }
 
+    /*
     private static double GreenwichSiderealTime(DateTime utcNow)
     {
         const int daysPer100Years = 36524;
@@ -480,6 +509,7 @@ internal sealed class Mount : IDisposable
 
     private static Angle LocalSiderealTime(DateTime utcNow, Angle longitude) =>
         Angle.FromHours(Mod(GreenwichSiderealTime(utcNow) + longitude.Degrees / 15, 24));
+    */
 
     private static double Mod(double x, double y) => x >= 0 ? x % y : x % y + Math.Abs(y);
 }

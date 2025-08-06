@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using static Scopie.ExceptionReporter;
+using static Scopie.Ext;
 
 namespace Scopie;
 
@@ -51,24 +52,6 @@ internal sealed class CameraControlUi(ICamera camera)
         stackPanel.Children.Add(self._controlsStackPanel);
 
         return stackPanel;
-    }
-
-    private static ToggleSwitch Toggle(string name, Action<bool> checkedChange)
-    {
-        var result = new ToggleSwitch { OnContent = name, OffContent = name };
-        result.IsCheckedChanged += (_, _) =>
-        {
-            if (result.IsChecked is { } isChecked)
-                checkedChange(isChecked);
-        };
-        return result;
-    }
-
-    private static Button Button(string name, Action click)
-    {
-        var result = new Button { Content = name };
-        result.Click += (_, _) => click();
-        return result;
     }
 
     private void OnControlsUpdated(List<CameraControlValue> obj)

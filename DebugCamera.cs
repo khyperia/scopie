@@ -9,7 +9,12 @@ internal sealed class DebugCamera(DeviceImage debugImage) : PushEnumerable<Devic
     }
 
     public ScanResult CameraId => new("debug", "debug");
-    public event Action<List<CameraControlValue>>? OnControlsUpdated;
+
+    public event Action<List<CameraControlValue>>? OnControlsUpdated
+    {
+        add { }
+        remove { }
+    }
 
     public bool Exposing
     {
