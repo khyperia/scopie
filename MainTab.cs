@@ -2,6 +2,7 @@
 using System.Runtime.CompilerServices;
 using Avalonia.Controls;
 using static Scopie.ExceptionReporter;
+using static Scopie.Ext;
 
 namespace Scopie;
 
@@ -16,12 +17,12 @@ internal sealed class MainTab
         _tabs = tabs;
         var stackPanel = new StackPanel();
         var scanButton = new Button { Content = "Scan" };
-        scanButton.Click += (_, _) => Scan();
+        scanButton.Click += (_, _) => Scan(false);
         stackPanel.Children.Add(scanButton);
         _connectButtons = new StackPanel();
         stackPanel.Children.Add(_connectButtons);
 
-        Scan();
+        Scan(true);
 
         tabs.Items.Add(new TabItem
         {
@@ -30,10 +31,12 @@ internal sealed class MainTab
         });
     }
 
-    private void Scan()
+    private void Scan(bool startup)
     {
-        var cameras = Camera.Scan();
+        var cameras = startup ? [] : Camera.Scan();
         _connectButtons.Children.Clear();
+
+        _connectButtons.Children.Add(Button("Test tab", () => _tabs.Items.Add(TestTab.Create())));
 
         string DebugFile([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "telescope.2019-11-21.19-39-54.png");
         var debugFile = DebugFile();
@@ -49,7 +52,7 @@ internal sealed class MainTab
         }
 
         if (cameras.Count == 0)
-            _connectButtons.Children.Add(new Label { Content = "No cameras found" });
+            _connectButtons.Children.Add(new Label { Content = startup ? "Must scan for cameras" : "No cameras found" });
 
         var ports = SerialPort.GetPortNames();
         foreach (var port in ports)
@@ -64,8 +67,7 @@ internal sealed class MainTab
 
         void AddCameraButton(string model, Func<ICamera> create)
         {
-            var button = new Button { Content = "Connect to " + model };
-            button.Click += (_, _) =>
+            _connectButtons.Children.Add(Button("Connect to " + model, () =>
             {
                 try
                 {
@@ -82,15 +84,12 @@ internal sealed class MainTab
                 {
                     Report(e);
                 }
-            };
-
-            _connectButtons.Children.Add(button);
+            }));
         }
 
         void AddMountButton(string port)
         {
-            var button = new Button { Content = "Connect mount port " + port };
-            button.Click += (_, _) =>
+            _connectButtons.Children.Add(Button("Connect mount port " + port, () =>
             {
                 try
                 {
@@ -101,9 +100,7 @@ internal sealed class MainTab
                 {
                     Report(e);
                 }
-            };
-
-            _connectButtons.Children.Add(button);
+            }));
         }
 
         async Task Add(IDisposable disposable, Task<TabItem> task)

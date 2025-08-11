@@ -564,8 +564,6 @@ internal sealed class Mount : IDisposable
 
     private static Angle LocalSiderealTime(DateTime utcNow, Angle longitude) =>
         Angle.FromHours(Mod(GreenwichSiderealTime(utcNow) + longitude.Degrees / 15, 24));
-
-    private static double Mod(double x, double y) => x >= 0 ? x % y : x % y + Math.Abs(y);
     */
 }
 
