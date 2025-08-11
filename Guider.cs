@@ -10,7 +10,7 @@ namespace Scopie;
 
 internal interface IGuiderOffset
 {
-    (double ra, double dec) Offset(DeviceImage image);
+    (double x, double y) Offset(DeviceImage image);
 }
 
 internal sealed class FftGuiderOffset : IGuiderOffset
@@ -32,7 +32,7 @@ internal sealed class FftGuiderOffset : IGuiderOffset
         _fft2d.Run(_reference, _reference);
     }
 
-    public (double ra, double dec) Offset(DeviceImage image)
+    public (double x, double y) Offset(DeviceImage image)
     {
         Crop(image, _scratch);
         _fft2d.Run(_scratch, _scratch);
@@ -136,7 +136,7 @@ internal sealed class FftGuiderOffset : IGuiderOffset
     }
 }
 
-internal sealed class GuiderOffsetFeeder : CpuHeavySkippablePushProcessor<DeviceImage, (double ra, double dec)>
+internal sealed class GuiderOffsetFeeder : CpuHeavySkippablePushProcessor<DeviceImage, (double x, double y)>
 {
     private readonly IGuiderOffset _computer;
 
@@ -145,7 +145,7 @@ internal sealed class GuiderOffsetFeeder : CpuHeavySkippablePushProcessor<Device
         _computer = computer;
     }
 
-    protected override bool ProcessSlowThreaded(DeviceImage item, out (double ra, double dec) result)
+    protected override bool ProcessSlowThreaded(DeviceImage item, out (double x, double y) result)
     {
         var offset = _computer.Offset(item);
         result = offset;
@@ -156,13 +156,24 @@ internal sealed class GuiderOffsetFeeder : CpuHeavySkippablePushProcessor<Device
 internal sealed class Guider : IDisposable
 {
     private readonly SemaphoreSlim _semaphore = new(1);
+    private readonly TextBlock _semaphoreStatus = new();
     private readonly DockPanel _dockPanel = new();
     private readonly StackPanel _cameraButtons = new();
     private readonly StackPanel _mountButtons = new();
-    private readonly TextBlock _currentOffsetLabel = new();
+    private readonly ToggleSwitch _guidingEnabled = new() { OnContent = "guiding enabled", OffContent = "guiding disabled" };
+    private readonly TextBlock _currentPixelOffsetLabel = new() { Text = "pixel offset:" };
+    private readonly TextBlock _currentSkyOffsetLabel = new() { Text = "offset:" };
+    private readonly TextBlock _calibrationRaLabel = new() { Text = "RA: uncalibrated" };
+    private readonly TextBlock _calibrationDecLabel = new() { Text = "Dec: uncalibrated" };
+    private readonly TextBlock _calibrationMatrixLabel = new() { Text = "Calibration matrix" };
     private CameraUiBag? _camera;
     private Mount? _mount;
     private GuiderOffsetFeeder? _feeder;
+    private (double x, double y) _currentOffset;
+
+    // how many pixels moving one arcsecond in RA/Dec moves the image
+    private (double x, double y) _calibrationRa;
+    private (double x, double y) _calibrationDec;
 
     public TabItem Init()
     {
@@ -176,11 +187,25 @@ internal sealed class Guider : IDisposable
         Mount.AllMountsChanged += RefreshMountButtons;
         stackPanel.Children.Add(_mountButtons);
 
+        stackPanel.Children.Add(Button("Reset crop", () =>
+        {
+            foreach (var child in _dockPanel.Children)
+                if (child is CroppableImage croppableImage)
+                    croppableImage.ResetCrop();
+        }));
+
         stackPanel.Children.Add(Button("Begin", Begin));
         stackPanel.Children.Add(new TextBlock { Text = "rate(arcsec/sec), time(sec)" });
         stackPanel.Children.Add(DoubleNumberInput("VSlew RA", (rate, time) => DoVariableSlew(true, rate, time)));
         stackPanel.Children.Add(DoubleNumberInput("VSlew Dec", (rate, time) => DoVariableSlew(false, rate, time)));
-        stackPanel.Children.Add(_currentOffsetLabel);
+        stackPanel.Children.Add(_currentPixelOffsetLabel);
+        stackPanel.Children.Add(_currentSkyOffsetLabel);
+        stackPanel.Children.Add(DoubleNumberInput("Calibrate RA", (rate, time) => Calibrate(true, rate, time)));
+        stackPanel.Children.Add(DoubleNumberInput("Calibrate Dec", (rate, time) => Calibrate(false, rate, time)));
+        stackPanel.Children.Add(DoubleNumberInput("Calibrate both", CalibrateBoth));
+        stackPanel.Children.Add(_calibrationRaLabel);
+        stackPanel.Children.Add(_calibrationDecLabel);
+        stackPanel.Children.Add(_calibrationMatrixLabel);
 
         _dockPanel.LastChildFill = true;
         _dockPanel.Children.Clear();
@@ -196,20 +221,102 @@ internal sealed class Guider : IDisposable
         };
     }
 
-    private async Task DoVariableSlew(bool ra, double rate, double time)
+    private async Task<Locker> LockAsync()
+    {
+        await _semaphore.WaitAsync();
+        _semaphoreStatus.Text = "status: running";
+        return new Locker(this);
+    }
+
+    private struct Locker(Guider guider) : IDisposable
+    {
+        public void Dispose()
+        {
+            guider._semaphoreStatus.Text = "status: waiting";
+            guider._semaphore.Release();
+        }
+    }
+
+    private async Task DoVariableSlew(bool ra, double arcsecondsPerSecond, double seconds)
     {
         if (_mount == null)
             return;
-        await _semaphore.WaitAsync();
-        try
+        using (await LockAsync())
         {
-            await _mount.VariableSlewCommand(ra, rate);
-            await Task.Delay(TimeSpan.FromSeconds(time));
+            await _mount.VariableSlewCommand(ra, arcsecondsPerSecond);
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
             await _mount.VariableSlewCommand(ra, 0);
         }
-        finally
+    }
+
+    private async Task CalibrateBoth(double arcsecondsPerSecond, double seconds)
+    {
+        await Calibrate(true, arcsecondsPerSecond, seconds);
+        await Calibrate(false, arcsecondsPerSecond, seconds);
+    }
+
+    private async Task Calibrate(bool ra, double arcsecondsPerSecond, double seconds)
+    {
+        if (_mount == null)
+            return;
+        using (await LockAsync())
         {
-            _semaphore.Release();
+            // TODO: RA sensitivity adjustment based on current Dec
+            var start = _currentOffset;
+            await _mount.VariableSlewCommand(ra, arcsecondsPerSecond);
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            await _mount.VariableSlewCommand(ra, 0);
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            var finish = await WaitForNextOffset();
+            var arcseconds = arcsecondsPerSecond * seconds;
+            // pixels per arcsecond
+            var deltaX = (finish.x - start.x) / arcseconds;
+            var deltaY = (finish.y - start.y) / arcseconds;
+            var l = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
+            // deltaX /= l;
+            // deltaY /= l;
+            if (ra)
+            {
+                var theta = Math.Atan2(deltaY, deltaX);
+                _calibrationRa = (deltaX, deltaY);
+                _calibrationRaLabel.Text = $"RA calibration: {deltaX}, {deltaY}, l={l} \u03B8={theta * (360 / Math.Tau)}";
+            }
+            else
+            {
+                var theta = Math.Atan2(-deltaX, deltaY); // rotate dec display by 90 degrees to align it with ra
+                _calibrationDec = (deltaX, deltaY);
+                _calibrationDecLabel.Text = $"Dec calibration: {deltaX}, {deltaY}, l={l} \u03B8={theta * (360 / Math.Tau)}";
+            }
+            var matrix = CalibrationMatrix;
+            _calibrationMatrixLabel.Text = $"Calibration matrix:\n{matrix.a}, {matrix.b}\n{matrix.c}, {matrix.d}";
+            await _mount.VariableSlewCommand(ra, -arcsecondsPerSecond);
+            await Task.Delay(TimeSpan.FromSeconds(seconds));
+            await _mount.VariableSlewCommand(ra, 0);
+        }
+    }
+
+    private Matrix2x2 CalibrationMatrix
+    {
+        get
+        {
+            var mat = new Matrix2x2(_calibrationRa.x, _calibrationDec.x, _calibrationRa.y, _calibrationDec.y);
+            return mat.Inverse;
+        }
+    }
+
+    private Task<(double x, double y)> WaitForNextOffset()
+    {
+        if (_feeder is not { } feeder)
+            return Task.FromResult(_currentOffset);
+
+        TaskCompletionSource<(double x, double y)> tcs = new();
+        feeder.MoveNext += FeederOnMoveNext;
+        return tcs.Task;
+
+        void FeederOnMoveNext((double x, double y) obj)
+        {
+            feeder.MoveNext -= FeederOnMoveNext;
+            tcs.SetResult(obj);
         }
     }
 
@@ -310,14 +417,32 @@ internal sealed class Guider : IDisposable
         _feeder.MoveNext += OnNewOffsetFeedThreaded;
     }
 
-    private void OnNewOffsetFeedThreaded((double ra, double dec) current)
+    private void OnNewOffsetFeedThreaded((double x, double y) current)
     {
         Dispatcher.UIThread.Invoke(() => OnNewOffsetFeed(current));
     }
 
-    private void OnNewOffsetFeed((double ra, double dec) current)
+    private void OnNewOffsetFeed((double x, double y) current)
     {
-        _currentOffsetLabel.Text = current.ToString();
+        _currentOffset = current;
+        _currentPixelOffsetLabel.Text = $"pixel offset: {current.x}, {current.y}";
+
+        if (Math.Abs(_calibrationRa.x) + Math.Abs(_calibrationRa.y) > 0.001 &&
+            Math.Abs(_calibrationDec.x) + Math.Abs(_calibrationDec.y) > 0.001)
+        {
+            var offset = CalibrationMatrix * current;
+            _currentSkyOffsetLabel.Text = $"offset: RA={Angle.FromDegrees(offset.x * 60 * 60).FormatDegrees()}, Dec={Angle.FromDegrees(offset.y * 60 * 60).FormatDegrees()}";
+            if (_mount != null && _guidingEnabled.IsChecked == true)
+            {
+                // go!
+                return;
+            }
+        }
+
+        if (_guidingEnabled.IsChecked == true)
+        {
+            _guidingEnabled.IsChecked = false;
+        }
     }
 
     private void RefreshCameraButtons()

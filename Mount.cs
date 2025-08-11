@@ -114,6 +114,13 @@ internal sealed class Mount : IDisposable
         CameraUiBag.AllCamerasChanged += RefreshCameraButtons;
         stackPanel.Children.Add(_cameraButtons);
 
+        stackPanel.Children.Add(Button("Reset crop", () =>
+        {
+            foreach (var child in _dockPanel.Children)
+                if (child is CroppableImage croppableImage)
+                    croppableImage.ResetCrop();
+        }));
+
         var platesolver = new Platesolver(stackPanel, () => _currentlyDisplaying?.Camera.Current);
 
         stackPanel.Children.Add(tentativeNewPlatesolveOffset);

@@ -27,6 +27,17 @@ internal static class Ext
 
     public static int Mod(this int x, int y) => x >= 0 ? x % y : x % y + Math.Abs(y);
     public static double Mod(this double x, double y) => x >= 0 ? x % y : x % y + Math.Abs(y);
+
+    public static async Task<SemaphoreDisposer> AcquireAsync(this SemaphoreSlim semaphore)
+    {
+        await semaphore.WaitAsync();
+        return new SemaphoreDisposer(semaphore);
+    }
+
+    internal struct SemaphoreDisposer(SemaphoreSlim semaphore) : IDisposable
+    {
+        public void Dispose() => semaphore.Release();
+    }
 }
 
 internal sealed class FFT2d
@@ -295,6 +306,34 @@ internal sealed class FFT
             }
 
             twiddleIndex += N / 2;
+        }
+    }
+}
+
+internal struct Matrix2x2
+{
+    public readonly double a;
+    public readonly double b;
+    public readonly double c;
+    public readonly double d;
+
+    public Matrix2x2(double a, double b, double c, double d)
+    {
+        this.a = a;
+        this.b = b;
+        this.c = c;
+        this.d = d;
+    }
+
+    public static (double x, double y) operator *(Matrix2x2 l, (double x, double y) r) =>
+        (l.a * r.x + l.b * r.y, l.c * r.x + l.d * r.y);
+
+    public Matrix2x2 Inverse
+    {
+        get
+        {
+            var det = a * d - b * c;
+            return Math.Abs(det) < 0.00000001 ? this : new Matrix2x2(d / det, -b / det, -c / det, a / det);
         }
     }
 }
