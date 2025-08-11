@@ -33,8 +33,8 @@ internal sealed class CroppableImage : Panel
             {
                 if (value == null || oldSource.Size != value.Size)
                     ResetCropInternal();
-                if (oldSource is IDisposable disposable)
-                    disposable.Dispose();
+                // if (oldSource is IDisposable disposable)
+                //     disposable.Dispose();
             }
             _croppedBitmap.Source = value;
             _image.Source = _croppedBitmap;

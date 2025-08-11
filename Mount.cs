@@ -120,8 +120,8 @@ internal sealed class Mount : IDisposable
 
         _dockPanel.LastChildFill = true;
         _dockPanel.Children.Clear();
-        stackPanel[DockPanel.DockProperty] = Dock.Left;
-        _dockPanel.Children.Add(stackPanel);
+        var scrollViewer = new ScrollViewer { Content = stackPanel, [DockPanel.DockProperty] = Dock.Left };
+        _dockPanel.Children.Add(scrollViewer);
 
         return new TabItem
         {
