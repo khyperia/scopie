@@ -19,16 +19,16 @@ internal sealed class CameraControlUi(ICamera camera)
         var (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY) = await camera.GetEffectiveAreaAsync();
 
         var stackPanel = new StackPanel();
-        stackPanel.Children.Add(new Label { Content = camera.CameraId.Id });
-        stackPanel.Children.Add(new Label { Content = $"sdk version: {await camera.GetSdkVersionAsync()}" });
-        stackPanel.Children.Add(new Label { Content = $"firmware version: {await camera.GetFirmwareVersionAsync()}" });
-        stackPanel.Children.Add(new Label { Content = $"fpga version: {await camera.GetFpgaVersionAsync()}" });
-        stackPanel.Children.Add(new Label { Content = $"chip size: {chipWidth} - {chipHeight}" });
-        stackPanel.Children.Add(new Label { Content = $"image size: {imageWidth} - {imageHeight}" });
-        stackPanel.Children.Add(new Label { Content = $"pixel size: {pixelWidth} - {pixelHeight}" });
-        stackPanel.Children.Add(new Label { Content = $"bits/pixel: {bitsPerPixel}" });
-        stackPanel.Children.Add(new Label { Content = $"effective area: x={effectiveStartX} y={effectiveStartY} w={effectiveSizeX} h={effectiveSizeY}" });
-        stackPanel.Children.Add(new Label { Content = await camera.GetFastReadoutStatusAsync() });
+        stackPanel.Children.Add(new TextBlock { Text = camera.CameraId.Id });
+        stackPanel.Children.Add(new TextBlock { Text = $"sdk version: {await camera.GetSdkVersionAsync()}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"firmware version: {await camera.GetFirmwareVersionAsync()}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"fpga version: {await camera.GetFpgaVersionAsync()}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"chip size: {chipWidth} - {chipHeight}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"image size: {imageWidth} - {imageHeight}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"pixel size: {pixelWidth} - {pixelHeight}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"bits/pixel: {bitsPerPixel}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"effective area: x={effectiveStartX} y={effectiveStartY} w={effectiveSizeX} h={effectiveSizeY}" });
+        stackPanel.Children.Add(new TextBlock { Text = await camera.GetFastReadoutStatusAsync() });
         stackPanel.Children.Add(Toggle("Exposing", v => camera.Exposing = v));
         if (camera is DebugCamera debugCamera)
         {
@@ -69,7 +69,7 @@ internal sealed class CameraControlUi(ICamera camera)
         {
             var index = _controlsStackPanel.Children.Count;
             var horiz = new StackPanel { Orientation = Orientation.Horizontal };
-            horiz.Children.Add(new Label());
+            horiz.Children.Add(new TextBlock());
             var textBox = new TextBox();
             textBox.KeyDown += (_, args) =>
             {
@@ -83,8 +83,8 @@ internal sealed class CameraControlUi(ICamera camera)
         for (var i = 0; i < _cameraControls.Count; i++)
         {
             var horiz = (StackPanel)_controlsStackPanel.Children[i];
-            var label = (Label)horiz.Children[0];
-            label.Content = _cameraControls[i].ToString();
+            var label = (TextBlock)horiz.Children[0];
+            label.Text = _cameraControls[i].ToString();
         }
     }
 

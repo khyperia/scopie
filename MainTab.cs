@@ -58,7 +58,7 @@ internal sealed class MainTab
         }
 
         if (cameras.Count == 0)
-            _connectButtons.Children.Add(new Label { Content = startup ? "Must scan for cameras" : "No cameras found" });
+            _connectButtons.Children.Add(new TextBlock { Text = startup ? "Must scan for cameras" : "No cameras found" });
 
         var ports = SerialPort.GetPortNames();
         foreach (var port in ports)
@@ -67,7 +67,7 @@ internal sealed class MainTab
         }
 
         if (ports.Length == 0)
-            _connectButtons.Children.Add(new Label { Content = "No serial ports found" });
+            _connectButtons.Children.Add(new TextBlock { Text = "No serial ports found" });
 
         AddGuider();
 

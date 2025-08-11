@@ -36,24 +36,24 @@ internal sealed class Mount : IDisposable
 
     public async Task<TabItem> Init()
     {
-        var getRaDec = new Label();
-        var getRaDecOffset = new Label();
-        var getAzAlt = new Label();
-        var trackingMode = new Label();
-        var location = new Label();
-        var time = new Label();
-        var aligned = new Label();
-        var tentativeNewPlatesolveOffset = new Label();
-        var platesolvePositionToTrueMountPosition = new Label();
-        var slewOffset = new Label();
+        var getRaDec = new TextBlock();
+        var getRaDecOffset = new TextBlock();
+        var getAzAlt = new TextBlock();
+        var trackingMode = new TextBlock();
+        var location = new TextBlock();
+        var time = new TextBlock();
+        var aligned = new TextBlock();
+        var tentativeNewPlatesolveOffset = new TextBlock();
+        var platesolvePositionToTrueMountPosition = new TextBlock();
+        var slewOffset = new TextBlock();
 
         SetSlewOffset(new Angle(0), new Angle(0));
 
         var stackPanel = new StackPanel();
-        stackPanel.Children.Add(new Label { Content = $"Hand control version {await HandControlVersion()}" });
-        stackPanel.Children.Add(new Label { Content = $"RA motor version {await MotorVersion(false)}" });
-        stackPanel.Children.Add(new Label { Content = $"Dec motor version {await MotorVersion(true)}" });
-        stackPanel.Children.Add(new Label { Content = $"Model {await Model()}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"Hand control version {await HandControlVersion()}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"RA motor version {await MotorVersion(false)}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"Dec motor version {await MotorVersion(true)}" });
+        stackPanel.Children.Add(new TextBlock { Text = $"Model {await Model()}" });
         await SetTime(MountTime.Now);
         var initialTrackingMode = await TrackingMode();
         _lastPointingState = await PointingState();
@@ -140,7 +140,7 @@ internal sealed class Mount : IDisposable
         void SetSlewOffset(Angle ra, Angle dec)
         {
             _slewOffset = (ra, dec);
-            slewOffset.Content = $"slew offset: {ra.FormatHours()} {dec.FormatDegrees()}";
+            slewOffset.Text = $"slew offset: {ra.FormatHours()} {dec.FormatDegrees()}";
         }
 
         StackPanel DoubleAngleInput(string buttonName, Func<Angle, Angle, Task> onSet)
@@ -217,23 +217,23 @@ internal sealed class Mount : IDisposable
 
             Dispatcher.UIThread.Post(() =>
             {
-                getRaDec.Content = $"ra/dec: {ra.FormatHours()} {dec.FormatDegrees()}";
-                getRaDecOffset.Content = $"ra/dec: {(ra - _slewOffset.ra).FormatHours()} {(dec - _slewOffset.dec).FormatDegrees()} (offset)";
-                getAzAlt.Content = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
-                trackingMode.Content = $"tracking mode: {mode}";
+                getRaDec.Text = $"ra/dec: {ra.FormatHours()} {dec.FormatDegrees()}";
+                getRaDecOffset.Text = $"ra/dec: {(ra - _slewOffset.ra).FormatHours()} {(dec - _slewOffset.dec).FormatDegrees()} (offset)";
+                getAzAlt.Text = $"az/alt: {az.FormatDegrees()} {alt.FormatDegrees()}";
+                trackingMode.Text = $"tracking mode: {mode}";
                 trackingModeChanged?.Invoke(mode);
                 _lastPointingState = pointingState;
-                aligned.Content = $"aligned: {a}, goto in progress: {gotoInProgress}, pointing state: {pointingState}";
-                location.Content = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
-                time.Content = $"time: {mountTime}";
+                aligned.Text = $"aligned: {a}, goto in progress: {gotoInProgress}, pointing state: {pointingState}";
+                location.Text = $"location: {lon.FormatDegrees()} {lat.FormatDegrees()}";
+                time.Text = $"time: {mountTime}";
                 if (platesolver.LatestSolve is { ra: var platesolveRa, dec: var platesolveDec })
                 {
                     var raOffWithSlewOff = (ra - _slewOffset.ra - platesolveRa).Wrapped180;
                     var decOffWithSlewOff = (dec - _slewOffset.dec - platesolveDec).Wrapped180;
-                    platesolvePositionToTrueMountPosition.Content = $"platesolve offset: {raOffWithSlewOff.FormatHours()} {decOffWithSlewOff.FormatDegrees()}";
+                    platesolvePositionToTrueMountPosition.Text = $"platesolve offset: {raOffWithSlewOff.FormatHours()} {decOffWithSlewOff.FormatDegrees()}";
                     var raOff = (ra - platesolveRa).Wrapped180;
                     var decOff = (dec - platesolveDec).Wrapped180;
-                    tentativeNewPlatesolveOffset.Content = $"tentative new platesolve offset: {raOff.FormatHours()} {decOff.FormatDegrees()}";
+                    tentativeNewPlatesolveOffset.Text = $"tentative new platesolve offset: {raOff.FormatHours()} {decOff.FormatDegrees()}";
                 }
             });
 
@@ -255,7 +255,7 @@ internal sealed class Mount : IDisposable
     private void SlewButtons(StackPanel stackPanel)
     {
         var slewSpeed = 1;
-        var slewSpeedLabel = new Label { Content = "slew speed: 1" };
+        var slewSpeedLabel = new TextBlock { Text = "slew speed: 1" };
         var slewSpeedPlus = new Button { Content = "+" };
         var slewSpeedMinus = new Button { Content = "-" };
         var raPlus = new Button { Content = "ra+" };
@@ -266,12 +266,12 @@ internal sealed class Mount : IDisposable
         slewSpeedPlus.Click += (_, _) =>
         {
             slewSpeed = Math.Min(slewSpeed + 1, 9);
-            slewSpeedLabel.Content = $"slew speed: {slewSpeed}";
+            slewSpeedLabel.Text = $"slew speed: {slewSpeed}";
         };
         slewSpeedMinus.Click += (_, _) =>
         {
             slewSpeed = Math.Max(slewSpeed - 1, 1);
-            slewSpeedLabel.Content = $"slew speed: {slewSpeed}";
+            slewSpeedLabel.Text = $"slew speed: {slewSpeed}";
         };
         raPlus.AddHandler(InputElement.PointerPressedEvent, (_, _) => Try(FixedSlewRa(slewSpeed)), handledEventsToo: true);
         raPlus.AddHandler(InputElement.PointerReleasedEvent, (_, _) => Try(FixedSlewRa(0)), handledEventsToo: true);

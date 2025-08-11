@@ -12,7 +12,7 @@ namespace Scopie;
 
 internal sealed class Platesolver
 {
-    private readonly Label _results;
+    private readonly TextBlock _results;
     private readonly StackPanel _copy;
     private (Angle ra, Angle dec)? _coords;
 
@@ -28,7 +28,7 @@ internal sealed class Platesolver
                 Try(PlatesolveWrapper(platesolve, image));
         };
         stackPanel.Children.Add(platesolve);
-        _results = new Label { Content = "[platesolve results]", IsVisible = false };
+        _results = new TextBlock { Text = "[platesolve results]", IsVisible = false };
         stackPanel.Children.Add(_results);
         var copy = new Button { Content = "copy" };
         copy.Click += (_, _) =>
@@ -109,7 +109,7 @@ internal sealed class Platesolver
         var result = await solver.SolveFieldAsync(image, strat, options, CancellationToken.None);
         if (!result.Success)
         {
-            _results.Content = "Failed to platesolve";
+            _results.Text = "Failed to platesolve";
             _results.IsVisible = true;
             _coords = null;
             _copy.IsVisible = false;
@@ -120,7 +120,7 @@ internal sealed class Platesolver
             var center = solution.PlateCenter;
             var ra = Angle.FromDegrees(center.Ra);
             var dec = Angle.FromDegrees(center.Dec);
-            _results.Content = $"result: {ra.FormatHours()} - {dec.FormatDegrees()}";
+            _results.Text = $"result: {ra.FormatHours()} - {dec.FormatDegrees()}";
             _results.IsVisible = true;
             _coords = (ra, dec);
             _copy.IsVisible = true;
