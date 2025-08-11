@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -194,7 +195,9 @@ internal sealed class Guider : IDisposable
                     croppableImage.ResetCrop();
         }));
 
-        stackPanel.Children.Add(Button("Begin", Begin));
+        stackPanel.Children.Add(_semaphoreStatus);
+        stackPanel.Children.Add(Toggle("Reference frame", Begin));
+        stackPanel.Children.Add(_guidingEnabled);
         stackPanel.Children.Add(new TextBlock { Text = "rate(arcsec/sec), time(sec)" });
         stackPanel.Children.Add(DoubleNumberInput("VSlew RA", (rate, time) => DoVariableSlew(true, rate, time)));
         stackPanel.Children.Add(DoubleNumberInput("VSlew Dec", (rate, time) => DoVariableSlew(false, rate, time)));
@@ -252,6 +255,7 @@ internal sealed class Guider : IDisposable
     private async Task CalibrateBoth(double arcsecondsPerSecond, double seconds)
     {
         await Calibrate(true, arcsecondsPerSecond, seconds);
+        await Task.Delay(TimeSpan.FromSeconds(1));
         await Calibrate(false, arcsecondsPerSecond, seconds);
     }
 
@@ -279,16 +283,16 @@ internal sealed class Guider : IDisposable
             {
                 var theta = Math.Atan2(deltaY, deltaX);
                 _calibrationRa = (deltaX, deltaY);
-                _calibrationRaLabel.Text = $"RA calibration: {deltaX}, {deltaY}, l={l} \u03B8={theta * (360 / Math.Tau)}";
+                _calibrationRaLabel.Text = $"RA calibration: {1 / deltaX:F3}, {1 / deltaY:F3}, l={1 / l:F3} \u03B8={theta * (360 / Math.Tau):F3}";
             }
             else
             {
                 var theta = Math.Atan2(-deltaX, deltaY); // rotate dec display by 90 degrees to align it with ra
                 _calibrationDec = (deltaX, deltaY);
-                _calibrationDecLabel.Text = $"Dec calibration: {deltaX}, {deltaY}, l={l} \u03B8={theta * (360 / Math.Tau)}";
+                _calibrationDecLabel.Text = $"Dec calibration: {1 / deltaX:F3}, {1 / deltaY:F3}, l={1 / l:F3} \u03B8={theta * (360 / Math.Tau):F3}";
             }
             var matrix = CalibrationMatrix;
-            _calibrationMatrixLabel.Text = $"Calibration matrix:\n{matrix.a}, {matrix.b}\n{matrix.c}, {matrix.d}";
+            _calibrationMatrixLabel.Text = $"Calibration matrix:\n{matrix.a:F3}, {matrix.b:F3}\n{matrix.c:F3}, {matrix.d:F3}";
             await _mount.VariableSlewCommand(ra, -arcsecondsPerSecond);
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             await _mount.VariableSlewCommand(ra, 0);
@@ -351,7 +355,7 @@ internal sealed class Guider : IDisposable
         second.TextChanged += TextChanged;
         button.Click += (_, _) =>
         {
-            if (double.TryParse(first.Text, out var f) && double.TryParse(second.Text, out var s))
+            if (double.TryParse(first.Text, CultureInfo.InvariantCulture, out var f) && double.TryParse(second.Text, CultureInfo.InvariantCulture, out var s))
                 Try(onSet(f, s));
         };
 
@@ -395,13 +399,15 @@ internal sealed class Guider : IDisposable
         }
     }
 
-    private void Begin()
+    private void Begin(bool enabled)
     {
-        if (_camera?.Camera.Current is { } reference)
+        if (enabled && _camera?.Camera.Current is { } reference)
             Begin(new FftGuiderOffset(1 << 28, reference));
+        else
+            Begin(null);
     }
 
-    private void Begin(IGuiderOffset guiderOffset)
+    private void Begin(IGuiderOffset? guiderOffset)
     {
         if (_feeder is { } feeder)
         {
@@ -409,6 +415,8 @@ internal sealed class Guider : IDisposable
             feeder.Dispose();
         }
 
+        if (guiderOffset == null)
+            return;
         var camera = _camera?.Camera;
         if (camera?.Current == null)
             return;
@@ -425,13 +433,13 @@ internal sealed class Guider : IDisposable
     private void OnNewOffsetFeed((double x, double y) current)
     {
         _currentOffset = current;
-        _currentPixelOffsetLabel.Text = $"pixel offset: {current.x}, {current.y}";
+        _currentPixelOffsetLabel.Text = $"pixel offset: {current.x:F3}, {current.y:F3}";
 
         if (Math.Abs(_calibrationRa.x) + Math.Abs(_calibrationRa.y) > 0.001 &&
             Math.Abs(_calibrationDec.x) + Math.Abs(_calibrationDec.y) > 0.001)
         {
             var offset = CalibrationMatrix * current;
-            _currentSkyOffsetLabel.Text = $"offset: RA={Angle.FromDegrees(offset.x * 60 * 60).FormatDegrees()}, Dec={Angle.FromDegrees(offset.y * 60 * 60).FormatDegrees()}";
+            _currentSkyOffsetLabel.Text = $"offset: RA={Angle.FromDegrees(offset.x / (60 * 60)).FormatDegrees()}, Dec={Angle.FromDegrees(offset.y / (60 * 60)).FormatDegrees()}";
             if (_mount != null && _guidingEnabled.IsChecked == true)
             {
                 // go!
@@ -475,5 +483,6 @@ internal sealed class Guider : IDisposable
             feeder.MoveNext -= OnNewOffsetFeedThreaded;
             feeder.Dispose();
         }
+        _semaphore.Dispose();
     }
 }

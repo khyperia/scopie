@@ -1,3 +1,4 @@
+using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -90,7 +91,7 @@ internal sealed class CameraControlUi(ICamera camera)
 
     private bool TrySetControl(int controlIndex, string? text)
     {
-        if (!double.TryParse(text, out var v))
+        if (!double.TryParse(text, CultureInfo.InvariantCulture, out var v))
             return false;
         if (controlIndex >= _cameraControls.Count)
             return false;

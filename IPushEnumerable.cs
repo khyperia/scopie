@@ -65,6 +65,12 @@ internal abstract class CpuHeavySkippablePushProcessor<TIn, TOut> : PushProcesso
         Try(Task.Run(() => ThreadedProcess(currentId, item)));
     }
 
+    public override void Dispose()
+    {
+        _semaphore.Dispose();
+        base.Dispose();
+    }
+
     private async Task ThreadedProcess(ulong currentId, TIn item)
     {
         await _semaphore.WaitAsync().ConfigureAwait(false);

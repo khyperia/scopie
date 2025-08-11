@@ -276,6 +276,6 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
 
     public void SetControl(CameraControl control, double value)
     {
-        Try(_threadling.Do(() => { control.Value = value; }));
+        Try(_threadling.Do(() => control.Value = value));
     }
 }
