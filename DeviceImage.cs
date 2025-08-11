@@ -16,7 +16,7 @@ internal abstract record DeviceImage(uint Width, uint Height) : IImage
 
 internal sealed record DeviceImage<T>(T[] Data, uint Width, uint Height) : DeviceImage(Width, Height) where T : unmanaged
 {
-    public T this[int x, int y]
+    public T this[uint x, uint y]
     {
         get => Data[y * Width + x];
         set => Data[y * Width + x] = value;

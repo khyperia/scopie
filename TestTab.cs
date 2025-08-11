@@ -74,8 +74,8 @@ internal static class TestTab
         var width = 1u << BitOperations.Log2(data.Width);
         var height = 1u << BitOperations.Log2(data.Height);
         var newData = new DeviceImage<ushort>(new ushort[width * height], width, height);
-        for (var y = 0; y < newData.Height; y++)
-            for (var x = 0; x < newData.Width; x++)
+        for (var y = 0u; y < newData.Height; y++)
+            for (var x = 0u; x < newData.Width; x++)
                 newData[x, y] = data[x, y];
         return newData;
     }

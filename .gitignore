@@ -3,4 +3,5 @@
 /obj/
 *.user
 *.png
+/telescope-debug/
 /watneyqdb-00-07-20-v3

@@ -56,6 +56,7 @@ internal sealed class ImageProcessor(IPushEnumerable<DeviceImage> input) : PushP
                 if (currentId + 1 < currentProcessing)
                 {
                     Console.WriteLine($"Skip image process push before process (newer image in queue): {currentId} + 1 < {currentProcessing}");
+                    return;
                 }
                 if (currentId <= _currentPushResult)
                 {

@@ -21,6 +21,11 @@ internal sealed class Mount : IDisposable
     private char _lastPointingState;
     private (Angle ra, Angle dec) _slewOffset;
 
+    public static readonly List<Mount> AllMounts = [];
+    public static event Action? AllMountsChanged;
+
+    public string Name => _port.PortName;
+
     public Mount(string portName)
     {
         _port = new SerialPort(portName);
@@ -123,6 +128,9 @@ internal sealed class Mount : IDisposable
         var scrollViewer = new ScrollViewer { Content = stackPanel, [DockPanel.DockProperty] = Dock.Left };
         _dockPanel.Children.Add(scrollViewer);
 
+        AllMounts.Add(this);
+        AllMountsChanged?.Invoke();
+
         return new TabItem
         {
             Header = "Mount",
@@ -173,8 +181,8 @@ internal sealed class Mount : IDisposable
                         var idx = firstText.IndexOf(',');
                         if (idx != -1)
                         {
-                            first.Text = firstText[..idx];
-                            second.Text = firstText[(idx + 1)..];
+                            first.Text = firstText[..idx].Trim();
+                            second.Text = firstText[(idx + 1)..].Trim();
                             if (first.IsFocused)
                                 second.Focus();
                         }
@@ -313,6 +321,9 @@ internal sealed class Mount : IDisposable
 
     public void Dispose()
     {
+        AllMounts.Remove(this);
+        AllMountsChanged?.Invoke();
+
         CameraUiBag.AllCamerasChanged -= RefreshCameraButtons;
         if (_threadling != null)
         {
@@ -524,6 +535,26 @@ internal sealed class Mount : IDisposable
 
     private Task FixedSlewRa(int speed) => FixedSlewCommand(true, speed);
     private Task FixedSlewDec(int speed) => FixedSlewCommand(false, speed);
+
+    private Task VariableSlewCommand(bool ra, int trackRate)
+    {
+        byte three;
+        if (trackRate < 0)
+        {
+            three = 7;
+            trackRate = -trackRate;
+        }
+        else
+            three = 6;
+
+        var high = trackRate / 256;
+        var low = trackRate % 256;
+
+        var axis = ra ? (byte)16 : (byte)17;
+        return Interact([(byte)'P', 3, axis, three, (byte)high, (byte)low, 0, 0], 0);
+    }
+
+    public Task VariableSlewCommand(bool ra, double arcsecondsPerSecond) => VariableSlewCommand(ra, (int)(arcsecondsPerSecond * 4));
 
     private async Task<string> HandControlVersion()
     {

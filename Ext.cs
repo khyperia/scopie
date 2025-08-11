@@ -42,17 +42,17 @@ internal sealed class FFT2d
 
     public void Run(DeviceImage<ushort> input, DeviceImage<Complex> output)
     {
-        for (var y = 0; y < input.Height; y++)
+        for (var y = 0u; y < input.Height; y++)
             _fftX.RunX(input, output, y);
-        for (var x = 0; x < input.Width; x++)
+        for (var x = 0u; x < input.Width; x++)
             _fftY.RunY(output, output, x);
     }
 
     public void Run(DeviceImage<Complex> input, DeviceImage<Complex> output)
     {
-        for (var y = 0; y < input.Height; y++)
+        for (var y = 0u; y < input.Height; y++)
             _fftX.RunX(input, output, y);
-        for (var x = 0; x < input.Width; x++)
+        for (var x = 0u; x < input.Width; x++)
             _fftY.RunY(output, output, x);
     }
 
@@ -132,7 +132,7 @@ internal sealed class FFT2d
         {
             x = x.Mod((int)image.Width);
             y = y.Mod((int)image.Height);
-            return image[x, y].Magnitude;
+            return image[(uint)x, (uint)y].Magnitude;
         }
 
         // given three points:
@@ -147,7 +147,7 @@ internal sealed class FFT2d
 internal sealed class FFT
 {
     private readonly uint _width;
-    private readonly int[] _bitReverseDest;
+    private readonly uint[] _bitReverseDest;
     private readonly Complex[] _twiddles;
     private readonly Complex[] _buffer;
 
@@ -161,15 +161,15 @@ internal sealed class FFT
         _buffer = new Complex[width];
     }
 
-    private static int[] BuildBitReverse(uint width, int bits)
+    private static uint[] BuildBitReverse(uint width, int bits)
     {
-        var result = new int[width];
-        for (var j = 1; j < result.Length; j++)
+        var result = new uint[width];
+        for (var j = 1u; j < result.Length; j++)
             result[j] = BitReverse(j, bits);
         return result;
     }
 
-    private static int BitReverse(int n, int bits)
+    private static uint BitReverse(uint n, int bits)
     {
         var reversedN = n;
         var count = bits - 1;
@@ -182,7 +182,7 @@ internal sealed class FFT
             n >>= 1;
         }
 
-        return (reversedN << count) & ((1 << bits) - 1);
+        return (reversedN << count) & ((1u << bits) - 1);
     }
 
     private static Complex[] BuildTwiddles(uint width, int logn)
@@ -203,59 +203,59 @@ internal sealed class FFT
         return result;
     }
 
-    public void RunX(DeviceImage<ushort> input, DeviceImage<Complex> output, int y)
+    public void RunX(DeviceImage<ushort> input, DeviceImage<Complex> output, uint y)
     {
         Debug.Assert(input.Width == _width);
         Debug.Assert(output.Width == _width);
 
-        for (var j = 0; j < _width; j++)
+        for (var j = 0u; j < _width; j++)
             _buffer[j] = input[_bitReverseDest[j], y];
 
         InnerLoop(_buffer, _twiddles, _width);
 
-        for (var i = 0; i < _width; i++)
+        for (var i = 0u; i < _width; i++)
             output[i, y] = _buffer[i] * (2.0f / _width);
     }
 
-    public void RunY(DeviceImage<ushort> input, DeviceImage<Complex> output, int x)
+    public void RunY(DeviceImage<ushort> input, DeviceImage<Complex> output, uint x)
     {
         Debug.Assert(input.Height == _width);
         Debug.Assert(output.Height == _width);
 
-        for (var j = 0; j < _width; j++)
+        for (var j = 0u; j < _width; j++)
             _buffer[j] = input[x, _bitReverseDest[j]];
 
         InnerLoop(_buffer, _twiddles, _width);
 
-        for (var i = 0; i < _width; i++)
+        for (var i = 0u; i < _width; i++)
             output[x, i] = _buffer[i] * (2.0f / _width);
     }
 
-    public void RunX(DeviceImage<Complex> input, DeviceImage<Complex> output, int y)
+    public void RunX(DeviceImage<Complex> input, DeviceImage<Complex> output, uint y)
     {
         Debug.Assert(input.Width == _width);
         Debug.Assert(output.Width == _width);
 
-        for (var j = 0; j < _width; j++)
+        for (var j = 0u; j < _width; j++)
             _buffer[j] = input[_bitReverseDest[j], y];
 
         InnerLoop(_buffer, _twiddles, _width);
 
-        for (var i = 0; i < _width; i++)
+        for (var i = 0u; i < _width; i++)
             output[i, y] = _buffer[i] * (2.0f / _width);
     }
 
-    public void RunY(DeviceImage<Complex> input, DeviceImage<Complex> output, int x)
+    public void RunY(DeviceImage<Complex> input, DeviceImage<Complex> output, uint x)
     {
         Debug.Assert(input.Height == _width);
         Debug.Assert(output.Height == _width);
 
-        for (var j = 0; j < _width; j++)
+        for (var j = 0u; j < _width; j++)
             _buffer[j] = input[x, _bitReverseDest[j]];
 
         InnerLoop(_buffer, _twiddles, _width);
 
-        for (var i = 0; i < _width; i++)
+        for (var i = 0u; i < _width; i++)
             output[x, i] = _buffer[i] * (2.0f / _width);
     }
 
@@ -264,12 +264,12 @@ internal sealed class FFT
         Debug.Assert(input.Length == _width);
         Debug.Assert(output.Length == _width);
 
-        for (var j = 0; j < _width; j++)
+        for (var j = 0u; j < _width; j++)
             _buffer[j] = input[_bitReverseDest[j]];
 
         InnerLoop(_buffer, _twiddles, _width);
 
-        for (var i = 0; i < _width; i++)
+        for (var i = 0u; i < _width; i++)
             output[i] = _buffer[i] * (2.0f / _width);
     }
 

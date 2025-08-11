@@ -2,8 +2,10 @@ using Avalonia;
 
 namespace Scopie;
 
-internal sealed class DebugCamera(DeviceImage debugImage) : PushEnumerable<DeviceImage>, ICamera
+internal sealed class DebugCamera(DeviceImage[] debugImages) : PushEnumerable<DeviceImage>, ICamera
 {
+    private int _currentIndex;
+
     public void Dispose()
     {
     }
@@ -28,12 +30,12 @@ internal sealed class DebugCamera(DeviceImage debugImage) : PushEnumerable<Devic
 
     public Task<(double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel)> GetChipInfoAsync()
     {
-        return Task.FromResult(((double)debugImage.Width, (double)debugImage.Height, debugImage.Width, debugImage.Height, 1.0, 1.0, (uint)debugImage.Metadata.BitsPerPixel));
+        return Task.FromResult(((double)debugImages[_currentIndex].Width, (double)debugImages[_currentIndex].Height, debugImages[_currentIndex].Width, debugImages[_currentIndex].Height, 1.0, 1.0, (uint)debugImages[_currentIndex].Metadata.BitsPerPixel));
     }
 
     public Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync()
     {
-        return Task.FromResult((0u, 0u, debugImage.Width, debugImage.Height));
+        return Task.FromResult((0u, 0u, debugImages[_currentIndex].Width, debugImages[_currentIndex].Height));
     }
 
     public Task<string> GetFastReadoutStatusAsync()
@@ -75,7 +77,10 @@ internal sealed class DebugCamera(DeviceImage debugImage) : PushEnumerable<Devic
         ThreadPool.QueueUserWorkItem(_ =>
         {
             for (var i = 0; i < n; i++)
-                Push(debugImage);
+            {
+                Push(debugImages[_currentIndex]);
+                _currentIndex = (_currentIndex + 1).Mod(debugImages.Length);
+            }
         });
     }
 }

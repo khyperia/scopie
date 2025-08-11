@@ -42,8 +42,14 @@ internal sealed class MainTab
         var debugFile = DebugFile();
         if (File.Exists(debugFile))
         {
-            var image = ImageIO.Load(debugFile);
-            AddCameraButton("debug camera", () => new DebugCamera(image));
+            AddCameraButton("debug camera", () => new DebugCamera([ImageIO.Load(debugFile)]));
+        }
+
+        string DebugDirectory([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "telescope-debug");
+        var debugDirectory = DebugDirectory();
+        if (Directory.Exists(debugDirectory))
+        {
+            AddCameraButton("debug camera many", () => new DebugCamera(Directory.EnumerateFiles(debugDirectory).Select(ImageIO.Load).ToArray()));
         }
 
         foreach (var camera in cameras)
@@ -63,6 +69,8 @@ internal sealed class MainTab
         if (ports.Length == 0)
             _connectButtons.Children.Add(new Label { Content = "No serial ports found" });
 
+        AddGuider();
+
         return;
 
         void AddCameraButton(string model, Func<ICamera> create)
@@ -72,7 +80,7 @@ internal sealed class MainTab
                 try
                 {
                     var c = new CameraUiBag(create());
-                    Try(Add(c, Do(c)));
+                    Try(AddAsync(c, Do(c)));
 
                     static async Task<TabItem> Do(CameraUiBag c)
                     {
@@ -94,7 +102,7 @@ internal sealed class MainTab
                 try
                 {
                     var mount = new Mount(port);
-                    Try(Add(mount, mount.Init()));
+                    Try(AddAsync(mount, mount.Init()));
                 }
                 catch (Exception e)
                 {
@@ -103,11 +111,48 @@ internal sealed class MainTab
             }));
         }
 
-        async Task Add(IDisposable disposable, Task<TabItem> task)
+        void AddGuider()
+        {
+            _connectButtons.Children.Add(Button("Guider", () =>
+            {
+                try
+                {
+                    var mount = new Guider();
+                    Add(mount, () => mount.Init());
+                }
+                catch (Exception e)
+                {
+                    Report(e);
+                }
+            }));
+        }
+
+        async Task AddAsync(IDisposable disposable, Task<TabItem> task)
         {
             try
             {
                 var res = await task;
+                res.DetachedFromVisualTree += (_, _) => disposable.Dispose();
+                _tabs.Items.Add(res);
+            }
+            catch when (DoDispose())
+            {
+            }
+
+            return;
+
+            bool DoDispose()
+            {
+                disposable.Dispose();
+                return false;
+            }
+        }
+
+        void Add(IDisposable disposable, Func<TabItem> task)
+        {
+            try
+            {
+                var res = task();
                 res.DetachedFromVisualTree += (_, _) => disposable.Dispose();
                 _tabs.Items.Add(res);
             }
