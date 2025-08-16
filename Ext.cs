@@ -77,7 +77,42 @@ internal static class Ext
         };
     }
 
-    public static StackPanel DoubleNumberInput(string buttonName, Func<double, double, Task> onSet)
+    public delegate bool TryParse<T>(string s, CultureInfo c, out T res);
+
+    public static StackPanel ParsedInput(string buttonName, Action<int> onSet) => ParsedInput(buttonName, int.TryParse, onSet);
+
+    private static StackPanel ParsedInput<T>(string buttonName, TryParse<T> parse, Action<T> onSet)
+    {
+        var text = new TextBox();
+        var button = new Button { Content = buttonName };
+        text.TextChanged += TextChanged;
+        button.Click += (_, _) =>
+        {
+            if (text.Text is { } t && parse(t, CultureInfo.InvariantCulture, out var value))
+                onSet(value);
+        };
+        TextChanged(null, new TextChangedEventArgs(null));
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children =
+            {
+                text,
+                button
+            }
+        };
+
+        void TextChanged(object? sender, TextChangedEventArgs e)
+        {
+            button.IsEnabled = text.Text is { } t && parse(t, CultureInfo.InvariantCulture, out _);
+        }
+    }
+
+    public static StackPanel DoubleAngleInput(string buttonName, Func<Angle, Angle, Task> onSet) => DoubleParsedInputAsync(buttonName, Angle.TryParse, onSet);
+    public static StackPanel DoubleNumberInput(string buttonName, Func<double, double, Task> onSet) => DoubleParsedInputAsync(buttonName, double.TryParse, onSet);
+
+    private static StackPanel DoubleParsedInputAsync<T>(string buttonName, TryParse<T> parse, Func<T, T, Task> onSet)
     {
         var first = new TextBox();
         var second = new TextBox();
@@ -87,9 +122,10 @@ internal static class Ext
         second.TextChanged += TextChanged;
         button.Click += (_, _) =>
         {
-            if (double.TryParse(first.Text, CultureInfo.InvariantCulture, out var f) && double.TryParse(second.Text, CultureInfo.InvariantCulture, out var s))
+            if (first.Text is { } ft && parse(ft, CultureInfo.InvariantCulture, out var f) && second.Text is { } st && parse(st, CultureInfo.InvariantCulture, out var s))
                 Try(onSet(f, s));
         };
+        TextChanged(null, new TextChangedEventArgs(null));
 
         return new StackPanel
         {
@@ -122,7 +158,7 @@ internal static class Ext
                     }
                 }
 
-                button.IsEnabled = double.TryParse(first.Text, out _) && double.TryParse(second.Text, out _);
+                button.IsEnabled = first.Text is { } ft && parse(ft, CultureInfo.InvariantCulture, out _) && second.Text is { } st && parse(st, CultureInfo.InvariantCulture, out _);
             }
             finally
             {

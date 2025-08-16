@@ -150,59 +150,6 @@ internal sealed class Mount : IDisposable
             slewOffset.Text = $"slew offset: {ra.FormatHours()} {dec.FormatDegrees()}";
         }
 
-        StackPanel DoubleAngleInput(string buttonName, Func<Angle, Angle, Task> onSet)
-        {
-            var first = new TextBox();
-            var second = new TextBox();
-            var button = new Button { Content = buttonName };
-            var reentrant = false;
-            first.TextChanged += TextChanged;
-            second.TextChanged += TextChanged;
-            button.Click += (_, _) =>
-            {
-                if (Angle.TryParse(first.Text, out var f) && Angle.TryParse(second.Text, out var s))
-                    Try(onSet(f, s));
-            };
-
-            return new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Children =
-                {
-                    first,
-                    second,
-                    button
-                }
-            };
-
-            void TextChanged(object? sender, TextChangedEventArgs e)
-            {
-                if (reentrant)
-                    return;
-                try
-                {
-                    reentrant = true;
-                    var firstText = first.Text;
-                    if (firstText != null)
-                    {
-                        var idx = firstText.IndexOf(',');
-                        if (idx != -1)
-                        {
-                            first.Text = firstText[..idx].Trim();
-                            second.Text = firstText[(idx + 1)..].Trim();
-                            if (first.IsFocused)
-                                second.Focus();
-                        }
-                    }
-
-                    button.IsEnabled = Angle.TryParse(first.Text, out _) && Angle.TryParse(second.Text, out _);
-                }
-                finally
-                {
-                    reentrant = false;
-                }
-            }
-        }
 
         IdleActionResult UpdateStatus()
         {
@@ -671,7 +618,7 @@ internal readonly partial struct Angle(double value)
     [GeneratedRegex(@"^\s*((?<sign>[-+])\s*)?(?<degrees>\d+(\.\d+)?)\s*(?<unit>[hHdD°])\s*(((?<minutes>\d+(\.\d+)?)\s*[mM'′]\s*)?((?<seconds>\d+(\.\d+)?)\s*[sS""″]\s*)?)?$")]
     private static partial Regex ParseRegex();
 
-    public static bool TryParse(string? s, out Angle angle)
+    public static bool TryParse(string? s, IFormatProvider? formatProvider, out Angle angle)
     {
         if (s == null)
         {
@@ -689,7 +636,7 @@ internal readonly partial struct Angle(double value)
         var groups = thing.Groups;
         var isNegative = groups["sign"] is { Success: true, Value: "-" };
         var isHours = groups["unit"] is { Success: true, Value: "h" or "H" };
-        var degrees = double.Parse(groups["degrees"].Value, CultureInfo.InvariantCulture);
+        var degrees = double.Parse(groups["degrees"].Value, formatProvider);
         var minutes = V(groups["minutes"]);
         var seconds = V(groups["seconds"]);
 
@@ -699,7 +646,7 @@ internal readonly partial struct Angle(double value)
 
         return true;
 
-        double V(Group group) => group.Success ? double.Parse(group.Value, CultureInfo.InvariantCulture) : 0.0;
+        double V(Group group) => group.Success ? double.Parse(group.Value, formatProvider) : 0.0;
     }
 
     public void To3Byte(out byte high, out byte med, out byte low)

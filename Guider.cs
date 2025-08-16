@@ -9,7 +9,9 @@ namespace Scopie;
 internal sealed class GuiderSettings
 {
     // TODO: Autodetect exclusion zone radius (2x search radius?)
+    public uint AutodetectExclusionZone = 100;
     public double TrackedStarSearchRadius = 50;
+    public double TrackedStarMaxShiftDistance = 37.5;
     public uint TrackedStarParabolaFitRadius = 2;
     public double TrackedStarSigmaRejection = 5;
 }
@@ -27,20 +29,32 @@ internal sealed class TrackedStar
         Y = initialY;
     }
 
-    public bool Update(DeviceImage imageGeneric, out double sigma)
+    public bool Update(DeviceImage imageGeneric, [MaybeNullWhen(true)] out string failureReason, out double sigma)
     {
         if (imageGeneric is not DeviceImage<ushort> image)
             throw new Exception("TrackedStar only operates on ushort images");
         MaxSearchBox(image, X, Y, _guiderSettings.TrackedStarSearchRadius, out var maxPoint, out var maxValue, out var edgeStats);
         sigma = (maxValue - edgeStats.Mean) / edgeStats.Stdev;
         if (sigma < _guiderSettings.TrackedStarSigmaRejection)
+        {
+            failureReason = "bad sigma";
             return false;
+        }
         var peak = FitParabola(image, maxPoint.x, maxPoint.y, _guiderSettings.TrackedStarParabolaFitRadius);
-        if (Dist(maxPoint.x, maxPoint.y, peak.x, peak.y) > _guiderSettings.TrackedStarParabolaFitRadius)
+        var fitParabolaDistance = Dist(maxPoint.x, maxPoint.y, peak.x, peak.y);
+        if (fitParabolaDistance > _guiderSettings.TrackedStarParabolaFitRadius)
+        {
+            failureReason = $"fit parabola too far ({fitParabolaDistance:F2})";
             return false;
-        if (Dist(X, Y, peak.x, peak.y) > _guiderSettings.TrackedStarSearchRadius * 0.75)
+        }
+        var shiftDistance = Dist(X, Y, peak.x, peak.y);
+        if (shiftDistance > _guiderSettings.TrackedStarMaxShiftDistance)
+        {
+            failureReason = $"star shifted too far ({shiftDistance:F2})";
             return false;
+        }
 
+        failureReason = null;
         X = peak.x;
         Y = peak.y;
         return true;
@@ -141,36 +155,51 @@ internal sealed class TrackedStar
     }
 }
 
-internal sealed class TrackedStarUi : IDisposable
+internal sealed class TrackedStarUi
 {
+    private readonly StackPanel _stackPanel;
+    private readonly TextBlock _mainText;
     public TrackedStar TrackedStar;
     public bool MostRecentIsValid { get; private set; }
 
-    public TrackedStarUi()
+    public (double x, double y)? ReferencePosition;
+
+    public Control Control => _stackPanel;
+
+    public TrackedStarUi(TrackedStar trackedStar)
     {
+        TrackedStar = trackedStar;
         // TODO: Add way to create new tracked stars
         // TODO: Add way to update the guess of tracked stars
         // TODO: Create UI
+        // TODO: Button to remove
+        // TODO: Button to temp disable
+        // TODO: Button to re-enable?
+        _stackPanel = new StackPanel();
+        _stackPanel.Children.Add(_mainText = new());
+    }
+
+    public static bool TryCreate(GuiderSettings guiderSettings, DeviceImage image, double x, double y, [MaybeNullWhen(false)] out TrackedStarUi trackedStar)
+    {
+        trackedStar = new TrackedStarUi(new TrackedStar(guiderSettings, x, y));
+        trackedStar.Update(image);
+        return trackedStar.MostRecentIsValid;
     }
 
     public void Update(DeviceImage image)
     {
         // TODO: If too many failures in a row, disable this tracked star
-        if (TrackedStar.Update(image, out var sigma))
-        {
-            MostRecentIsValid = true;
-        }
-        else
-        {
-            MostRecentIsValid = false;
-        }
-    }
-
-    public void Dispose()
-    {
+        MostRecentIsValid = TrackedStar.Update(image, out var failureReason, out var sigma);
+        var s = $"{TrackedStar.X:F2},{TrackedStar.Y:F2} {sigma:F1}σ";
+        if (!MostRecentIsValid)
+            s += " - " + failureReason;
+        if (ReferencePosition is { x: var refX, y: var refY })
+            s += $" off:{refX:F2},{refY:F2}";
+        _mainText.Text = s;
     }
 }
 
+/*
 internal sealed class StarGuiderOffset
 {
     private readonly List<TrackedStarUi> _trackedStars;
@@ -221,6 +250,7 @@ internal sealed class StarGuiderOffset
         return true;
     }
 }
+*/
 
 internal sealed class Guider : IDisposable
 {
@@ -235,12 +265,13 @@ internal sealed class Guider : IDisposable
     private readonly TextBlock _calibrationRaLabel = new() { Text = "RA: uncalibrated" };
     private readonly TextBlock _calibrationDecLabel = new() { Text = "Dec: uncalibrated" };
     private readonly TextBlock _calibrationMatrixLabel = new() { Text = "Calibration matrix" };
+    private readonly GuiderSettings _guiderSettings = new();
+    private readonly StackPanel _starListPanel = new();
     private CameraUiBag? _camera;
     private Mount? _mount;
     private (double x, double y) _currentOffset;
 
-    private StarGuiderOffset? _starGuiderOffset;
-    private List<TrackedStarUi> _trackedStars = [];
+    private readonly List<TrackedStarUi> _trackedStars = [];
 
     // how many pixels moving one arcsecond in RA/Dec moves the image
     private (double x, double y) _calibrationRa;
@@ -266,6 +297,7 @@ internal sealed class Guider : IDisposable
         }));
 
         stackPanel.Children.Add(_semaphoreStatus);
+        stackPanel.Children.Add(ParsedInput("Autoscan", Autoscan));
         stackPanel.Children.Add(FailableToggle("Reference frame", SetReferenceFrame));
         stackPanel.Children.Add(_guidingEnabled);
         stackPanel.Children.Add(new TextBlock { Text = "rate(arcsec/sec), time(sec)" });
@@ -279,6 +311,7 @@ internal sealed class Guider : IDisposable
         stackPanel.Children.Add(_calibrationRaLabel);
         stackPanel.Children.Add(_calibrationDecLabel);
         stackPanel.Children.Add(_calibrationMatrixLabel);
+        stackPanel.Children.Add(_starListPanel);
 
         _dockPanel.LastChildFill = true;
         _dockPanel.Children.Clear();
@@ -396,13 +429,99 @@ internal sealed class Guider : IDisposable
 
     private bool SetReferenceFrame(bool enabled)
     {
-        if (enabled && StarGuiderOffset.TryCreate(_trackedStars, out var starGuiderOffset))
+        if (enabled)
         {
-            _starGuiderOffset = starGuiderOffset;
+            foreach (var star in _trackedStars)
+            {
+                if (!star.MostRecentIsValid)
+                {
+                    Clear();
+                    return false;
+                }
+            }
+            foreach (var star in _trackedStars)
+            {
+                star.ReferencePosition = (star.TrackedStar.X, star.TrackedStar.Y);
+            }
             return true;
         }
-        _starGuiderOffset = null;
+        Clear();
         return false;
+
+        void Clear()
+        {
+            foreach (var star in _trackedStars)
+                star.ReferencePosition = null;
+        }
+    }
+
+    private void Autoscan(int numberOfStars)
+    {
+        if (_camera?.Camera.Current is DeviceImage<ushort> image)
+            Autoscan(image, numberOfStars);
+    }
+
+    private void Autoscan(DeviceImage<ushort> image, int numberOfStars)
+    {
+        foreach (var star in _trackedStars)
+            _starListPanel.Children.Remove(star.Control);
+        _trackedStars.Clear();
+
+        List<(uint, uint)> alreadyFound = [];
+        for (var i = 0; i < numberOfStars * 2; i++)
+        {
+            var v = Max();
+            alreadyFound.Add(v);
+            TryAddStarAt(image, v.x, v.y);
+            if (_trackedStars.Count >= numberOfStars)
+                break;
+        }
+        return;
+
+        (uint x, uint y) Max()
+        {
+            var value = ushort.MinValue;
+            (uint x, uint y) coords = default;
+            for (var y = 0u; y < image.Height; y++)
+            {
+                for (var x = 0u; x < image.Width; x++)
+                {
+                    if (Reject(x, y))
+                        continue;
+                    var v = image[x, y];
+                    if (v > value)
+                    {
+                        value = v;
+                        coords = (x, y);
+                    }
+                }
+            }
+            return coords;
+        }
+
+        bool Reject(uint x, uint y)
+        {
+            foreach (var (ex, ey) in alreadyFound)
+            {
+                if (S(x, ex) + S(y, ey) < _guiderSettings.AutodetectExclusionZone)
+                    return true;
+
+                static uint S(uint l, uint r)
+                {
+                    return l < r ? r - l : l - r;
+                }
+            }
+            return false;
+        }
+    }
+
+    private void TryAddStarAt(DeviceImage image, double x, double y)
+    {
+        if (TrackedStarUi.TryCreate(_guiderSettings, image, x, y, out var result))
+        {
+            _trackedStars.Add(result);
+            _starListPanel.Children.Add(result.Control);
+        }
     }
 
     private void OnNewOffsetFeedThreaded((double x, double y) current)
@@ -439,12 +558,23 @@ internal sealed class Guider : IDisposable
         {
             trackedStar.Update(image);
         }
-        if (_starGuiderOffset is { } starGuiderOffset)
+
+        var diffX = 0.0;
+        var diffY = 0.0;
+        var count = 0;
+        foreach (var star in _trackedStars)
         {
-            if (starGuiderOffset.Offset(out var offset))
+            if (star is { MostRecentIsValid: true, ReferencePosition: { x: var ox, y: var oy } })
             {
-                OnNewOffsetFeedThreaded(offset);
+                diffX += star.TrackedStar.X - ox;
+                diffY += star.TrackedStar.Y - oy;
+                count++;
             }
+        }
+        if (count > 0)
+        {
+            var offset = (diffX / count, diffY / count);
+            OnNewOffsetFeedThreaded(offset);
         }
     }
 
@@ -460,7 +590,7 @@ internal sealed class Guider : IDisposable
                 if (_camera is { } c)
                     c.Camera.MoveNext -= CameraOnMoveNext;
                 foreach (var star in _trackedStars)
-                    star.Dispose();
+                    _starListPanel.Children.Remove(star.Control);
                 _trackedStars.Clear();
                 _camera = camera;
                 _camera.Camera.MoveNext += CameraOnMoveNext;
