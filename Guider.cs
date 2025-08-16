@@ -1,155 +1,223 @@
-using System.Diagnostics;
-using System.Globalization;
-using System.Numerics;
+using System.Diagnostics.CodeAnalysis;
 using Avalonia.Controls;
-using Avalonia.Layout;
 using Avalonia.Threading;
-using static Scopie.ExceptionReporter;
+using MathNet.Numerics.LinearAlgebra;
 using static Scopie.Ext;
 
 namespace Scopie;
 
-internal interface IGuiderOffset
+internal sealed class GuiderSettings
 {
-    (double x, double y) Offset(DeviceImage image);
+    // TODO: Autodetect exclusion zone radius (2x search radius?)
+    public double TrackedStarSearchRadius = 50;
+    public uint TrackedStarParabolaFitRadius = 2;
+    public double TrackedStarSigmaRejection = 5;
 }
 
-internal sealed class FftGuiderOffset : IGuiderOffset
+internal sealed class TrackedStar
 {
-    private readonly uint _size;
-    private readonly FFT2d _fft2d;
-    private readonly DeviceImage<Complex> _reference;
-    private readonly DeviceImage<Complex> _scratch;
+    private readonly GuiderSettings _guiderSettings;
+    public double X;
+    public double Y;
 
-    public FftGuiderOffset(uint size, DeviceImage reference)
+    public TrackedStar(GuiderSettings guiderSettings, double initialX, double initialY)
     {
-        size = Math.Min(size, 1u << BitOperations.Log2(Math.Min(reference.Width, reference.Height)));
-
-        _size = size;
-        _fft2d = new FFT2d(size, size);
-        _reference = new DeviceImage<Complex>(new Complex[size * size], size, size);
-        _scratch = new DeviceImage<Complex>(new Complex[size * size], size, size);
-        Crop(reference, _reference);
-        _fft2d.Run(_reference, _reference);
+        _guiderSettings = guiderSettings;
+        X = initialX;
+        Y = initialY;
     }
 
-    public (double x, double y) Offset(DeviceImage image)
+    public bool Update(DeviceImage imageGeneric, out double sigma)
     {
-        Crop(image, _scratch);
-        _fft2d.Run(_scratch, _scratch);
-        AutocorrelationMultiply(_scratch.Data, _reference.Data);
-        _fft2d.Run(_scratch, _scratch);
-        return FindPeak(_scratch);
-    }
+        if (imageGeneric is not DeviceImage<ushort> image)
+            throw new Exception("TrackedStar only operates on ushort images");
+        MaxSearchBox(image, X, Y, _guiderSettings.TrackedStarSearchRadius, out var maxPoint, out var maxValue, out var edgeStats);
+        sigma = (maxValue - edgeStats.Mean) / edgeStats.Stdev;
+        if (sigma < _guiderSettings.TrackedStarSigmaRejection)
+            return false;
+        var peak = FitParabola(image, maxPoint.x, maxPoint.y, _guiderSettings.TrackedStarParabolaFitRadius);
+        if (Dist(maxPoint.x, maxPoint.y, peak.x, peak.y) > _guiderSettings.TrackedStarParabolaFitRadius)
+            return false;
+        if (Dist(X, Y, peak.x, peak.y) > _guiderSettings.TrackedStarSearchRadius * 0.75)
+            return false;
 
-    private static void AutocorrelationMultiply(Complex[] left, Complex[] right)
-    {
-        Debug.Assert(left.Length == right.Length);
-        for (var i = 0; i < left.Length; i++)
-            left[i] *= Complex.Conjugate(right[i]);
-    }
+        X = peak.x;
+        Y = peak.y;
+        return true;
 
-    private void Crop(DeviceImage input, DeviceImage<Complex> output)
-    {
-        var startX = input.Width / 2 - _size / 2;
-        var startY = input.Height / 2 - _size / 2;
-        switch (input)
+        double Dist(double x1, double y1, double x2, double y2)
         {
-            case DeviceImage<ushort> inputU:
-            {
-                for (var dy = 0u; dy < _size; dy++)
-                    for (var dx = 0u; dx < _size; dx++)
-                        output[dx, dy] = inputU[startX + dx, startY + dy];
-                break;
-            }
-            case DeviceImage<byte> inputB:
-            {
-                for (var dy = 0u; dy < _size; dy++)
-                    for (var dx = 0u; dx < _size; dx++)
-                        output[dx, dy] = inputB[startX + dx, startY + dy];
-                break;
-            }
-            default:
-                throw new Exception("unsupported image type " + input.GetType());
+            var x = x2 - x1;
+            var y = y2 - y1;
+            return Math.Sqrt(x * x + y * y);
         }
     }
 
-    private static (double x, double y) FindPeak(DeviceImage<Complex> image)
+    private static void MaxSearchBox(DeviceImage<ushort> image, double guessX, double guessY, double searchRadius, out (uint x, uint y) coords, out ushort value, out MeanStdev edge)
     {
-        // Note: There is a strong tendency to align the noise patterns rather than the data patterns in astronomy images (i.e. returns nearly 0,0 offset).
-        // Wipe the data from 0,0 to hopefully reduce that.
-        NukeZeroZero(image);
-
-        var max = Max(image.Data);
-        var xInt = max % (int)image.Width;
-        var yInt = max / (int)image.Width;
-        var center = Index(image, xInt, yInt);
-        var x = xInt + CenterOfParabola(Index(image, xInt - 1, yInt), center, Index(image, xInt + 1, yInt));
-        var y = yInt + CenterOfParabola(Index(image, xInt, yInt - 1), center, Index(image, xInt, yInt + 1));
-        if (x > image.Width / 2.0)
-            x -= image.Width;
-        if (y > image.Height / 2.0)
-            y -= image.Height;
-        return (x, y);
-
-        static int Max(Complex[] data)
+        var searchBox = Box(image, guessX, guessY, searchRadius);
+        edge = new MeanStdev();
+        value = ushort.MinValue;
+        coords = (0, 0);
+        for (var y = searchBox.minY; y < searchBox.maxY; y++)
         {
-            var maxValue = double.MinValue;
-            var index = -1;
-            for (var i = 0; i < data.Length; i++)
+            for (var x = searchBox.minX; x < searchBox.maxX; x++)
             {
-                var v = data[i];
-                var v2 = v.Real * v.Real + v.Imaginary * v.Imaginary;
-                if (v2 > maxValue)
+                var v = image[x, y];
+                if (v > value)
                 {
-                    maxValue = v2;
-                    index = i;
+                    value = v;
+                    coords = (x, y);
                 }
+                if (x == searchBox.minX || x == searchBox.maxX || y == searchBox.minY || y == searchBox.maxY)
+                    edge.Feed(v);
             }
-            return index;
         }
+    }
 
-        static double Index(DeviceImage<Complex> image, int x, int y) => IndexC(image, x, y).Magnitude;
+    private static (uint minX, uint maxX, uint minY, uint maxY) Box(DeviceImage image, double centerX, double centerY, double radius)
+    {
+        return (
+            Clamp(centerX - radius, image.Width),
+            Clamp(centerX + radius, image.Width),
+            Clamp(centerY - radius, image.Height),
+            Clamp(centerY + radius, image.Height)
+        );
 
-        static Complex IndexC(DeviceImage<Complex> image, int x, int y)
+        uint Clamp(double value, uint size)
         {
-            x = x.Mod((int)image.Width);
-            y = y.Mod((int)image.Height);
-            return image[(uint)x, (uint)y];
+            if (value < 0)
+                return 0;
+            var val = (uint)value;
+            return val > size ? size : val;
         }
+    }
 
-        // given three points:
-        // (-1, n)
-        // (0, z)
-        // (1, p)
-        // return the X coordinate of the center of the parabola going through the three points
-        static double CenterOfParabola(double n, double z, double p) => (n - p) / (2 * (n + p - 2 * z));
+    private static (double x, double y) FitParabola(DeviceImage<ushort> image, uint centerX, uint centerY, uint radius)
+    {
+        var minX = Clamp(centerX, true, image.Width);
+        var maxX = Clamp(centerX, false, image.Width);
+        var minY = Clamp(centerY, true, image.Height);
+        var maxY = Clamp(centerY, false, image.Height);
 
-        static void NukeZeroZero(DeviceImage<Complex> image)
+        var rows = (maxX - minX) * (maxY - minY);
+        var matrix = CreateMatrix.Dense((int)rows, 4, new double[rows * 4]);
+        var vector = CreateVector.Dense(new double[rows * 4]);
+        var rowIndex = 0;
+        for (var y = minY; y < maxY; y++)
         {
-            var n1X = IndexC(image, -1, 0);
-            var n1Y = IndexC(image, 0, -1);
-            var p1X = IndexC(image, 1, 0);
-            var p1Y = IndexC(image, 0, 1);
-            var v = (n1X + n1Y + p1X + p1Y) * 0.25;
-            image[0, 0] = v;
+            for (var x = minX; x < maxX; x++)
+            {
+                var v = image[x, y];
+                var dx = (double)x - centerX;
+                var dy = (double)y - centerY;
+                matrix[rowIndex, 0] = dx;
+                matrix[rowIndex, 1] = dy;
+                matrix[rowIndex, 2] = -(x * x + y * y);
+                matrix[rowIndex, 3] = 1;
+                vector[rowIndex] = v;
+                rowIndex++;
+            }
+        }
+        var result = matrix.PseudoInverse() * vector;
+        var val_2ac = result[0];
+        var val_2ad = result[1];
+        var val_a = result[2];
+        var c = val_2ac / (2.0 * val_a);
+        var d = val_2ad / (2.0 * val_a);
+        return (centerX + c, centerX + d);
+
+        uint Clamp(uint center, bool sub, uint size)
+        {
+            if (sub)
+            {
+                if (center < radius)
+                    return 0;
+                return center - radius;
+            }
+            var v = center + radius;
+            return v > size ? size : v;
         }
     }
 }
 
-internal sealed class GuiderOffsetFeeder : CpuHeavySkippablePushProcessor<DeviceImage, (double x, double y)>
+internal sealed class TrackedStarUi : IDisposable
 {
-    private readonly IGuiderOffset _computer;
+    public TrackedStar TrackedStar;
+    public bool MostRecentIsValid { get; private set; }
 
-    public GuiderOffsetFeeder(IGuiderOffset computer, IPushEnumerable<DeviceImage> input) : base(input)
+    public TrackedStarUi()
     {
-        _computer = computer;
+        // TODO: Add way to create new tracked stars
+        // TODO: Add way to update the guess of tracked stars
+        // TODO: Create UI
     }
 
-    protected override bool ProcessSlowThreaded(DeviceImage item, out (double x, double y) result)
+    public void Update(DeviceImage image)
     {
-        var offset = _computer.Offset(item);
-        result = offset;
+        // TODO: If too many failures in a row, disable this tracked star
+        if (TrackedStar.Update(image, out var sigma))
+        {
+            MostRecentIsValid = true;
+        }
+        else
+        {
+            MostRecentIsValid = false;
+        }
+    }
+
+    public void Dispose()
+    {
+    }
+}
+
+internal sealed class StarGuiderOffset
+{
+    private readonly List<TrackedStarUi> _trackedStars;
+    private readonly Dictionary<TrackedStar, (double x, double y)> _initial;
+
+    public StarGuiderOffset(List<TrackedStarUi> trackedStars, Dictionary<TrackedStar, (double x, double y)> initial)
+    {
+        _trackedStars = trackedStars;
+        _initial = initial;
+    }
+
+    public static bool TryCreate(List<TrackedStarUi> trackedStars, [MaybeNullWhen(false)] out StarGuiderOffset result)
+    {
+        Dictionary<TrackedStar, (double x, double y)> initial = new();
+        foreach (var star in trackedStars)
+        {
+            if (!star.MostRecentIsValid)
+            {
+                result = null;
+                return false;
+            }
+            initial.Add(star.TrackedStar, (star.TrackedStar.X, star.TrackedStar.Y));
+        }
+        result = new StarGuiderOffset(trackedStars, initial);
+        return true;
+    }
+
+    public bool Offset(out (double x, double y) result)
+    {
+        var diffX = 0.0;
+        var diffY = 0.0;
+        var count = 0;
+        foreach (var star in _trackedStars)
+        {
+            if (star.MostRecentIsValid && _initial.TryGetValue(star.TrackedStar, out var original))
+            {
+                diffX += star.TrackedStar.X - original.x;
+                diffY += star.TrackedStar.Y - original.y;
+                count++;
+            }
+        }
+        if (count == 0)
+        {
+            result = default;
+            return false;
+        }
+        result = (diffX / count, diffY / count);
         return true;
     }
 }
@@ -169,8 +237,10 @@ internal sealed class Guider : IDisposable
     private readonly TextBlock _calibrationMatrixLabel = new() { Text = "Calibration matrix" };
     private CameraUiBag? _camera;
     private Mount? _mount;
-    private GuiderOffsetFeeder? _feeder;
     private (double x, double y) _currentOffset;
+
+    private StarGuiderOffset? _starGuiderOffset;
+    private List<TrackedStarUi> _trackedStars = [];
 
     // how many pixels moving one arcsecond in RA/Dec moves the image
     private (double x, double y) _calibrationRa;
@@ -196,7 +266,7 @@ internal sealed class Guider : IDisposable
         }));
 
         stackPanel.Children.Add(_semaphoreStatus);
-        stackPanel.Children.Add(Toggle("Reference frame", Begin));
+        stackPanel.Children.Add(FailableToggle("Reference frame", SetReferenceFrame));
         stackPanel.Children.Add(_guidingEnabled);
         stackPanel.Children.Add(new TextBlock { Text = "rate(arcsec/sec), time(sec)" });
         stackPanel.Children.Add(DoubleNumberInput("VSlew RA", (rate, time) => DoVariableSlew(true, rate, time)));
@@ -308,121 +378,31 @@ internal sealed class Guider : IDisposable
         }
     }
 
-    private Task<(double x, double y)> WaitForNextOffset()
+    // private Task<(double x, double y)> WaitForNextOffset()
+    // {
+    //     if (_feeder is not { } feeder)
+    //         return Task.FromResult(_currentOffset);
+
+    //     TaskCompletionSource<(double x, double y)> tcs = new();
+    //     feeder.MoveNext += FeederOnMoveNext;
+    //     return tcs.Task;
+
+    //     void FeederOnMoveNext((double x, double y) obj)
+    //     {
+    //         feeder.MoveNext -= FeederOnMoveNext;
+    //         tcs.SetResult(obj);
+    //     }
+    // }
+
+    private bool SetReferenceFrame(bool enabled)
     {
-        if (_feeder is not { } feeder)
-            return Task.FromResult(_currentOffset);
-
-        TaskCompletionSource<(double x, double y)> tcs = new();
-        feeder.MoveNext += FeederOnMoveNext;
-        return tcs.Task;
-
-        void FeederOnMoveNext((double x, double y) obj)
+        if (enabled && StarGuiderOffset.TryCreate(_trackedStars, out var starGuiderOffset))
         {
-            feeder.MoveNext -= FeederOnMoveNext;
-            tcs.SetResult(obj);
+            _starGuiderOffset = starGuiderOffset;
+            return true;
         }
-    }
-
-    private static StackPanel StringButtonInput(string buttonName, Func<string, Task> onSet)
-    {
-        var first = new TextBox();
-        var button = new Button { Content = buttonName };
-        button.Click += (_, _) =>
-        {
-            if (first.Text is { } text)
-                Try(onSet(text));
-        };
-
-        return new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Children =
-            {
-                first,
-                button
-            }
-        };
-    }
-
-    private static StackPanel DoubleNumberInput(string buttonName, Func<double, double, Task> onSet)
-    {
-        var first = new TextBox();
-        var second = new TextBox();
-        var button = new Button { Content = buttonName };
-        var reentrant = false;
-        first.TextChanged += TextChanged;
-        second.TextChanged += TextChanged;
-        button.Click += (_, _) =>
-        {
-            if (double.TryParse(first.Text, CultureInfo.InvariantCulture, out var f) && double.TryParse(second.Text, CultureInfo.InvariantCulture, out var s))
-                Try(onSet(f, s));
-        };
-
-        return new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Children =
-            {
-                first,
-                second,
-                button
-            }
-        };
-
-        void TextChanged(object? sender, TextChangedEventArgs e)
-        {
-            if (reentrant)
-                return;
-            try
-            {
-                reentrant = true;
-                var firstText = first.Text;
-                if (firstText != null)
-                {
-                    var idx = firstText.IndexOf(',');
-                    if (idx != -1)
-                    {
-                        first.Text = firstText[..idx].Trim();
-                        second.Text = firstText[(idx + 1)..].Trim();
-                        if (first.IsFocused)
-                            second.Focus();
-                    }
-                }
-
-                button.IsEnabled = double.TryParse(first.Text, out _) && double.TryParse(second.Text, out _);
-            }
-            finally
-            {
-                reentrant = false;
-            }
-        }
-    }
-
-    private void Begin(bool enabled)
-    {
-        if (enabled && _camera?.Camera.Current is { } reference)
-            Begin(new FftGuiderOffset(1 << 28, reference));
-        else
-            Begin(null);
-    }
-
-    private void Begin(IGuiderOffset? guiderOffset)
-    {
-        if (_feeder is { } feeder)
-        {
-            feeder.MoveNext -= OnNewOffsetFeedThreaded;
-            feeder.Dispose();
-        }
-
-        if (guiderOffset == null)
-            return;
-        var camera = _camera?.Camera;
-        if (camera?.Current == null)
-            return;
-        _feeder = new GuiderOffsetFeeder(guiderOffset, camera);
-        OnNewOffsetFeed(_feeder.Current);
-        _feeder.MoveNext += OnNewOffsetFeedThreaded;
+        _starGuiderOffset = null;
+        return false;
     }
 
     private void OnNewOffsetFeedThreaded((double x, double y) current)
@@ -442,7 +422,7 @@ internal sealed class Guider : IDisposable
             _currentSkyOffsetLabel.Text = $"offset: RA={Angle.FromDegrees(offset.x / (60 * 60)).FormatDegrees()}, Dec={Angle.FromDegrees(offset.y / (60 * 60)).FormatDegrees()}";
             if (_mount != null && _guidingEnabled.IsChecked == true)
             {
-                // go!
+                // TODO: go! (maybe threaded tho?)
                 return;
             }
         }
@@ -450,6 +430,21 @@ internal sealed class Guider : IDisposable
         if (_guidingEnabled.IsChecked == true)
         {
             _guidingEnabled.IsChecked = false;
+        }
+    }
+
+    private void CameraOnMoveNext(DeviceImage image)
+    {
+        foreach (var trackedStar in _trackedStars)
+        {
+            trackedStar.Update(image);
+        }
+        if (_starGuiderOffset is { } starGuiderOffset)
+        {
+            if (starGuiderOffset.Offset(out var offset))
+            {
+                OnNewOffsetFeedThreaded(offset);
+            }
         }
     }
 
@@ -462,7 +457,13 @@ internal sealed class Guider : IDisposable
             {
                 _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
                 _dockPanel.Children.Add(BitmapDisplay.Create(camera.BitmapProcessor));
+                if (_camera is { } c)
+                    c.Camera.MoveNext -= CameraOnMoveNext;
+                foreach (var star in _trackedStars)
+                    star.Dispose();
+                _trackedStars.Clear();
                 _camera = camera;
+                _camera.Camera.MoveNext += CameraOnMoveNext;
             }));
         }
     }
@@ -478,11 +479,8 @@ internal sealed class Guider : IDisposable
     {
         CameraUiBag.AllCamerasChanged -= RefreshCameraButtons;
         Mount.AllMountsChanged -= RefreshMountButtons;
-        if (_feeder is { } feeder)
-        {
-            feeder.MoveNext -= OnNewOffsetFeedThreaded;
-            feeder.Dispose();
-        }
+        if (_camera is { } camera)
+            camera.Camera.MoveNext -= CameraOnMoveNext;
         _semaphore.Dispose();
     }
 }

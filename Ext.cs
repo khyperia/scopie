@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Numerics;
 using Avalonia.Controls;
+using Avalonia.Layout;
+using static Scopie.ExceptionReporter;
 using static Scopie.Ext;
 
 namespace Scopie;
@@ -18,11 +21,114 @@ internal static class Ext
         return result;
     }
 
+    public static ToggleSwitch FailableToggle(string name, Func<bool, bool> checkedChange)
+    {
+        var result = new ToggleSwitch { OnContent = name, OffContent = name };
+        var reentrant = false;
+        result.IsCheckedChanged += (_, _) =>
+        {
+            if (reentrant)
+                return;
+            reentrant = true;
+            try
+            {
+                if (result.IsChecked is { } isChecked)
+                {
+                    var newValue = checkedChange(isChecked);
+                    if (newValue != isChecked)
+                    {
+                        result.IsChecked = newValue;
+                    }
+                }
+            }
+            finally
+            {
+                reentrant = false;
+            }
+        };
+        return result;
+    }
+
     public static Button Button(string name, Action click)
     {
         var result = new Button { Content = name };
         result.Click += (_, _) => click();
         return result;
+    }
+
+    public static StackPanel StringButtonInput(string buttonName, Func<string, Task> onSet)
+    {
+        var first = new TextBox();
+        var button = new Button { Content = buttonName };
+        button.Click += (_, _) =>
+        {
+            if (first.Text is { } text)
+                Try(onSet(text));
+        };
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children =
+            {
+                first,
+                button
+            }
+        };
+    }
+
+    public static StackPanel DoubleNumberInput(string buttonName, Func<double, double, Task> onSet)
+    {
+        var first = new TextBox();
+        var second = new TextBox();
+        var button = new Button { Content = buttonName };
+        var reentrant = false;
+        first.TextChanged += TextChanged;
+        second.TextChanged += TextChanged;
+        button.Click += (_, _) =>
+        {
+            if (double.TryParse(first.Text, CultureInfo.InvariantCulture, out var f) && double.TryParse(second.Text, CultureInfo.InvariantCulture, out var s))
+                Try(onSet(f, s));
+        };
+
+        return new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Children =
+            {
+                first,
+                second,
+                button
+            }
+        };
+
+        void TextChanged(object? sender, TextChangedEventArgs e)
+        {
+            if (reentrant)
+                return;
+            try
+            {
+                reentrant = true;
+                var firstText = first.Text;
+                if (firstText != null)
+                {
+                    var idx = firstText.IndexOf(',');
+                    if (idx != -1)
+                    {
+                        first.Text = firstText[..idx].Trim();
+                        second.Text = firstText[(idx + 1)..].Trim();
+                        if (first.IsFocused)
+                            second.Focus();
+                    }
+                }
+
+                button.IsEnabled = double.TryParse(first.Text, out _) && double.TryParse(second.Text, out _);
+            }
+            finally
+            {
+                reentrant = false;
+            }
+        }
     }
 
     public static int Mod(this int x, int y) => x >= 0 ? x % y : x % y + Math.Abs(y);
@@ -307,6 +413,26 @@ internal sealed class FFT
 
             twiddleIndex += N / 2;
         }
+    }
+}
+
+internal struct MeanStdev
+{
+    private int _count;
+    private double _mean;
+    private double _m2;
+
+    public double Mean => _mean;
+    public double Variance => _m2 / _count;
+    public double Stdev => Math.Sqrt(Variance);
+
+    public void Feed(double item)
+    {
+        _count += 1;
+        var delta = item - _mean;
+        _mean += delta / _count;
+        var delta2 = item - _mean;
+        _m2 += delta * delta2;
     }
 }
 
