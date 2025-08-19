@@ -19,6 +19,7 @@ internal sealed class CroppableImage : Panel
 
     public CroppableImage()
     {
+        RenderOptions.SetBitmapInterpolationMode(_image, BitmapInterpolationMode.None);
         _image.Source = _croppedBitmap;
         Children.Add(_image);
         Children.Add(_rectangle);
@@ -43,20 +44,31 @@ internal sealed class CroppableImage : Panel
     }
 
     public PixelRect CurrentCrop => _croppedBitmap.SourceRect;
+    public Size FullSize => _croppedBitmap.Source?.Size ?? new Size(0, 0);
 
     protected override Size MeasureOverride(Size availableSize)
     {
-        _image.Measure(availableSize);
-        _rectangle.Measure(availableSize);
-        return _image.DesiredSize;
+        Size? desiredSize = null;
+        foreach (var control in Children)
+        {
+            if (desiredSize is { } size)
+                control.Measure(size);
+            else
+            {
+                // First control is the image. Use its desired size for the rest.
+                control.Measure(availableSize);
+                desiredSize = control.DesiredSize;
+            }
+        }
+        return desiredSize ?? availableSize;
     }
 
     protected override Size ArrangeOverride(Size finalSize)
     {
         _image.Arrange(new Rect(new Point(0, 0), finalSize));
+        var bounds = _image.Bounds;
         if (_pressed.HasValue)
         {
-            var bounds = _image.Bounds;
             var rect = DragRect;
             _rectangle.Arrange(new Rect(rect.Position + bounds.Position, rect.Size));
             _rectangle.Stroke = Outline;
@@ -67,6 +79,8 @@ internal sealed class CroppableImage : Panel
             _rectangle.Stroke = null;
             _rectangle.Arrange(new Rect(new Point(0, 0), finalSize));
         }
+        for (var i = 2; i < Children.Count; i++)
+            Children[i].Arrange(bounds);
         return finalSize;
     }
 
@@ -79,6 +93,7 @@ internal sealed class CroppableImage : Panel
     private void ResetCropInternal()
     {
         _croppedBitmap.SourceRect = new PixelRect(0, 0, 0, 0);
+        InvalidateArrange();
         _image.InvalidateArrange(); // idk why needed
     }
 

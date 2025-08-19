@@ -19,7 +19,7 @@ internal static class BitmapDisplay
 
         void MoveNext(Bitmap bitmap)
         {
-            Dispatcher.UIThread.Invoke(() => image.Bitmap = bitmap);
+            Dispatcher.UIThread.Post(() => image.Bitmap = bitmap);
         }
     }
 }
