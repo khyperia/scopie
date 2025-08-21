@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Runtime.InteropServices.ComTypes;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using static Scopie.ExceptionReporter;
@@ -163,6 +164,70 @@ internal static class Ext
             finally
             {
                 reentrant = false;
+            }
+        }
+    }
+
+    public static StackPanel CameraSelector(string prefix, Action<CameraUiBag> onSelect)
+    {
+        var groupName = Guid.NewGuid().ToString();
+        CameraUiBag? mostRecentlySelected = null;
+        var stackPanel = new StackPanel();
+        stackPanel.AttachedToLogicalTree += (_, _) =>
+        {
+            Refresh();
+            CameraUiBag.AllCamerasChanged += Refresh;
+        };
+        stackPanel.DetachedFromLogicalTree += (_, _) => CameraUiBag.AllCamerasChanged -= Refresh;
+        return stackPanel;
+
+        void Refresh()
+        {
+            stackPanel.Children.Clear();
+            foreach (var camera in CameraUiBag.AllCameras)
+            {
+                var radio = new RadioButton { GroupName = groupName, Content = prefix + camera.Camera.CameraId.Id, IsChecked = camera == mostRecentlySelected };
+                radio.IsCheckedChanged += (_, _) =>
+                {
+                    if (radio.IsChecked is true && mostRecentlySelected != camera)
+                    {
+                        mostRecentlySelected = camera;
+                        onSelect(camera);
+                    }
+                };
+                stackPanel.Children.Add(radio);
+            }
+        }
+    }
+
+    public static StackPanel MountSelector(string prefix, Action<Mount> onSelect)
+    {
+        var groupName = Guid.NewGuid().ToString();
+        Mount? mostRecentlySelected = null;
+        var stackPanel = new StackPanel();
+        stackPanel.AttachedToLogicalTree += (_, _) =>
+        {
+            Refresh();
+            Mount.AllMountsChanged += Refresh;
+        };
+        stackPanel.DetachedFromLogicalTree += (_, _) => Mount.AllMountsChanged -= Refresh;
+        return stackPanel;
+
+        void Refresh()
+        {
+            stackPanel.Children.Clear();
+            foreach (var mount in Mount.AllMounts)
+            {
+                var radio = new RadioButton { GroupName = groupName, Content = prefix + mount.Name, IsChecked = mount == mostRecentlySelected };
+                radio.IsCheckedChanged += (_, _) =>
+                {
+                    if (radio.IsChecked is true && mostRecentlySelected != mount)
+                    {
+                        mostRecentlySelected = mount;
+                        onSelect(mount);
+                    }
+                };
+                stackPanel.Children.Add(radio);
             }
         }
     }

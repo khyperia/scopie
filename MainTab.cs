@@ -132,7 +132,7 @@ internal sealed class MainTab
             try
             {
                 var res = await task;
-                res.DetachedFromVisualTree += (_, _) => disposable.Dispose();
+                res.DetachedFromLogicalTree += (_, _) => disposable.Dispose();
                 _tabs.Items.Add(res);
             }
             catch when (DoDispose())
@@ -153,7 +153,7 @@ internal sealed class MainTab
             try
             {
                 var res = task();
-                res.DetachedFromVisualTree += (_, _) => disposable.Dispose();
+                res.DetachedFromLogicalTree += (_, _) => disposable.Dispose();
                 _tabs.Items.Add(res);
             }
             catch when (DoDispose())

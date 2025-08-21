@@ -46,6 +46,20 @@ internal sealed class CroppableImage : Panel
     public PixelRect CurrentCrop => _croppedBitmap.SourceRect;
     public Size FullSize => _croppedBitmap.Source?.Size ?? new Size(0, 0);
 
+    public Matrix ImageToScreen
+    {
+        get
+        {
+            var renderSize = Bounds.Size;
+            var imageSize = FullSize;
+            var crop = CurrentCrop;
+            if (crop.Width <= 0 || crop.Height <= 0)
+                crop = new PixelRect(0, 0, (int)imageSize.Width, (int)imageSize.Height);
+            // The 0.5 is due to avalonia having the top left of a pixel be the coordinate. We want the middle of the pixel instead.
+            return Matrix.CreateTranslation(-crop.X + 0.5, -crop.Y + 0.5) * Matrix.CreateScale(renderSize.Width / crop.Width, renderSize.Height / crop.Height);
+        }
+    }
+
     protected override Size MeasureOverride(Size availableSize)
     {
         Size? desiredSize = null;
@@ -111,6 +125,7 @@ internal sealed class CroppableImage : Panel
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
+        Console.WriteLine("CroppableImage.OnPointerPressed");
         _pressed = _current = e.GetPosition(_image);
         InvalidateArrange();
         base.OnPointerPressed(e);

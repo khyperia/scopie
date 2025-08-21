@@ -2,6 +2,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using MathNet.Numerics.LinearAlgebra;
@@ -11,7 +13,6 @@ namespace Scopie;
 
 internal sealed class GuiderSettings
 {
-    // TODO: Autodetect exclusion zone radius (2x search radius?)
     public uint AutodetectExclusionZone = 100;
     public double AutodetectMaximumBrightnessPercent = 0.9;
     public double TrackedStarSearchRadius = 50;
@@ -253,8 +254,6 @@ internal sealed class Guider : IDisposable
     private readonly SemaphoreSlim _semaphore = new(1);
     private readonly TextBlock _semaphoreStatus = new();
     private readonly DockPanel _dockPanel = new();
-    private readonly StackPanel _cameraButtons = new();
-    private readonly StackPanel _mountButtons = new();
     private readonly ToggleSwitch _guidingEnabled = new() { OnContent = "guiding enabled", OffContent = "guiding disabled" };
     private readonly TextBlock _currentPixelOffsetLabel = new() { Text = "pixel offset:" };
     private readonly TextBlock _currentSkyOffsetLabel = new() { Text = "offset:" };
@@ -263,6 +262,7 @@ internal sealed class Guider : IDisposable
     private readonly TextBlock _calibrationMatrixLabel = new() { Text = "Calibration matrix" };
     public readonly GuiderSettings GuiderSettings = new();
     private readonly StackPanel _starListPanel = new();
+    private readonly ToggleSwitch _addStarToggle = new() { OnContent = "Click to add star", OffContent = "Add star" };
     private GuiderOverlay? _guiderOverlay;
     private CameraUiBag? _camera;
     private Mount? _mount;
@@ -278,13 +278,8 @@ internal sealed class Guider : IDisposable
     {
         var stackPanel = new StackPanel();
 
-        RefreshCameraButtons();
-        CameraUiBag.AllCamerasChanged += RefreshCameraButtons;
-        stackPanel.Children.Add(_cameraButtons);
-
-        RefreshMountButtons();
-        Mount.AllMountsChanged += RefreshMountButtons;
-        stackPanel.Children.Add(_mountButtons);
+        stackPanel.Children.Add(CameraSelector("view ", SelectCamera));
+        stackPanel.Children.Add(MountSelector("use mount ", m => _mount = m));
 
         stackPanel.Children.Add(Button("Reset crop", () =>
         {
@@ -311,6 +306,7 @@ internal sealed class Guider : IDisposable
         stackPanel.Children.Add(_calibrationDecLabel);
         stackPanel.Children.Add(_calibrationMatrixLabel);
         stackPanel.Children.Add(_starListPanel);
+        stackPanel.Children.Add(_addStarToggle);
 
         _dockPanel.LastChildFill = true;
         _dockPanel.Children.Clear();
@@ -598,39 +594,32 @@ internal sealed class Guider : IDisposable
         _guiderOverlay?.InvalidateVisual();
     }
 
-    private void RefreshCameraButtons()
+    private void SelectCamera(CameraUiBag camera)
     {
-        _cameraButtons.Children.Clear();
-        foreach (var camera in CameraUiBag.AllCameras)
+        _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
+        var croppableImage = BitmapDisplay.Create(camera.BitmapProcessor);
+        croppableImage.Children.Add(_guiderOverlay = new GuiderOverlay(this, croppableImage));
+        croppableImage.AddHandler(InputElement.PointerPressedEvent, (o, args) =>
         {
-            _cameraButtons.Children.Add(Button($"view {camera.Camera.CameraId.Id}", () =>
+            if (_addStarToggle.IsChecked is true)
             {
-                _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
-                var croppableImage = BitmapDisplay.Create(camera.BitmapProcessor);
-                croppableImage.Children.Add(_guiderOverlay = new GuiderOverlay(this, croppableImage));
-                _dockPanel.Children.Add(croppableImage);
-                if (_camera is { } c)
-                    c.Camera.MoveNext -= CameraOnMoveNext;
-                foreach (var star in TrackedStars)
-                    _starListPanel.Children.Remove(star.Control);
-                TrackedStars.Clear();
-                _camera = camera;
-                _camera.Camera.MoveNext += CameraOnMoveNext;
-            }));
-        }
-    }
-
-    private void RefreshMountButtons()
-    {
-        _mountButtons.Children.Clear();
-        foreach (var mount in Mount.AllMounts)
-            _mountButtons.Children.Add(Button($"use mount {mount.Name}", () => _mount = mount));
+                args.Handled = true;
+                var coords = croppableImage.
+                Console.WriteLine("GuiderOverlay PointerPressedEvent");
+            }
+        }, routes: RoutingStrategies.Tunnel);
+        _dockPanel.Children.Add(croppableImage);
+        if (_camera is { } c)
+            c.Camera.MoveNext -= CameraOnMoveNext;
+        foreach (var star in TrackedStars)
+            _starListPanel.Children.Remove(star.Control);
+        TrackedStars.Clear();
+        _camera = camera;
+        _camera.Camera.MoveNext += CameraOnMoveNext;
     }
 
     public void Dispose()
     {
-        CameraUiBag.AllCamerasChanged -= RefreshCameraButtons;
-        Mount.AllMountsChanged -= RefreshMountButtons;
         if (_camera is { } camera)
             camera.Camera.MoveNext -= CameraOnMoveNext;
         _semaphore.Dispose();

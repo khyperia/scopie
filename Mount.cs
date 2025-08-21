@@ -14,7 +14,6 @@ namespace Scopie;
 internal sealed class Mount : IDisposable
 {
     private readonly SerialPort _port;
-    private readonly StackPanel _cameraButtons = new();
     private readonly DockPanel _dockPanel = new();
     private Threadling? _threadling;
     private CameraUiBag? _currentlyDisplaying;
@@ -110,9 +109,12 @@ internal sealed class Mount : IDisposable
 
         SlewButtons(stackPanel);
 
-        RefreshCameraButtons();
-        CameraUiBag.AllCamerasChanged += RefreshCameraButtons;
-        stackPanel.Children.Add(_cameraButtons);
+        stackPanel.Children.Add(CameraSelector("view ", camera =>
+        {
+            _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
+            _dockPanel.Children.Add(BitmapDisplay.Create(camera.BitmapProcessor));
+            _currentlyDisplaying = camera;
+        }));
 
         stackPanel.Children.Add(Button("Reset crop", () =>
         {
@@ -259,26 +261,11 @@ internal sealed class Mount : IDisposable
         stackPanel.Children.Add(decMinus);
     }
 
-    private void RefreshCameraButtons()
-    {
-        _cameraButtons.Children.Clear();
-        foreach (var camera in CameraUiBag.AllCameras)
-        {
-            _cameraButtons.Children.Add(Button($"view {camera.Camera.CameraId.Id}", () =>
-            {
-                _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
-                _dockPanel.Children.Add(BitmapDisplay.Create(camera.BitmapProcessor));
-                _currentlyDisplaying = camera;
-            }));
-        }
-    }
-
     public void Dispose()
     {
         AllMounts.Remove(this);
         AllMountsChanged?.Invoke();
 
-        CameraUiBag.AllCamerasChanged -= RefreshCameraButtons;
         if (_threadling != null)
         {
             _threadling.Do(() =>
