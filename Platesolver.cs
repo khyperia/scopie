@@ -12,6 +12,7 @@ namespace Scopie;
 
 internal sealed class Platesolver
 {
+    private readonly Solver _solver;
     private readonly TextBlock _results;
     private readonly StackPanel _copy;
     private (Angle ra, Angle dec)? _coords;
@@ -20,6 +21,9 @@ internal sealed class Platesolver
 
     public Platesolver(StackPanel stackPanel, Func<DeviceImage?> getDeviceImage)
     {
+        string Db([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "watneyqdb-00-07-20-v3");
+        _solver = new Solver().UseQuadDatabase(new CompactQuadDatabase().UseDataSource(Db()));
+
         var platesolve = new Button { Content = "Platesolve" };
         platesolve.Click += (_, _) =>
         {
@@ -91,9 +95,6 @@ internal sealed class Platesolver
 
     private async Task Platesolve(DeviceImage image)
     {
-        string Db([CallerFilePath] string? s = null) => Path.Combine(Path.GetDirectoryName(s) ?? throw new(), "watneyqdb-00-07-20-v3");
-        var database = new CompactQuadDatabase().UseDataSource(Db());
-        var solver = new Solver().UseQuadDatabase(database);
         var strat = new BlindSearchStrategy(new BlindSearchStrategyOptions
         {
             StartRadiusDegrees = 0.9f,
@@ -106,7 +107,7 @@ internal sealed class Platesolver
             UseMaxStars = 300,
             UseSampling = 16,
         };
-        var result = await solver.SolveFieldAsync(image, strat, options, CancellationToken.None);
+        var result = await _solver.SolveFieldAsync(image, strat, options, CancellationToken.None);
         if (!result.Success)
         {
             _results.Text = "Failed to platesolve";

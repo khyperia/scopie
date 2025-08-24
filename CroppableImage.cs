@@ -46,11 +46,13 @@ internal sealed class CroppableImage : Panel
     public PixelRect CurrentCrop => _croppedBitmap.SourceRect;
     public Size FullSize => _croppedBitmap.Source?.Size ?? new Size(0, 0);
 
+    public Visual ImageToScreenReference => _image;
+
     public Matrix ImageToScreen
     {
         get
         {
-            var renderSize = Bounds.Size;
+            var renderSize = _image.Bounds.Size;
             var imageSize = FullSize;
             var crop = CurrentCrop;
             if (crop.Width <= 0 || crop.Height <= 0)
@@ -125,7 +127,6 @@ internal sealed class CroppableImage : Panel
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        Console.WriteLine("CroppableImage.OnPointerPressed");
         _pressed = _current = e.GetPosition(_image);
         InvalidateArrange();
         base.OnPointerPressed(e);

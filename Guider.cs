@@ -42,7 +42,7 @@ internal sealed class TrackedStar
         sigma = MinSigma(image, maxPoint.x, maxPoint.y, edgeStats.Mean, edgeStats.Stdev, 1);
         if (sigma < _guiderSettings.TrackedStarSigmaRejection)
         {
-            failureReason = "bad sigma";
+            failureReason = $"bad sigma ({sigma:F2})";
             return false;
         }
         var peak = FitParabola(image, maxPoint.x, maxPoint.y, _guiderSettings.TrackedStarParabolaFitRadius);
@@ -263,6 +263,7 @@ internal sealed class Guider : IDisposable
     public readonly GuiderSettings GuiderSettings = new();
     private readonly StackPanel _starListPanel = new();
     private readonly ToggleSwitch _addStarToggle = new() { OnContent = "Click to add star", OffContent = "Add star" };
+    private readonly ToggleSwitch _removeStarToggle = new() { OnContent = "Click to remove star", OffContent = "Remove star" };
     private GuiderOverlay? _guiderOverlay;
     private CameraUiBag? _camera;
     private Mount? _mount;
@@ -307,6 +308,7 @@ internal sealed class Guider : IDisposable
         stackPanel.Children.Add(_calibrationMatrixLabel);
         stackPanel.Children.Add(_starListPanel);
         stackPanel.Children.Add(_addStarToggle);
+        stackPanel.Children.Add(_removeStarToggle);
 
         _dockPanel.LastChildFill = true;
         _dockPanel.Children.Clear();
@@ -526,6 +528,28 @@ internal sealed class Guider : IDisposable
         }
     }
 
+    private void RemoveStarAt(double coordsX, double coordsY)
+    {
+        var closestDistance = double.MaxValue;
+        TrackedStarUi? closest = null;
+        foreach (var star in TrackedStars)
+        {
+            var offX = star.TrackedStar.X - coordsX;
+            var offY = star.TrackedStar.Y - coordsY;
+            var dist = Math.Sqrt(offX * offX + offY * offY);
+            if (dist < closestDistance)
+            {
+                closestDistance = dist;
+                closest = star;
+            }
+        }
+        if (closest == null)
+            return;
+        TrackedStars.Remove(closest);
+        _starListPanel.Children.Remove(closest.Control);
+        RedrawOverlay();
+    }
+
     private void OnNewOffsetFeedThreaded((double x, double y) current)
     {
     }
@@ -599,13 +623,23 @@ internal sealed class Guider : IDisposable
         _dockPanel.Children.RemoveRange(1, _dockPanel.Children.Count - 1);
         var croppableImage = BitmapDisplay.Create(camera.BitmapProcessor);
         croppableImage.Children.Add(_guiderOverlay = new GuiderOverlay(this, croppableImage));
-        croppableImage.AddHandler(InputElement.PointerPressedEvent, (o, args) =>
+        croppableImage.AddHandler(InputElement.PointerPressedEvent, (_, args) =>
         {
-            if (_addStarToggle.IsChecked is true)
+            if (_addStarToggle.IsChecked is true && camera.Camera.Current is { } current)
             {
                 args.Handled = true;
-                var coords = croppableImage.
-                Console.WriteLine("GuiderOverlay PointerPressedEvent");
+                _addStarToggle.IsChecked = false;
+                var position = args.GetPosition(croppableImage.ImageToScreenReference);
+                var coords = position * croppableImage.ImageToScreen.Invert();
+                TryAddStarAt(current, coords.X, coords.Y);
+            }
+            else if (_removeStarToggle.IsChecked is true)
+            {
+                args.Handled = true;
+                _removeStarToggle.IsChecked = false;
+                var position = args.GetPosition(croppableImage.ImageToScreenReference);
+                var coords = position * croppableImage.ImageToScreen.Invert();
+                RemoveStarAt(coords.X, coords.Y);
             }
         }, routes: RoutingStrategies.Tunnel);
         _dockPanel.Children.Add(croppableImage);
@@ -645,13 +679,8 @@ internal class GuiderOverlay : Control
     public override void Render(DrawingContext context)
     {
         base.Render(context);
-        var renderSize = Bounds.Size;
+        var imageToScreen = _image.ImageToScreen;
         var imageSize = _image.FullSize;
-        var crop = _image.CurrentCrop;
-        if (crop.Width <= 0 || crop.Height <= 0)
-            crop = new PixelRect(0, 0, (int)imageSize.Width, (int)imageSize.Height);
-        // The 0.5 is due to avalonia having the top left of a pixel be the coordinate. We want the middle of the pixel instead.
-        var imageToScreen = Matrix.CreateTranslation(-crop.X + 0.5, -crop.Y + 0.5) * Matrix.CreateScale(renderSize.Width / crop.Width, renderSize.Height / crop.Height);
         foreach (var star in _guider.TrackedStars)
         {
             var actual = new Point(star.TrackedStar.X, star.TrackedStar.Y) * imageToScreen;
