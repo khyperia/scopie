@@ -200,10 +200,7 @@ internal sealed class TrackedStarUi
     public TrackedStarUi(TrackedStar trackedStar)
     {
         TrackedStar = trackedStar;
-        // TODO: Add way to create new tracked stars
         // TODO: Add way to update the guess of tracked stars
-        // TODO: Create UI
-        // TODO: Button to remove
         // TODO: Button to temp disable
         // TODO: Button to re-enable?
         _stackPanel = new StackPanel();
@@ -306,6 +303,25 @@ internal sealed class Guider : IDisposable
         stackPanel.Children.Add(_calibrationRaLabel);
         stackPanel.Children.Add(_calibrationDecLabel);
         stackPanel.Children.Add(_calibrationMatrixLabel);
+        foreach (var field in GuiderSettings.GetType().GetFields())
+        {
+            var tb = new TextBlock { Text = $"{field.GetValue(GuiderSettings)}" };
+            StackPanel sp;
+            if (field.FieldType == typeof(uint))
+                sp = ParsedInput(field.Name, (Action<uint>)F);
+            else if (field.FieldType == typeof(double))
+                sp = ParsedInput(field.Name, (Action<double>)F);
+            else
+                throw new ArgumentOutOfRangeException($"type {field.FieldType} on field {field} not implemented");
+            sp.Children.Insert(0, tb);
+            stackPanel.Children.Add(sp);
+
+            void F<T>(T t)
+            {
+                field.SetValue(GuiderSettings, t);
+                tb.Text = $"{t}";
+            }
+        }
         stackPanel.Children.Add(_starListPanel);
         stackPanel.Children.Add(_addStarToggle);
         stackPanel.Children.Add(_removeStarToggle);
@@ -317,11 +333,7 @@ internal sealed class Guider : IDisposable
 
         OnNewOffsetFeed((0, 0));
 
-        return new TabItem
-        {
-            Header = "Guider",
-            Content = _dockPanel,
-        };
+        return Tab("Guider", _dockPanel);
     }
 
     private async Task<Locker> LockAsync()

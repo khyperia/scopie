@@ -230,6 +230,8 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
     {
         if (_exposing)
         {
+            // TODO: Progress bar (GetQHYCCDExposureRemaining)
+            // GetQHYCCDExposureRemaining might return percentage, not time? (from google)
             var image = ExposeSingle();
             Push(image);
         }

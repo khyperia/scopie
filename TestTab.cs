@@ -19,10 +19,9 @@ internal static class TestTab
         var croppableImage = BitmapDisplay.Create(bitmapProcessor);
         stackPanel.Children.Add(Button("Reset crop", croppableImage.ResetCrop));
 
-        return new TabItem
-        {
-            Header = "Test tab",
-            Content = new DockPanel
+        return Tab(
+            "Test tab",
+            new DockPanel
             {
                 LastChildFill = true,
                 Children =
@@ -31,7 +30,7 @@ internal static class TestTab
                     croppableImage,
                 }
             }
-        };
+        );
     }
 
     public sealed class DebugPushEnumerable<T> : PushEnumerable<T>

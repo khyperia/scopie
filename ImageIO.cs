@@ -16,6 +16,7 @@ internal static class ImageIO
                 using var imageSharp = Image.LoadPixelData(MemoryMarshal.Cast<ushort, L16>((ReadOnlySpan<ushort>)image16.Data), (int)image16.Width, (int)image16.Height);
                 using var file = CreateFile();
                 imageSharp.Save(file, new PngEncoder { CompressionLevel = PngCompressionLevel.BestCompression });
+                Console.WriteLine($"Saved {file.Name}");
                 break;
             }
             case DeviceImage<byte> image8:
@@ -23,6 +24,7 @@ internal static class ImageIO
                 using var imageSharp = Image.LoadPixelData(MemoryMarshal.Cast<byte, L8>((ReadOnlySpan<byte>)image8.Data), (int)image8.Width, (int)image8.Height);
                 using var file = CreateFile();
                 imageSharp.Save(file, new PngEncoder { CompressionLevel = PngCompressionLevel.BestCompression });
+                Console.WriteLine($"Saved {file.Name}");
                 break;
             }
             default:

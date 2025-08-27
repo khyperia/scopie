@@ -33,6 +33,7 @@ internal sealed class MainTab
 
     private void Scan(bool startup)
     {
+        // TODO: Close tab button
         var cameras = startup ? [] : Camera.Scan();
         _connectButtons.Children.Clear();
 

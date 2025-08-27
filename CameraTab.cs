@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using static Scopie.Ext;
 
 namespace Scopie;
 
@@ -9,10 +10,9 @@ internal static class CameraTab
         var croppableImage = BitmapDisplay.Create(cameraUiBag.BitmapProcessor);
         var cameraControlUi = await CameraControlUi.Create(cameraUiBag.Camera, cameraUiBag.ImageProcessor, croppableImage);
 
-        return new TabItem
-        {
-            Header = cameraUiBag.Camera.CameraId.Id,
-            Content = new DockPanel
+        return Tab(
+            cameraUiBag.Camera.CameraId.Id,
+            new DockPanel
             {
                 LastChildFill = true,
                 Children =
@@ -21,6 +21,6 @@ internal static class CameraTab
                     croppableImage,
                 }
             }
-        };
+        );
     }
 }

@@ -36,6 +36,7 @@ internal sealed class CameraControlUi(ICamera camera)
             stackPanel.Children.Add(Button("Debug expose", () => debugCamera.Push(1)));
             stackPanel.Children.Add(Button("Debug 100 expose", () => debugCamera.Push(100)));
         }
+        // TODO: Save folder
         stackPanel.Children.Add(Toggle("Save", self.SetSave));
         stackPanel.Children.Add(Toggle("Sort stretch", v => imageProcessor.SortStretch = v));
         stackPanel.Children.Add(Button("Reset crop", () =>

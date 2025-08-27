@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
-using System.Runtime.InteropServices.ComTypes;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using static Scopie.ExceptionReporter;
@@ -57,6 +56,31 @@ internal static class Ext
         return result;
     }
 
+    public static TabItem Tab(string name, object content)
+    {
+        var tab = new TabItem
+        {
+            Content = content
+        };
+        var button = Button("X", () =>
+        {
+            if (tab.Parent is ItemsControl control)
+            {
+                control.Items.Remove(tab);
+            }
+        });
+        button[DockPanel.DockProperty] = Dock.Right;
+        tab.Header = new DockPanel
+        {
+            Children =
+            {
+                button,
+                new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center },
+            }
+        };
+        return tab;
+    }
+
     public static StackPanel StringButtonInput(string buttonName, Func<string, Task> onSet)
     {
         var first = new TextBox();
@@ -81,6 +105,9 @@ internal static class Ext
     public delegate bool TryParse<T>(string s, CultureInfo c, out T res);
 
     public static StackPanel ParsedInput(string buttonName, Action<int> onSet) => ParsedInput(buttonName, int.TryParse, onSet);
+    public static StackPanel ParsedInput(string buttonName, Action<uint> onSet) => ParsedInput(buttonName, uint.TryParse, onSet);
+    public static StackPanel ParsedInput(string buttonName, Action<float> onSet) => ParsedInput(buttonName, float.TryParse, onSet);
+    public static StackPanel ParsedInput(string buttonName, Action<double> onSet) => ParsedInput(buttonName, double.TryParse, onSet);
 
     private static StackPanel ParsedInput<T>(string buttonName, TryParse<T> parse, Action<T> onSet)
     {

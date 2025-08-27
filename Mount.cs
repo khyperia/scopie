@@ -140,18 +140,13 @@ internal sealed class Mount : IDisposable
         AllMounts.Add(this);
         AllMountsChanged?.Invoke();
 
-        return new TabItem
-        {
-            Header = "Mount",
-            Content = _dockPanel,
-        };
+        return Tab("Mount", _dockPanel);
 
         void SetSlewOffset(Angle ra, Angle dec)
         {
             _slewOffset = (ra, dec);
             slewOffset.Text = $"slew offset: {ra.FormatHours()} {dec.FormatDegrees()}";
         }
-
 
         IdleActionResult UpdateStatus()
         {
