@@ -1,4 +1,3 @@
-using System.Text;
 using Avalonia;
 using Avalonia.Threading;
 using static Scopie.ExceptionReporter;
@@ -7,6 +6,8 @@ using static Scopie.LibQhy;
 namespace Scopie;
 
 internal record struct ScanResult(string Id, string Model);
+internal record struct ChipInfo(double ChipWidth, double ChipHeight, uint ImageWidth, uint ImageHeight, double PixelWidth, double PixelHeight, uint BitsPerPixel);
+internal record struct EffectiveArea(uint EffectiveStartX, uint EffectiveStartY, uint EffectiveSizeX, uint EffectiveSizeY);
 
 internal interface ICamera : IPushEnumerable<DeviceImage>, IDisposable
 {
@@ -14,8 +15,8 @@ internal interface ICamera : IPushEnumerable<DeviceImage>, IDisposable
     event Action<List<CameraControlValue>>? OnControlsUpdated;
     bool Exposing { set; }
     Task Init();
-    Task<(double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel)> GetChipInfoAsync();
-    Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync();
+    Task<ChipInfo> GetChipInfoAsync();
+    Task<EffectiveArea> GetEffectiveAreaAsync();
     Task<string> GetFastReadoutStatusAsync();
     Task<string> GetSdkVersionAsync();
     Task<string> GetFirmwareVersionAsync();
@@ -57,13 +58,15 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
         if (scan > int.MaxValue)
             Check(scan);
         List<ScanResult> result = [];
-        StringBuilder sb = new(256);
+        var buffer = new byte[256];
         for (var i = 0u; i < scan; i++)
         {
-            Check(GetQHYCCDId(i, sb));
-            var id = sb.ToString();
-            Check(GetQHYCCDModel(id, sb));
-            var model = sb.ToString();
+            Array.Clear(buffer);
+            Check(GetQHYCCDId(i, buffer));
+            var id = Ext.ByteArrayToString(buffer);
+            Array.Clear(buffer);
+            Check(GetQHYCCDModel(id, buffer));
+            var model = Ext.ByteArrayToString(buffer);
             result.Add(new ScanResult(id, model));
         }
 
@@ -76,26 +79,26 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
         _threadling.IdleAction = IdleAction;
     }
 
-    public Task<(double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel)> GetChipInfoAsync()
+    public Task<ChipInfo> GetChipInfoAsync()
     {
         return _threadling.Do(GetChipInfo);
     }
 
-    private (double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel) GetChipInfo()
+    private ChipInfo GetChipInfo()
     {
         Check(GetQHYCCDChipInfo(_qhyHandle, out var chipWidth, out var chipHeight, out var imageWidth, out var imageHeight, out var pixelWidth, out var pixelHeight, out var bitsPerPixel));
-        return (chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel);
+        return new(chipWidth, chipHeight, imageWidth, imageHeight, pixelWidth, pixelHeight, bitsPerPixel);
     }
 
-    public Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync()
+    public Task<EffectiveArea> GetEffectiveAreaAsync()
     {
         return _threadling.Do(GetEffectiveArea);
     }
 
-    private (uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY) GetEffectiveArea()
+    private EffectiveArea GetEffectiveArea()
     {
         Check(GetQHYCCDEffectiveArea(_qhyHandle, out var effectiveStartX, out var effectiveStartY, out var effectiveSizeX, out var effectiveSizeY));
-        return (effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY);
+        return new(effectiveStartX, effectiveStartY, effectiveSizeX, effectiveSizeY);
     }
 
     public Task<string> GetFastReadoutStatusAsync()
@@ -113,12 +116,14 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
         }
 
         Check(GetQHYCCDNumberOfReadModes(_qhyHandle, out var modes));
-        StringBuilder sb = new(256);
+        var buffer = new byte[256];
         return string.Join(" - ", Enumerable.Range(0, (int)modes)
             .Select(i =>
             {
-                Check(GetQHYCCDReadModeName(_qhyHandle, (uint)i, sb));
-                return $"camera read mode {i} = {sb}";
+                Array.Clear(buffer);
+                Check(GetQHYCCDReadModeName(_qhyHandle, (uint)i, buffer));
+                var mode = Ext.ByteArrayToString(buffer);
+                return $"camera read mode {i} = {mode}";
             }));
     }
 
@@ -221,8 +226,8 @@ internal sealed class Camera(ScanResult cameraId) : PushEnumerable<DeviceImage>,
         return _threadling.Do(() =>
         {
             var chipInfo = GetChipInfo();
-            Console.WriteLine($"Resetting crop to {chipInfo.imageWidth},{chipInfo.imageHeight}");
-            Check(SetQHYCCDResolution(_qhyHandle, 0, 0, chipInfo.imageWidth, chipInfo.imageHeight));
+            Console.WriteLine($"Resetting crop to {chipInfo.ImageWidth},{chipInfo.ImageHeight}");
+            Check(SetQHYCCDResolution(_qhyHandle, 0, 0, chipInfo.ImageWidth, chipInfo.ImageHeight));
         });
     }
 

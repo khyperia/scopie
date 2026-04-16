@@ -50,7 +50,7 @@ internal sealed class MainTab
         var debugDirectory = DebugDirectory();
         if (Directory.Exists(debugDirectory))
         {
-            AddCameraButton("debug camera many", () => new DebugCamera(Directory.EnumerateFiles(debugDirectory).Select(ImageIO.Load).ToArray()));
+            AddCameraButton("debug camera many", () => new DebugCamera([.. Directory.EnumerateFiles(debugDirectory).Select(ImageIO.Load)]));
         }
 
         foreach (var camera in cameras)

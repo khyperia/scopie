@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Numerics;
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using static Scopie.ExceptionReporter;
@@ -259,6 +260,19 @@ internal static class Ext
         }
     }
 
+    public static string ByteArrayToString(byte[] array)
+    {
+        var index = Array.IndexOf(array, 0);
+        if (index >= 0)
+        {
+            return Encoding.UTF8.GetString(array, 0, index);
+        }
+        else
+        {
+            return Encoding.UTF8.GetString(array);
+        }
+    }
+
     public static int Mod(this int x, int y) => x >= 0 ? x % y : x % y + Math.Abs(y);
     public static double Mod(this double x, double y) => x >= 0 ? x % y : x % y + Math.Abs(y);
 
@@ -270,20 +284,14 @@ internal static class Ext
 
     internal struct SemaphoreDisposer(SemaphoreSlim semaphore) : IDisposable
     {
-        public void Dispose() => semaphore.Release();
+        public readonly void Dispose() => semaphore.Release();
     }
 }
 
-internal sealed class FFT2d
+internal sealed class FFT2d(uint width, uint height)
 {
-    private readonly FFT _fftX;
-    private readonly FFT _fftY;
-
-    public FFT2d(uint width, uint height)
-    {
-        _fftX = new FFT(width);
-        _fftY = new FFT(height);
-    }
+    private readonly FFT _fftX = new(width);
+    private readonly FFT _fftY = new(height);
 
     public void Run(DeviceImage<ushort> input, DeviceImage<Complex> output)
     {
@@ -303,7 +311,7 @@ internal sealed class FFT2d
 
     // Note: There is a strong tendency to align the noise patterns rather than the data patterns in astronomy images (i.e. returns nearly 0,0 offset).
     // Must resolve this somehow before this is useful.
-    public (double x, double y) Register(StackPanel stackPanel, TestTab.DebugPushEnumerable<DeviceImage> pushEnumerable, DeviceImage<ushort> from, DeviceImage<ushort> to)
+    public Double2 Register(StackPanel stackPanel, TestTab.DebugPushEnumerable<DeviceImage> pushEnumerable, DeviceImage<ushort> from, DeviceImage<ushort> to)
     {
         Buttu("left pre", from);
         Buttu("right pre", to);
@@ -342,7 +350,7 @@ internal sealed class FFT2d
             left[i] *= Complex.Conjugate(right[i]);
     }
 
-    private static (double x, double y) FindPeak(DeviceImage<Complex> image)
+    private static Double2 FindPeak(DeviceImage<Complex> image)
     {
         var max = Max(image.Data);
         var xInt = max % (int)image.Width;
@@ -354,7 +362,7 @@ internal sealed class FFT2d
             x -= image.Width;
         if (y > image.Height / 2.0)
             y -= image.Height;
-        return (x, y);
+        return new(x, y);
 
         static int Max(Complex[] data)
         {
@@ -550,9 +558,9 @@ internal struct MeanStdev
     private double _mean;
     private double _m2;
 
-    public double Mean => _mean;
-    public double Variance => _m2 / _count;
-    public double Stdev => Math.Sqrt(Variance);
+    public readonly double Mean => _mean;
+    public readonly double Variance => _m2 / _count;
+    public readonly double Stdev => Math.Sqrt(Variance);
 
     public void Feed(double item)
     {
@@ -564,30 +572,19 @@ internal struct MeanStdev
     }
 }
 
-internal struct Matrix2x2
+internal readonly record struct Double2(double X, double Y);
+
+internal readonly record struct Matrix2x2(double A, double B, double C, double D)
 {
-    public readonly double a;
-    public readonly double b;
-    public readonly double c;
-    public readonly double d;
+    public static Double2 operator *(Matrix2x2 l, Double2 r) =>
+        new(l.A * r.X + l.B * r.Y, l.C * r.X + l.D * r.Y);
 
-    public Matrix2x2(double a, double b, double c, double d)
-    {
-        this.a = a;
-        this.b = b;
-        this.c = c;
-        this.d = d;
-    }
-
-    public static (double x, double y) operator *(Matrix2x2 l, (double x, double y) r) =>
-        (l.a * r.x + l.b * r.y, l.c * r.x + l.d * r.y);
-
-    public Matrix2x2 Inverse
+    public readonly Matrix2x2 Inverse
     {
         get
         {
-            var det = a * d - b * c;
-            return Math.Abs(det) < 0.00000001 ? this : new Matrix2x2(d / det, -b / det, -c / det, a / det);
+            var det = A * D - B * C;
+            return Math.Abs(det) < 0.00000001 ? this : new Matrix2x2(D / det, -B / det, -C / det, A / det);
         }
     }
 }

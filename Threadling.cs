@@ -3,7 +3,7 @@ using System.Diagnostics;
 
 namespace Scopie;
 
-internal struct IdleActionResult
+internal readonly struct IdleActionResult
 {
     public readonly int Kind;
     public readonly TimeSpan TimeSpan;
@@ -22,7 +22,7 @@ internal struct IdleActionResult
 internal sealed class Threadling : IDisposable
 {
     private readonly Thread _thread;
-    private readonly BlockingCollection<Action> _sendToThread = new();
+    private readonly BlockingCollection<Action> _sendToThread = [];
     private Func<IdleActionResult>? _idleAction;
 
     public Threadling(Func<IdleActionResult>? idleAction)

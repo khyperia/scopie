@@ -28,14 +28,14 @@ internal sealed class DebugCamera(DeviceImage[] debugImages) : PushEnumerable<De
         return Task.CompletedTask;
     }
 
-    public Task<(double chipWidth, double chipHeight, uint imageWidth, uint imageHeight, double pixelWidth, double pixelHeight, uint bitsPerPixel)> GetChipInfoAsync()
+    public Task<ChipInfo> GetChipInfoAsync()
     {
-        return Task.FromResult(((double)debugImages[_currentIndex].Width, (double)debugImages[_currentIndex].Height, debugImages[_currentIndex].Width, debugImages[_currentIndex].Height, 1.0, 1.0, (uint)debugImages[_currentIndex].Metadata.BitsPerPixel));
+        return Task.FromResult(new ChipInfo(debugImages[_currentIndex].Width, debugImages[_currentIndex].Height, debugImages[_currentIndex].Width, debugImages[_currentIndex].Height, 1.0, 1.0, (uint)debugImages[_currentIndex].Metadata.BitsPerPixel));
     }
 
-    public Task<(uint effectiveStartX, uint effectiveStartY, uint effectiveSizeX, uint effectiveSizeY)> GetEffectiveAreaAsync()
+    public Task<EffectiveArea> GetEffectiveAreaAsync()
     {
-        return Task.FromResult((0u, 0u, debugImages[_currentIndex].Width, debugImages[_currentIndex].Height));
+        return Task.FromResult(new EffectiveArea(0u, 0u, debugImages[_currentIndex].Width, debugImages[_currentIndex].Height));
     }
 
     public Task<string> GetFastReadoutStatusAsync()

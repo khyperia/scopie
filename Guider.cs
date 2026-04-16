@@ -21,18 +21,11 @@ internal sealed class GuiderSettings
     public double TrackedStarSigmaRejection = 50;
 }
 
-internal sealed class TrackedStar
+internal sealed class TrackedStar(GuiderSettings guiderSettings, double initialX, double initialY)
 {
-    private readonly GuiderSettings _guiderSettings;
-    public double X;
-    public double Y;
-
-    public TrackedStar(GuiderSettings guiderSettings, double initialX, double initialY)
-    {
-        _guiderSettings = guiderSettings;
-        X = initialX;
-        Y = initialY;
-    }
+    private readonly GuiderSettings _guiderSettings = guiderSettings;
+    public double X = initialX;
+    public double Y = initialY;
 
     public bool Update(DeviceImage imageGeneric, [MaybeNullWhen(true)] out string failureReason, out double sigma)
     {
@@ -64,7 +57,7 @@ internal sealed class TrackedStar
         Y = peak.y;
         return true;
 
-        double Dist(double x1, double y1, double x2, double y2)
+        static double Dist(double x1, double y1, double x2, double y2)
         {
             var x = x2 - x1;
             var y = y2 - y1;
@@ -106,7 +99,7 @@ internal sealed class TrackedStar
             ClampDouble(centerY + radius, height)
         );
 
-        uint ClampDouble(double value, uint size)
+        static uint ClampDouble(double value, uint size)
         {
             if (value < 0)
                 return 0;
@@ -264,13 +257,13 @@ internal sealed class Guider : IDisposable
     private GuiderOverlay? _guiderOverlay;
     private CameraUiBag? _camera;
     private Mount? _mount;
-    private (double x, double y) _currentOffset;
+    private Double2 _currentOffset;
 
     public readonly List<TrackedStarUi> TrackedStars = [];
 
     // how many pixels moving one arcsecond in RA/Dec moves the image
-    private (double x, double y) _calibrationRa;
-    private (double x, double y) _calibrationDec;
+    private Double2 _calibrationRa;
+    private Double2 _calibrationDec;
 
     public TabItem Init()
     {
@@ -331,7 +324,7 @@ internal sealed class Guider : IDisposable
         var scrollViewer = new ScrollViewer { Content = stackPanel, [DockPanel.DockProperty] = Dock.Left };
         _dockPanel.Children.Add(scrollViewer);
 
-        OnNewOffsetFeed((0, 0));
+        OnNewOffsetFeed(new(0, 0));
 
         return Tab("Guider", _dockPanel);
     }
@@ -345,7 +338,7 @@ internal sealed class Guider : IDisposable
 
     private struct Locker(Guider guider) : IDisposable
     {
-        public void Dispose()
+        public readonly void Dispose()
         {
             guider._semaphoreStatus.Text = "status: waiting";
             guider._semaphore.Release();
@@ -387,25 +380,25 @@ internal sealed class Guider : IDisposable
             var finish = await WaitForNextOffset();
             var arcseconds = arcsecondsPerSecond * seconds;
             // pixels per arcsecond
-            var deltaX = (finish.x - start.x) / arcseconds;
-            var deltaY = (finish.y - start.y) / arcseconds;
+            var deltaX = (finish.X - start.X) / arcseconds;
+            var deltaY = (finish.Y - start.Y) / arcseconds;
             var l = Math.Sqrt(deltaX * deltaX + deltaY * deltaY);
             // deltaX /= l;
             // deltaY /= l;
             if (ra)
             {
                 var theta = Math.Atan2(deltaY, deltaX);
-                _calibrationRa = (deltaX, deltaY);
+                _calibrationRa = new(deltaX, deltaY);
                 _calibrationRaLabel.Text = $"RA calibration: {1 / deltaX:F3}, {1 / deltaY:F3}, l={1 / l:F3} \u03B8={theta * (360 / Math.Tau):F3}";
             }
             else
             {
                 var theta = Math.Atan2(-deltaX, deltaY); // rotate dec display by 90 degrees to align it with ra
-                _calibrationDec = (deltaX, deltaY);
+                _calibrationDec = new(deltaX, deltaY);
                 _calibrationDecLabel.Text = $"Dec calibration: {1 / deltaX:F3}, {1 / deltaY:F3}, l={1 / l:F3} \u03B8={theta * (360 / Math.Tau):F3}";
             }
             var matrix = CalibrationMatrix;
-            _calibrationMatrixLabel.Text = $"Calibration matrix:\n{matrix.a:F3}, {matrix.b:F3}\n{matrix.c:F3}, {matrix.d:F3}";
+            _calibrationMatrixLabel.Text = $"Calibration matrix:\n{matrix.A:F3}, {matrix.B:F3}\n{matrix.C:F3}, {matrix.D:F3}";
             await _mount.VariableSlewCommand(ra, -arcsecondsPerSecond);
             await Task.Delay(TimeSpan.FromSeconds(seconds));
             await _mount.VariableSlewCommand(ra, 0);
@@ -417,7 +410,7 @@ internal sealed class Guider : IDisposable
     {
         get
         {
-            var mat = new Matrix2x2(_calibrationRa.x, _calibrationDec.x, _calibrationRa.y, _calibrationDec.y);
+            var mat = new Matrix2x2(_calibrationRa.X, _calibrationDec.X, _calibrationRa.Y, _calibrationDec.Y);
             return mat.Inverse;
         }
     }
@@ -562,20 +555,20 @@ internal sealed class Guider : IDisposable
         RedrawOverlay();
     }
 
-    private void OnNewOffsetFeedThreaded((double x, double y) current)
+    private void OnNewOffsetFeedThreaded(Double2 current)
     {
     }
 
-    private void OnNewOffsetFeed((double x, double y) current)
+    private void OnNewOffsetFeed(Double2 current)
     {
         _currentOffset = current;
-        _currentPixelOffsetLabel.Text = $"pixel offset: {current.x:F3}, {current.y:F3}";
+        _currentPixelOffsetLabel.Text = $"pixel offset: {current.X:F3}, {current.Y:F3}";
 
-        if (Math.Abs(_calibrationRa.x) + Math.Abs(_calibrationRa.y) > 0.001 &&
-            Math.Abs(_calibrationDec.x) + Math.Abs(_calibrationDec.y) > 0.001)
+        if (Math.Abs(_calibrationRa.X) + Math.Abs(_calibrationRa.Y) > 0.001 &&
+            Math.Abs(_calibrationDec.X) + Math.Abs(_calibrationDec.Y) > 0.001)
         {
-            var offset = CalibrationMatrix * current;
-            _currentSkyOffsetLabel.Text = $"offset: RA={Angle.FromDegrees(offset.x / (60 * 60)).FormatDegrees()}, Dec={Angle.FromDegrees(offset.y / (60 * 60)).FormatDegrees()}";
+            var (x, y) = CalibrationMatrix * current;
+            _currentSkyOffsetLabel.Text = $"offset: RA={Angle.FromDegrees(x / (60 * 60)).FormatDegrees()}, Dec={Angle.FromDegrees(y / (60 * 60)).FormatDegrees()}";
             if (_mount != null && _guidingEnabled.IsChecked == true)
             {
                 // TODO: go! (maybe threaded tho?)
@@ -610,7 +603,7 @@ internal sealed class Guider : IDisposable
         }
         if (count > 0)
         {
-            var offset = (diffX / count, diffY / count);
+            var offset = new Double2(diffX / count, diffY / count);
             OnNewOffsetFeedThreaded(offset);
 
             Dispatcher.UIThread.Post(() =>

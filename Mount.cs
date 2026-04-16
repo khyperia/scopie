@@ -1,5 +1,4 @@
-﻿using System.Globalization;
-using System.IO.Ports;
+﻿using System.IO.Ports;
 using System.Text;
 using System.Text.RegularExpressions;
 using Avalonia.Controls;
@@ -27,9 +26,11 @@ internal sealed class Mount : IDisposable
 
     public Mount(string portName)
     {
-        _port = new SerialPort(portName);
-        _port.ReadTimeout = 5000;
-        _port.WriteTimeout = 5000;
+        _port = new SerialPort(portName)
+        {
+            ReadTimeout = 5000,
+            WriteTimeout = 5000
+        };
         _port.Open();
     }
 
@@ -293,7 +294,7 @@ internal sealed class Mount : IDisposable
             }
         }
 
-        return _threadling.Do((Func<byte[]>)Func);
+        return _threadling.Do(Func);
 
         byte[] Func()
         {

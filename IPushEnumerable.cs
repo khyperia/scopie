@@ -46,16 +46,11 @@ internal abstract class PushProcessor<TIn, TOut> : PushEnumerable<TOut>, IDispos
     protected abstract void Process(TIn item);
 }
 
-internal abstract class CpuHeavySkippablePushProcessor<TIn, TOut> : PushProcessor<TIn, TOut>
+internal abstract class CpuHeavySkippablePushProcessor<TIn, TOut>(IPushEnumerable<TIn> input) : PushProcessor<TIn, TOut>(input)
 {
-    private readonly SemaphoreSlim _semaphore;
+    private readonly SemaphoreSlim _semaphore = new(1);
     private ulong _inputVersion;
     private ulong _outputVersion;
-
-    protected CpuHeavySkippablePushProcessor(IPushEnumerable<TIn> input) : base(input)
-    {
-        _semaphore = new SemaphoreSlim(1);
-    }
 
     protected abstract bool ProcessSlowThreaded(TIn item, [MaybeNullWhen(false)] out TOut result);
 
