@@ -16,7 +16,12 @@ internal sealed class Program : Application
             ExceptionReporter.Report(eventArgs.Exception);
             eventArgs.SetObserved();
         };
-        return AppBuilder.Configure<Program>().UsePlatformDetect().StartWithClassicDesktopLifetime(args);
+        return AppBuilder
+            .Configure<Program>()
+            .UseHarfBuzz()
+            .UseSkia()
+            .UseWayland()
+            .StartWithClassicDesktopLifetime(args);
     }
 
     public Program()
