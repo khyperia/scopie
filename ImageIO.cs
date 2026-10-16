@@ -1,7 +1,4 @@
-﻿using System.Runtime.InteropServices;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.Formats.Png;
-using SixLabors.ImageSharp.PixelFormats;
+﻿using Hjg.Pngcs;
 
 namespace Scopie;
 
@@ -12,21 +9,38 @@ internal static class ImageIO
         switch (image)
         {
             case DeviceImage<ushort> image16:
-            {
-                using var imageSharp = Image.LoadPixelData(MemoryMarshal.Cast<ushort, L16>((ReadOnlySpan<ushort>)image16.Data), (int)image16.Width, (int)image16.Height);
-                using var file = CreateFile();
-                imageSharp.Save(file, new PngEncoder { CompressionLevel = PngCompressionLevel.BestCompression });
-                Console.WriteLine($"Saved {file.Name}");
-                break;
-            }
+                {
+                    using var file = CreateFile();
+                    var imageInfo = new ImageInfo((int)image16.Width, (int)image16.Height, 16, alpha: false, grayscale: true, palette: false);
+                    var writer = new PngWriter(file, imageInfo);
+                    var line = new int[image16.Width];
+                    for (var y = 0u; y < image16.Height; y++)
+                    {
+                        var row = image16.Data.AsSpan().Slice((int)(y * image16.Width), (int)image16.Width);
+                        for (var i = 0; i < image16.Width; i++)
+                            line[i] = row[i];
+                        writer.WriteRowInt(line, (int)y);
+                    }
+                    writer.End();
+                    Console.WriteLine($"Saved {file.Name}");
+                    break;
+                }
             case DeviceImage<byte> image8:
-            {
-                using var imageSharp = Image.LoadPixelData(MemoryMarshal.Cast<byte, L8>((ReadOnlySpan<byte>)image8.Data), (int)image8.Width, (int)image8.Height);
-                using var file = CreateFile();
-                imageSharp.Save(file, new PngEncoder { CompressionLevel = PngCompressionLevel.BestCompression });
-                Console.WriteLine($"Saved {file.Name}");
-                break;
-            }
+                {
+                    using var file = CreateFile();
+                    var imageInfo = new ImageInfo((int)image8.Width, (int)image8.Height, 8, alpha: false, grayscale: true, palette: false);
+                    var writer = new PngWriter(file, imageInfo);
+                    var line = new byte[image8.Width];
+                    for (var y = 0u; y < image8.Height; y++)
+                    {
+                        var row = image8.Data.AsSpan().Slice((int)(y * image8.Width), (int)image8.Width);
+                        row.CopyTo(line);
+                        writer.WriteRowByte(line, (int)y);
+                    }
+                    writer.End();
+                    Console.WriteLine($"Saved {file.Name}");
+                    break;
+                }
             default:
                 throw new Exception("Unsupported image type " + image.GetType());
         }
@@ -34,37 +48,43 @@ internal static class ImageIO
 
     public static DeviceImage Load(string filename)
     {
-        var img = Image.Load(filename);
-        switch (img)
+        using var stream = File.OpenRead(filename);
+        var reader = new PngReader(stream, filename);
+        var info = reader.ImgInfo;
+        if (info.Alpha) throw new();
+        if (!info.Greyscale) throw new();
+        if (info.Channels != 1) throw new();
+        switch (info.BitspPixel)
         {
-            case Image<L16> img16:
-            {
-                var result = new DeviceImage<ushort>(new ushort[img16.Width * img16.Height], (uint)img16.Width, (uint)img16.Height);
-                img16.ProcessPixelRows(d =>
+            case 16:
                 {
-                    for (var y = 0; y < d.Height; y++)
+                    var result = new DeviceImage<ushort>(new ushort[info.Cols * info.Rows], (uint)info.Cols, (uint)info.Rows);
+                    int[]? buffer = null;
+                    for (var y = 0u; y < result.Height; y++)
                     {
-                        var row = MemoryMarshal.Cast<L16, ushort>(d.GetRowSpan(y));
-                        row.CopyTo(result.Data.AsSpan(y * (int)result.Width, (int)result.Width));
+                        buffer = reader.ReadRowInt(buffer, (int)y);
+                        var row = result.Data.AsSpan().Slice((int)(y * result.Width), (int)result.Width);
+                        for (var i = 0; i < result.Width; i++)
+                            row[i] = (ushort)buffer[i];
                     }
-                });
-                return result;
-            }
-            case Image<L8> img8:
-            {
-                var result = new DeviceImage<byte>(new byte[img8.Width * img8.Height], (uint)img8.Width, (uint)img8.Height);
-                img8.ProcessPixelRows(d =>
+                    reader.End();
+                    return result;
+                }
+            case 8:
                 {
-                    for (var y = 0; y < d.Height; y++)
+                    var result = new DeviceImage<byte>(new byte[info.Cols * info.Rows], (uint)info.Cols, (uint)info.Rows);
+                    byte[]? buffer = null;
+                    for (var y = 0u; y < result.Height; y++)
                     {
-                        var row = MemoryMarshal.Cast<L8, byte>(d.GetRowSpan(y));
-                        row.CopyTo(result.Data.AsSpan(y * (int)result.Width, (int)result.Width));
+                        buffer = reader.ReadRowByte(buffer, (int)y);
+                        var row = result.Data.AsSpan().Slice((int)(y * result.Width), (int)result.Width);
+                        buffer.AsSpan().CopyTo(row);
                     }
-                });
-                return result;
-            }
+                    reader.End();
+                    return result;
+                }
             default:
-                throw new Exception("Unsupported image type " + img.GetType());
+                throw new Exception("Unsupported image type " + info);
         }
     }
 
